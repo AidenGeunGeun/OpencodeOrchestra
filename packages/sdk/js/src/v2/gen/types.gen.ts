@@ -757,6 +757,7 @@ export type Session = {
   projectID: string
   directory: string
   parentID?: string
+  agentID?: string // OpenCodeOrchestra: Store agent type for subagent sessions
   summary?: {
     additions: number
     deletions: number

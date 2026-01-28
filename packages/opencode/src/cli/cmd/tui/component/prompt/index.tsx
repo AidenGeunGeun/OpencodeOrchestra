@@ -106,11 +106,18 @@ export function Prompt(props: PromptProps) {
     if (!props.disabled) input.cursorColor = theme.text
   })
 
-  const lastUserMessage = createMemo(() => {
+const lastUserMessage = createMemo(() => {
     if (!props.sessionID) return undefined
     const messages = sync.data.message[props.sessionID]
     if (!messages) return undefined
     return messages.findLast((m) => m.role === "user")
+  })
+
+  // OpenCodeOrchestra: Get agent name from session.agentID if set, otherwise use local.agent
+  const effectiveAgent = createMemo(() => {
+    if (!props.sessionID) return local.agent.current().name
+    const session = sync.session.get(props.sessionID)
+    return session?.agentID ?? local.agent.current().name
   })
 
   const [store, setStore] = createStore<{
@@ -533,9 +540,9 @@ export function Prompt(props: PromptProps) {
     const variant = local.model.variant.current()
 
     if (store.mode === "shell") {
-      sdk.client.session.shell({
+sdk.client.session.shell({
         sessionID,
-        agent: local.agent.current().name,
+        agent: effectiveAgent(),
         model: {
           providerID: selectedModel.providerID,
           modelID: selectedModel.modelID,
@@ -558,11 +565,11 @@ export function Prompt(props: PromptProps) {
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-      sdk.client.session.command({
+sdk.client.session.command({
         sessionID,
         command: command.slice(1),
         arguments: args,
-        agent: local.agent.current().name,
+        agent: effectiveAgent(),
         model: `${selectedModel.providerID}/${selectedModel.modelID}`,
         messageID,
         variant,
@@ -574,12 +581,12 @@ export function Prompt(props: PromptProps) {
           })),
       })
     } else {
-      sdk.client.session
+sdk.client.session
         .prompt({
           sessionID,
           ...selectedModel,
           messageID,
-          agent: local.agent.current().name,
+          agent: effectiveAgent(),
           model: selectedModel,
           variant,
           parts: [

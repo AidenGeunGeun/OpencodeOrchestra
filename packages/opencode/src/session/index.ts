@@ -39,13 +39,15 @@ export namespace Session {
     ).test(title)
   }
 
-  export const Info = z
+export const Info = z
     .object({
       id: Identifier.schema("session"),
       slug: z.string(),
       projectID: z.string(),
       directory: z.string(),
       parentID: Identifier.schema("session").optional(),
+      // OpenCodeOrchestra: Store agent type for subagent sessions
+      agentID: z.string().optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -127,10 +129,11 @@ export namespace Session {
     ),
   }
 
-  export const create = fn(
+export const create = fn(
     z
       .object({
         parentID: Identifier.schema("session").optional(),
+        agentID: z.string().optional(), // OpenCodeOrchestra: Store agent type for subagent sessions
         title: z.string().optional(),
         permission: Info.shape.permission,
       })
@@ -138,6 +141,7 @@ export namespace Session {
     async (input) => {
       return createNext({
         parentID: input?.parentID,
+        agentID: input?.agentID, // OpenCodeOrchestra: Pass agent type
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
@@ -189,10 +193,11 @@ export namespace Session {
     })
   })
 
-  export async function createNext(input: {
+export async function createNext(input: {
     id?: string
     title?: string
     parentID?: string
+    agentID?: string // OpenCodeOrchestra: Store agent type for subagent sessions
     directory: string
     permission?: PermissionNext.Ruleset
   }) {
@@ -203,6 +208,7 @@ export namespace Session {
       projectID: Instance.project.id,
       directory: input.directory,
       parentID: input.parentID,
+      agentID: input.agentID, // OpenCodeOrchestra: Store agent type
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
       time: {

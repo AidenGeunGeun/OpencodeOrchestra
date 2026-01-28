@@ -112,8 +112,9 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           if (found) return found
         }
 
-        return await Session.create({
+return await Session.create({
           parentID: ctx.sessionID,
+          agentID: agent.name, // OpenCodeOrchestra: Store agent type for subagent sessions
           title: params.description + ` (@${agent.name} subagent)`,
           permission: [
             {
