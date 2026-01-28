@@ -94,8 +94,8 @@ jobs:
         run: |
           VERSION="${{ needs.check-upstream.outputs.new_version }}"
           
-          # Try to merge upstream tag
-          if git merge "upstream/$VERSION" --no-edit -m "Merge upstream $VERSION"; then
+          # Try to merge upstream tag (--allow-unrelated-histories for repos without common ancestor)
+          if git merge "upstream/$VERSION" --allow-unrelated-histories --no-edit -m "Merge upstream $VERSION"; then
             echo "merge_status=clean" >> $GITHUB_OUTPUT
             echo "Merge completed cleanly!"
           else
