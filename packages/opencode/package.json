@@ -1,10 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.0.1",
-  "name": "@opencodeorchestra/cli",
+  "version": "0.0.2",
+  "name": "@skybluejacket/oco",
   "type": "module",
   "license": "MIT",
-  "private": true,
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "test": "bun test",
@@ -119,5 +118,12 @@
     "yargs": "18.0.0",
     "zod": "catalog:",
     "zod-to-json-schema": "3.24.5"
+  },
+  "optionalDependencies": {
+    "@skybluejacket/oco-darwin-arm64": "0.0.2",
+    "@skybluejacket/oco-darwin-x64": "0.0.2",
+    "@skybluejacket/oco-linux-arm64": "0.0.2",
+    "@skybluejacket/oco-linux-x64": "0.0.2",
+    "@skybluejacket/oco-windows-x64": "0.0.2"
   }
 }

@@ -281,14 +281,27 @@ export function Session() {
   const local = useLocal()
 
   function moveChild(direction: number) {
-    if (children().length === 1) return
-    let next = children().findIndex((x) => x.id === session()?.id) + direction
-    if (next >= children().length) next = 0
-    if (next < 0) next = children().length - 1
-    if (children()[next]) {
+    // OpenCodeOrchestra: Filter siblings to only include sessions at the same depth level
+    // At PM level (no parentID): only navigate between root sessions
+    // At subagent level (has parentID): only navigate between siblings with same parentID
+    const currentParentID = session()?.parentID
+    const siblings = children().filter((x) => {
+      if (!currentParentID) {
+        // At root level: only show other root sessions (no parentID)
+        return !x.parentID
+      } else {
+        // At subagent level: only show sessions with same parentID
+        return x.parentID === currentParentID
+      }
+    })
+    if (siblings.length <= 1) return
+    let next = siblings.findIndex((x) => x.id === session()?.id) + direction
+    if (next >= siblings.length) next = 0
+    if (next < 0) next = siblings.length - 1
+    if (siblings[next]) {
       navigate({
         type: "session",
-        sessionID: children()[next].id,
+        sessionID: siblings[next].id,
       })
     }
   }
@@ -887,6 +900,24 @@ export function Session() {
         dialog.clear()
       },
     },
+    {
+      title: "Go to child session",
+      value: "session.child",
+      keybind: "session_child",
+      category: "Session",
+      hidden: true,
+      onSelect: (dialog) => {
+        // Navigate to first child session (most recent)
+        const childSessions = children().filter((c) => c.id !== session()?.id)
+        if (childSessions.length > 0) {
+          navigate({
+            type: "session",
+            sessionID: childSessions[0].id,
+          })
+        }
+        dialog.clear()
+      },
+    },
   ])
 
   const revertInfo = createMemo(() => session()?.revert)
@@ -1085,7 +1116,7 @@ export function Session() {
                 <QuestionPrompt request={questions()[0]} />
               </Show>
               <Prompt
-                visible={!session()?.parentID && permissions().length === 0 && questions().length === 0}
+                visible={permissions().length === 0 && questions().length === 0}
                 ref={(r) => {
                   prompt = r
                   promptRef.set(r)

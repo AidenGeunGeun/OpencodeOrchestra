@@ -34,7 +34,7 @@
     "toolbeam-docs-theme": "0.4.8"
   },
   "devDependencies": {
-    "@opencodeorchestra/cli": "workspace:*",
+    "@skybluejacket/oco": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }
