@@ -214,11 +214,19 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
   if (method === "curl" && targets.binary) {
     UI.empty()
     prompts.log.message("To finish removing the binary, run:")
-    prompts.log.info(`  rm "${targets.binary}"`)
-
-    const binDir = path.dirname(targets.binary)
-    if (binDir.includes(".opencode")) {
-      prompts.log.info(`  rmdir "${binDir}" 2>/dev/null`)
+    // Cross-platform: show appropriate commands for the user's OS
+    if (process.platform === "win32") {
+      prompts.log.info(`  del "${targets.binary}"`)
+      const binDir = path.dirname(targets.binary)
+      if (binDir.includes(".opencode")) {
+        prompts.log.info(`  rmdir /s /q "${binDir}"`)
+      }
+    } else {
+      prompts.log.info(`  rm "${targets.binary}"`)
+      const binDir = path.dirname(targets.binary)
+      if (binDir.includes(".opencode")) {
+        prompts.log.info(`  rmdir "${binDir}" 2>/dev/null`)
+      }
     }
   }
 
@@ -235,6 +243,11 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
 }
 
 async function getShellConfigFile(): Promise<string | null> {
+  // Windows doesn't use Unix shell config files (.bashrc, .zshrc, etc.)
+  // Skip entirely on Windows to avoid unnecessary file checks
+  if (process.platform === "win32") {
+    return null
+  }
   const shell = path.basename(process.env.SHELL || "bash")
   const home = os.homedir()
   const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, ".config")

@@ -1,4 +1,5 @@
 import z from "zod"
+import os from "os"
 import { spawn } from "child_process"
 import { Tool } from "./tool"
 import path from "path"
@@ -9,6 +10,7 @@ import { lazy } from "@/util/lazy"
 import { Language } from "web-tree-sitter"
 
 import { $ } from "bun"
+import * as fs from "fs/promises"
 import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
@@ -111,20 +113,30 @@ export const BashTool = Tool.define("bash", async () => {
         if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
-            const resolved = await $`realpath ${arg}`
-              .cwd(cwd)
-              .quiet()
-              .nothrow()
-              .text()
-              .then((x) => x.trim())
+            // Cross-platform path resolution (replaces Unix-only realpath command)
+            let resolved: string
+            try {
+              // Strip surrounding quotes and unescape shell escapes from AST-parsed arguments
+              let normalizedArg = arg.replace(/^["']|["']$/g, "").replace(/\\([ \\"])/g, "$1")
+              // Skip empty arguments
+              if (!normalizedArg) continue
+              // Expand tilde to home directory
+              if (normalizedArg === "~" || normalizedArg.startsWith("~/") || normalizedArg.startsWith("~\\")) {
+                normalizedArg = path.join(os.homedir(), normalizedArg.slice(1))
+              }
+              // Normalize Git Bash style paths (/c/Users/...) to Windows paths first
+              if (process.platform === "win32" && normalizedArg.match(/^\/[a-z]\//i)) {
+                normalizedArg = normalizedArg.replace(/^\/([a-z])\//i, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, "\\")
+              }
+              const absolutePath = path.isAbsolute(normalizedArg) ? normalizedArg : path.resolve(cwd, normalizedArg)
+              // Try to resolve symlinks, fall back to resolved path if it doesn't exist
+              resolved = await fs.realpath(absolutePath).catch(() => absolutePath)
+            } catch {
+              resolved = ""
+            }
             log.info("resolved path", { arg, resolved })
             if (resolved) {
-              // Git Bash on Windows returns Unix-style paths like /c/Users/...
-              const normalized =
-                process.platform === "win32" && resolved.match(/^\/[a-z]\//)
-                  ? resolved.replace(/^\/([a-z])\//, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, "\\")
-                  : resolved
-              if (!Instance.containsPath(normalized)) directories.add(normalized)
+              if (!Instance.containsPath(resolved)) directories.add(resolved)
             }
           }
         }
