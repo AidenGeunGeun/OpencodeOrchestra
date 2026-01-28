@@ -11,6 +11,7 @@ import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
 import { NamedError } from "@opencodeorchestra/util/error"
 import { CopilotAuthPlugin } from "./copilot"
+import { wrapClientForDepthAwareness } from "./client-wrapper"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -21,11 +22,15 @@ export namespace Plugin {
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin]
 
   const state = Instance.state(async () => {
-    const client = createOpencodeClient({
+    const rawClient = createOpencodeClient({
       baseUrl: "http://localhost:4096",
       // @ts-ignore - fetch type incompatibility
       fetch: async (...args) => Server.App().fetch(...args),
     })
+    // Wrap client for depth-aware DCP behavior:
+    // - depth 0-1 (PM/Orchestrator): hides parentID → DCP applies pruning
+    // - depth 2+ (Subagent): keeps parentID → DCP skips pruning
+    const client = wrapClientForDepthAwareness(rawClient)
     const config = await Config.get()
     const hooks: Hooks[] = []
     const input: PluginInput = {
