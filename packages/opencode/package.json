@@ -18,7 +18,7 @@
     "deploy": "echo 'Deploying application...' && bun run build && echo 'Deployment completed successfully'"
   },
   "bin": {
-    "oco": "./bin/OcOrchestra"
+    "oco": "./bin/oco"
   },
   "exports": {
     "./*": "./src/*.ts"
