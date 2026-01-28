@@ -8,8 +8,31 @@ import { afterAll } from "bun:test"
 
 const dir = path.join(os.tmpdir(), "opencode-test-data-" + process.pid)
 await fs.mkdir(dir, { recursive: true })
-afterAll(() => {
-  fsSync.rmSync(dir, { recursive: true, force: true })
+afterAll(async () => {
+  // Add retry logic for Windows EBUSY errors
+  let attempts = 0
+  const maxAttempts = 5
+  
+  while (attempts < maxAttempts) {
+    try {
+      fsSync.rmSync(dir, { recursive: true, force: true })
+      break // Success
+    } catch (err: any) {
+      attempts++
+      if (attempts >= maxAttempts) {
+        console.warn(`Failed to clean up test directory after ${maxAttempts} attempts:`, dir)
+        break
+      }
+      if (err.code === "EBUSY" || err.code === "EACCES") {
+        // Wait a bit before retrying (Windows file locking)
+        await new Promise(resolve => setTimeout(resolve, 100 * attempts))
+        continue
+      }
+      // Don't throw to avoid failing tests due to cleanup issues
+      console.warn("Cleanup failed:", err.message)
+      break
+    }
+  }
 })
 // Set test home directory to isolate tests from user's actual home directory
 // This prevents tests from picking up real user configs/skills from ~/.claude/skills

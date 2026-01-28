@@ -68,7 +68,9 @@ export namespace FileIgnore {
       if (glob.match(filepath)) return false
     }
 
-    const parts = filepath.split(sep)
+    // Normalize to forward slashes for cross-platform matching
+    const normalized = filepath.replaceAll("\\", "/")
+    const parts = normalized.split("/")
     for (let i = 0; i < parts.length; i++) {
       if (FOLDERS.has(parts[i])) return true
     }

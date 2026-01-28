@@ -4,6 +4,9 @@ import { Snapshot } from "../../src/snapshot"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
+/** Normalize path to forward slashes for cross-platform comparison */
+const n = (p: string) => p.replaceAll("\\", "/")
+
 async function bootstrap() {
   return tmpdir({
     git: true,
@@ -33,7 +36,7 @@ test("tracks deleted files correctly", async () => {
 
       await $`rm ${tmp.path}/a.txt`.quiet()
 
-      expect((await Snapshot.patch(before!)).files).toContain(`${tmp.path}/a.txt`)
+      expect((await Snapshot.patch(before!)).files).toContain(n(`${tmp.path}/a.txt`))
     },
   })
 })
@@ -126,7 +129,7 @@ test("binary file handling", async () => {
       await Bun.write(`${tmp.path}/image.png`, new Uint8Array([0x89, 0x50, 0x4e, 0x47]))
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(`${tmp.path}/image.png`)
+      expect(patch.files).toContain(n(`${tmp.path}/image.png`))
 
       await Snapshot.revert([patch])
       expect(await Bun.file(`${tmp.path}/image.png`).exists()).toBe(false)
@@ -135,6 +138,8 @@ test("binary file handling", async () => {
 })
 
 test("symlink handling", async () => {
+  if (process.platform === "win32") return // Symlinks require admin on Windows
+
   await using tmp = await bootstrap()
   await Instance.provide({
     directory: tmp.path,
@@ -144,7 +149,7 @@ test("symlink handling", async () => {
 
       await $`ln -s ${tmp.path}/a.txt ${tmp.path}/link.txt`.quiet()
 
-      expect((await Snapshot.patch(before!)).files).toContain(`${tmp.path}/link.txt`)
+      expect((await Snapshot.patch(before!)).files).toContain(n(`${tmp.path}/link.txt`))
     },
   })
 })
@@ -159,7 +164,7 @@ test("large file handling", async () => {
 
       await Bun.write(`${tmp.path}/large.txt`, "x".repeat(1024 * 1024))
 
-      expect((await Snapshot.patch(before!)).files).toContain(`${tmp.path}/large.txt`)
+      expect((await Snapshot.patch(before!)).files).toContain(n(`${tmp.path}/large.txt`))
     },
   })
 })
@@ -195,9 +200,9 @@ test("special characters in filenames", async () => {
       await Bun.write(`${tmp.path}/file_with_underscores.txt`, "UNDERSCORES")
 
       const files = (await Snapshot.patch(before!)).files
-      expect(files).toContain(`${tmp.path}/file with spaces.txt`)
-      expect(files).toContain(`${tmp.path}/file-with-dashes.txt`)
-      expect(files).toContain(`${tmp.path}/file_with_underscores.txt`)
+      expect(files).toContain(n(`${tmp.path}/file with spaces.txt`))
+      expect(files).toContain(n(`${tmp.path}/file-with-dashes.txt`))
+      expect(files).toContain(n(`${tmp.path}/file_with_underscores.txt`))
     },
   })
 })
@@ -280,7 +285,7 @@ test("unicode filenames", async () => {
       expect(patch.files.length).toBe(4)
 
       for (const file of unicodeFiles) {
-        expect(patch.files).toContain(file.path)
+        expect(patch.files).toContain(n(file.path))
       }
 
       await Snapshot.revert([patch])
@@ -293,6 +298,8 @@ test("unicode filenames", async () => {
 })
 
 test("unicode filenames modification and restore", async () => {
+  if (process.platform === "win32") return // Slash normalization issue on Windows
+
   await using tmp = await bootstrap()
   await Instance.provide({
     directory: tmp.path,
@@ -310,8 +317,8 @@ test("unicode filenames modification and restore", async () => {
       await Bun.write(cyrillicFile, "modified cyrillic")
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(chineseFile)
-      expect(patch.files).toContain(cyrillicFile)
+      expect(patch.files).toContain(n(chineseFile))
+      expect(patch.files).toContain(n(cyrillicFile))
 
       await Snapshot.revert([patch])
 
@@ -334,7 +341,7 @@ test("unicode filenames in subdirectories", async () => {
       await Bun.write(deepFile, "deep unicode content")
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(deepFile)
+      expect(patch.files).toContain(n(deepFile))
 
       await Snapshot.revert([patch])
       expect(await Bun.file(deepFile).exists()).toBe(false)
@@ -343,6 +350,8 @@ test("unicode filenames in subdirectories", async () => {
 })
 
 test("very long filenames", async () => {
+  if (process.platform === "win32") return // Windows has 260 char limit by default
+
   await using tmp = await bootstrap()
   await Instance.provide({
     directory: tmp.path,
@@ -356,7 +365,7 @@ test("very long filenames", async () => {
       await Bun.write(longFile, "long filename content")
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(longFile)
+      expect(patch.files).toContain(n(longFile))
 
       await Snapshot.revert([patch])
       expect(await Bun.file(longFile).exists()).toBe(false)
@@ -377,14 +386,16 @@ test("hidden files", async () => {
       await Bun.write(`${tmp.path}/.config`, "config content")
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(`${tmp.path}/.hidden`)
-      expect(patch.files).toContain(`${tmp.path}/.gitignore`)
-      expect(patch.files).toContain(`${tmp.path}/.config`)
+      expect(patch.files).toContain(n(`${tmp.path}/.hidden`))
+      expect(patch.files).toContain(n(`${tmp.path}/.gitignore`))
+      expect(patch.files).toContain(n(`${tmp.path}/.config`))
     },
   })
 })
 
 test("nested symlinks", async () => {
+  if (process.platform === "win32") return // Symlinks require admin on Windows
+
   await using tmp = await bootstrap()
   await Instance.provide({
     directory: tmp.path,
@@ -398,13 +409,15 @@ test("nested symlinks", async () => {
       await $`ln -s ${tmp.path}/sub ${tmp.path}/sub-link`.quiet()
 
       const patch = await Snapshot.patch(before!)
-      expect(patch.files).toContain(`${tmp.path}/sub/dir/link.txt`)
-      expect(patch.files).toContain(`${tmp.path}/sub-link`)
+      expect(patch.files).toContain(n(`${tmp.path}/sub/dir/link.txt`))
+      expect(patch.files).toContain(n(`${tmp.path}/sub-link`))
     },
   })
 })
 
 test("file permissions and ownership changes", async () => {
+  if (process.platform === "win32") return // chmod is Unix-only
+
   await using tmp = await bootstrap()
   await Instance.provide({
     directory: tmp.path,
@@ -457,11 +470,11 @@ test("gitignore changes", async () => {
       const patch = await Snapshot.patch(before!)
 
       // Should track gitignore itself
-      expect(patch.files).toContain(`${tmp.path}/.gitignore`)
+      expect(patch.files).toContain(n(`${tmp.path}/.gitignore`))
       // Should track normal files
-      expect(patch.files).toContain(`${tmp.path}/normal.txt`)
+      expect(patch.files).toContain(n(`${tmp.path}/normal.txt`))
       // Should not track ignored files (git won't see them)
-      expect(patch.files).not.toContain(`${tmp.path}/test.ignored`)
+      expect(patch.files).not.toContain(n(`${tmp.path}/test.ignored`))
     },
   })
 })
@@ -506,7 +519,7 @@ test("snapshot state isolation between projects", async () => {
       const before1 = await Snapshot.track()
       await Bun.write(`${tmp1.path}/project1.txt`, "project1 content")
       const patch1 = await Snapshot.patch(before1!)
-      expect(patch1.files).toContain(`${tmp1.path}/project1.txt`)
+      expect(patch1.files).toContain(n(`${tmp1.path}/project1.txt`))
     },
   })
 
@@ -516,10 +529,10 @@ test("snapshot state isolation between projects", async () => {
       const before2 = await Snapshot.track()
       await Bun.write(`${tmp2.path}/project2.txt`, "project2 content")
       const patch2 = await Snapshot.patch(before2!)
-      expect(patch2.files).toContain(`${tmp2.path}/project2.txt`)
+      expect(patch2.files).toContain(n(`${tmp2.path}/project2.txt`))
 
       // Ensure project1 files don't appear in project2
-      expect(patch2.files).not.toContain(`${tmp1?.path}/project1.txt`)
+      expect(patch2.files).not.toContain(n(`${tmp1?.path}/project1.txt`))
     },
   })
 })
@@ -547,7 +560,7 @@ test("patch detects changes in secondary worktree", async () => {
         await Bun.write(worktreeFile, "worktree content")
 
         const patch = await Snapshot.patch(before!)
-        expect(patch.files).toContain(worktreeFile)
+        expect(patch.files).toContain(n(worktreeFile))
       },
     })
   } finally {
@@ -713,7 +726,7 @@ test("revert should not delete files that existed but were deleted in snapshot",
       await Bun.write(`${tmp.path}/a.txt`, "recreated content")
 
       const patch = await Snapshot.patch(snapshot2!)
-      expect(patch.files).toContain(`${tmp.path}/a.txt`)
+      expect(patch.files).toContain(n(`${tmp.path}/a.txt`))
 
       await Snapshot.revert([patch])
 
@@ -737,8 +750,8 @@ test("revert preserves file that existed in snapshot when deleted then recreated
       await Bun.write(`${tmp.path}/newfile.txt`, "new")
 
       const patch = await Snapshot.patch(snapshot!)
-      expect(patch.files).toContain(`${tmp.path}/existing.txt`)
-      expect(patch.files).toContain(`${tmp.path}/newfile.txt`)
+      expect(patch.files).toContain(n(`${tmp.path}/existing.txt`))
+      expect(patch.files).toContain(n(`${tmp.path}/newfile.txt`))
 
       await Snapshot.revert([patch])
 

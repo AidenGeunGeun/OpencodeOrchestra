@@ -9,6 +9,11 @@ import { Instance } from "../project/instance"
 import { Scheduler } from "../scheduler"
 
 export namespace Snapshot {
+  /** Normalize paths to forward slashes for cross-platform consistency */
+  function normPath(p: string): string {
+    return p.replaceAll("\\", "/")
+  }
+
   const log = Log.create({ service: "snapshot" })
   const hour = 60 * 60 * 1000
   const prune = "7.days"
@@ -104,7 +109,7 @@ export namespace Snapshot {
         .split("\n")
         .map((x) => x.trim())
         .filter(Boolean)
-        .map((x) => path.join(Instance.worktree, x)),
+        .map((x) => path.join(Instance.worktree, x).replaceAll("\\", "/")),
     }
   }
 

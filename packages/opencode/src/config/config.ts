@@ -225,10 +225,12 @@ export namespace Config {
   }
 
   function rel(item: string, patterns: string[]) {
+    // Normalize to forward slashes for cross-platform matching
+    const normalized = item.replaceAll("\\", "/")
     for (const pattern of patterns) {
-      const index = item.indexOf(pattern)
+      const index = normalized.indexOf(pattern)
       if (index === -1) continue
-      return item.slice(index + pattern.length)
+      return normalized.slice(index + pattern.length)
     }
   }
 

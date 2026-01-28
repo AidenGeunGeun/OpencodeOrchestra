@@ -98,12 +98,12 @@ export namespace Agent {
             question: "allow",
             plan_exit: "allow",
             external_directory: {
-              [path.join(Global.Path.data, "plans", "*")]: "allow",
+              [path.join(Global.Path.data, "plans", "*").replaceAll("\\", "/")]: "allow",
             },
             edit: {
               "*": "deny",
-              [path.join(".opencode", "plans", "*.md")]: "allow",
-              [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
+              [path.join(".opencode", "plans", "*.md").replaceAll("\\", "/")]: "allow",
+              [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md"))).replaceAll("\\", "/")]: "allow",
             },
           }),
           user,

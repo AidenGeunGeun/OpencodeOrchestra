@@ -124,7 +124,10 @@ export namespace Project {
           .nothrow()
           .cwd(sandbox)
           .text()
-          .then((x) => path.resolve(sandbox, x.trim()))
+          .then((x) => {
+            let resolved = path.resolve(sandbox, x.trim()).replaceAll("\\", "/")
+            return resolved
+          })
           .catch(() => undefined)
 
         if (!top) {
@@ -144,9 +147,10 @@ export namespace Project {
           .cwd(sandbox)
           .text()
           .then((x) => {
-            const dirname = path.dirname(x.trim())
-            if (dirname === ".") return sandbox
-            return dirname
+            let gitDir = x.trim().replaceAll("\\", "/")
+            const dirname = path.dirname(gitDir)
+            let result = dirname === "." ? sandbox : dirname
+            return result
           })
           .catch(() => undefined)
 

@@ -161,7 +161,7 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     // Build per-file metadata for UI rendering (used for both permission and result)
     const files = fileChanges.map((change) => ({
       filePath: change.filePath,
-      relativePath: path.relative(Instance.worktree, change.movePath ?? change.filePath),
+      relativePath: path.relative(Instance.worktree, change.movePath ?? change.filePath).replaceAll("\\", "/"),
       type: change.type,
       diff: change.diff,
       before: change.oldContent,

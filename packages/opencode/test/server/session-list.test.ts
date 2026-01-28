@@ -10,20 +10,21 @@ Log.init({ print: false })
 
 describe("session.list", () => {
   test("filters by directory", async () => {
+    const normalizedProjectRoot = projectRoot.replaceAll("\\", "/")
     await Instance.provide({
-      directory: projectRoot,
+      directory: normalizedProjectRoot,
       fn: async () => {
         const app = Server.App()
 
         const first = await Session.create({})
 
-        const otherDir = path.join(projectRoot, "..", "__session_list_other")
+        const otherDir = path.join(normalizedProjectRoot, "..", "__session_list_other").replaceAll("\\", "/")
         const second = await Instance.provide({
           directory: otherDir,
           fn: async () => Session.create({}),
         })
 
-        const response = await app.request(`/session?directory=${encodeURIComponent(projectRoot)}`)
+        const response = await app.request(`/session?directory=${encodeURIComponent(normalizedProjectRoot)}`)
         expect(response.status).toBe(200)
 
         const body = (await response.json()) as unknown[]
