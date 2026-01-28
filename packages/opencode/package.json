@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.1.36",
+  "version": "0.0.1",
   "name": "@opencodeorchestra/cli",
   "type": "module",
   "license": "MIT",

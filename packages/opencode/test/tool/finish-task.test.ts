@@ -99,13 +99,15 @@ describe("tool.finish-task", () => {
 
         expect(result.output).toContain("Task completed")
         expect(result.output).toContain("Summary: Task completed successfully")
-        expect(result.metadata).toEqual({
+        // Tool.define wrapper adds truncated: false at runtime
+        expect(result.metadata).toMatchObject({
           parentSessionID: "parent-456",
           childSessionID: "child-123",
           status: "completed",
           summary: "Task completed successfully",
           learnings: ["Learning 1"],
         })
+        expect((result.metadata as Record<string, unknown>).truncated).toBe(false)
       },
     })
   })

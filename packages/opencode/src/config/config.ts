@@ -958,10 +958,7 @@ export namespace Config {
           // primary
           plan: Agent.optional(),
           build: Agent.optional(),
-          // subagent
-          general: Agent.optional(),
-          explore: Agent.optional(),
-          // specialized
+// specialized
           title: Agent.optional(),
           summary: Agent.optional(),
           compaction: Agent.optional(),

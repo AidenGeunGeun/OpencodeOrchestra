@@ -31,7 +31,12 @@ const IS_PREVIEW = CHANNEL !== "latest"
 
 const VERSION = await (async () => {
   if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
-  if (IS_PREVIEW) return `0.0.0-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
+  // Use package.json version for local development builds instead of timestamp
+  if (IS_PREVIEW) {
+    const opencodePkgPath = path.resolve(import.meta.dir, "../../opencode/package.json")
+    const opencodePkg = await Bun.file(opencodePkgPath).json()
+    return opencodePkg.version
+  }
   const version = await fetch("https://registry.npmjs.org/opencode-ai/latest")
     .then((res) => {
       if (!res.ok) throw new Error(res.statusText)

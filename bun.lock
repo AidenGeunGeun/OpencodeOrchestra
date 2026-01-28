@@ -256,7 +256,7 @@
     },
     "packages/opencode": {
       "name": "@opencodeorchestra/cli",
-      "version": "1.1.36",
+      "version": "0.0.1",
       "bin": {
         "oco": "./bin/OcOrchestra",
       },

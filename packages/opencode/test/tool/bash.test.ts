@@ -286,7 +286,8 @@ describe("tool.bash truncation", () => {
           ctx,
         )
         expect((result.metadata as any).truncated).toBe(false)
-        expect(result.output).toBe("hello\n")
+        // Normalize line endings for cross-platform compatibility (Windows uses \r\n)
+        expect(result.output.replace(/\r\n/g, "\n")).toBe("hello\n")
       },
     })
   })
