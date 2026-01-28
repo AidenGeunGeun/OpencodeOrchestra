@@ -1,115 +1,136 @@
-<p align="center">
-  <a href="https://opencode.ai">
-    <picture>
-      <source srcset="packages/console/app/src/asset/logo-ornate-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/console/app/src/asset/logo-ornate-light.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/console/app/src/asset/logo-ornate-light.svg" alt="OpenCode logo">
-    </picture>
-  </a>
-</p>
-<p align="center">The open source AI coding agent.</p>
-<p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
-</p>
+# OpenCodeOrchestra (OcO)
 
-[![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
+**A spec-driven agentic workflow framework for long-term context programming.**
+
+OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
 
 ---
 
-### Installation
+## Key Features
 
-```bash
-# YOLO
-curl -fsSL https://opencode.ai/install | bash
-
-# Package managers
-npm i -g opencode-ai@latest        # or bun/pnpm/yarn
-scoop install opencode             # Windows
-choco install opencode             # Windows
-brew install anomalyco/tap/opencode # macOS and Linux (recommended, always up to date)
-brew install opencode              # macOS and Linux (official brew formula, updated less)
-paru -S opencode-bin               # Arch Linux
-mise use -g opencode               # Any OS
-nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev branch
-```
-
-> [!TIP]
-> Remove versions older than 0.1.x before installing.
-
-### Desktop App (BETA)
-
-OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
-
-| Platform              | Download                              |
-| --------------------- | ------------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-darwin-aarch64.dmg` |
-| macOS (Intel)         | `opencode-desktop-darwin-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe`    |
-| Linux                 | `.deb`, `.rpm`, or AppImage           |
-
-```bash
-# macOS (Homebrew)
-brew install --cask opencode-desktop
-# Windows (Scoop)
-scoop bucket add extras; scoop install extras/opencode-desktop
-```
-
-#### Installation Directory
-
-The install script respects the following priority order for the installation path:
-
-1. `$OPENCODE_INSTALL_DIR` - Custom installation directory
-2. `$XDG_BIN_DIR` - XDG Base Directory Specification compliant path
-3. `$HOME/bin` - Standard user binary directory (if exists or can be created)
-4. `$HOME/.opencode/bin` - Default fallback
-
-```bash
-# Examples
-OPENCODE_INSTALL_DIR=/usr/local/bin curl -fsSL https://opencode.ai/install | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://opencode.ai/install | bash
-```
-
-### Agents
-
-OpenCode includes two built-in agents you can switch between with the `Tab` key.
-
-- **build** - Default, full access agent for development work
-- **plan** - Read-only agent for analysis and code exploration
-  - Denies file edits by default
-  - Asks permission before running bash commands
-  - Ideal for exploring unfamiliar codebases or planning changes
-
-Also, included is a **general** subagent for complex searches and multistep tasks.
-This is used internally and can be invoked using `@general` in messages.
-
-Learn more about [agents](https://opencode.ai/docs/agents).
-
-### Documentation
-
-For more info on how to configure OpenCode [**head over to our docs**](https://opencode.ai/docs).
-
-### Contributing
-
-If you're interested in contributing to OpenCode, please read our [contributing docs](./CONTRIBUTING.md) before submitting a pull request.
-
-### Building on OpenCode
-
-If you are working on a project that's related to OpenCode and is using "opencode" as a part of its name; for example, "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
-
-### FAQ
-
-#### How is this different from Claude Code?
-
-It's very similar to Claude Code in terms of capability. Here are the key differences:
-
-- 100% open source
-- Not coupled to any provider. Although we recommend the models we provide through [OpenCode Zen](https://opencode.ai/zen); OpenCode can be used with Claude, OpenAI, Google or even local models. As models evolve the gaps between them will close and pricing will drop so being provider-agnostic is important.
-- Out of the box LSP support
-- A focus on TUI. OpenCode is built by neovim users and the creators of [terminal.shop](https://terminal.shop); we are going to push the limits of what's possible in the terminal.
-- A client/server architecture. This for example can allow OpenCode to run on your computer, while you can drive it remotely from a mobile app. Meaning that the TUI frontend is just one of the possible clients.
+- **Spec-Driven Workflow** - Specs and tests are the alignment mechanism between user intent and code
+- **Long-Term Context** - PM agent maintains persistent memory across sessions via `project-state.md`
+- **Hierarchical Delegation** - Clear depth-based agent hierarchy with enforced boundaries
+- **User-Controlled Flow** - User approves specs, triggers finish_task, and resolves escalations
 
 ---
 
-**Join our community** [Discord](https://discord.gg/opencode) | [X.com](https://x.com/opencode)
+## Architecture
+
+```
+User
+  |
+  v
+PM (Depth 0) -----> Holds long-term context, drafts specs, advises on design
+  |
+  +--[spawn orchestrator]--> Orchestrator (Depth 1) -----> Executes approved specs
+  |                                |
+  |                                +--[spawn sub-agents]--> Depth 2+
+  |
+  +--[spawn sub-agents directly]--> Depth 2 (skips depth 1)
+```
+
+### Agent Roles
+
+| Agent | Depth | Purpose |
+|-------|-------|---------|
+| **PM** | 0 | Long-term context, spec drafting, design decisions |
+| **Orchestrator** | 1 | Executes approved specs, delegates to sub-agents |
+| **Investigator** | 2+ | Codebase analysis (read-only) |
+| **Researcher** | 2+ | External web research (read-only) |
+| **Auditor** | 2+ | Code review, issues PASS/FAIL verdict |
+| **Cleanup** | 2+ | Removes TODO markers after Auditor PASS |
+| **Docs** | 2+ | Documentation updates |
+
+### Workflow
+
+1. **User describes intent to PM** - Plain language, focus on what and why
+2. **PM drafts spec + test cases** - Written for user to understand
+3. **User reviews and approves** - "If these tests pass, I'm satisfied"
+4. **PM spawns Orchestrator** - Hands off approved spec
+5. **Orchestrator executes via sub-agents** - Implements in phases
+6. **Orchestrator escalates if needed** - User decides, Orchestrator continues
+7. **User triggers finish_task** - Control returns to PM
+8. **PM updates records** - Decisions logged, context preserved
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
+cd OpenCodeOrchestra
+
+# Install dependencies
+bun install
+
+# Build
+cd packages/opencode
+OPENCODE_VERSION=0.0.2 bun run build --single
+
+# Binary output: dist/@opencodeorchestra/cli-windows-x64/bin/OcOrchestra.exe
+```
+
+---
+
+## Usage
+
+```bash
+# Run the CLI
+oco
+
+# Or run the binary directly
+./OcOrchestra.exe
+```
+
+### Navigation
+
+- `Tab` - Switch between PM modes (Plan/Build)
+- `Ctrl+X` - Navigate agent hierarchy (depth traversal)
+
+### Configuration
+
+Config files are loaded in priority order:
+1. `./opencode.json` (project-specific)
+2. `~/.config/opencode/opencode.json` (global)
+
+---
+
+## Key Differences from Upstream
+
+| Feature | OpenCode | OpenCodeOrchestra |
+|---------|----------|-------------------|
+| Agent Hierarchy | Flat | PM -> Orchestrator -> Subagent |
+| Depth Enforcement | None | Orchestrator at depth 1 only |
+| Long-term Context | None | `project-state.md` persistence |
+| Spec-Driven | No | Yes, specs + tests as alignment |
+| finish_task | Auto | User-triggered |
+| Removed Agents | - | general, explore |
+
+---
+
+## Development
+
+```bash
+cd packages/opencode
+
+# Run tests
+bun test
+
+# Typecheck
+bun run typecheck
+
+# Build with version
+OPENCODE_VERSION=x.x.x bun run build --single
+```
+
+---
+
+## License
+
+This project is a fork of [opencode](https://github.com/anomalyco/opencode) and maintains the same license terms.
+
+---
+
+**Note:** This project is not affiliated with the original OpenCode team. It is an independent fork focused on structured agentic workflows for long-term context programming.
