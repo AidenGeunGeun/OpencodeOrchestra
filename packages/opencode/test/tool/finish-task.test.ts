@@ -105,7 +105,6 @@ describe("tool.finish-task", () => {
           status: "completed",
           summary: "Task completed successfully",
           learnings: ["Learning 1"],
-          truncated: false,
         })
       },
     })
