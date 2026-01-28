@@ -101,9 +101,11 @@ jobs:
           else
             echo "merge_status=conflicts" >> $GITHUB_OUTPUT
             echo "Merge has conflicts - will need manual resolution"
-            # Stage everything including conflicts for visibility
+            # Accept upstream version for all conflicted files (user will review in PR)
+            git checkout --theirs . 2>/dev/null || true
             git add -A
-            git commit -m "Merge upstream $VERSION (with conflicts)" --no-verify || true
+            # Complete the merge with conflict resolution
+            git -c core.editor=true merge --continue || git commit -m "Merge upstream $VERSION (conflicts resolved to upstream)" --no-verify
           fi
 
       - name: Update version tracking
