@@ -13,6 +13,8 @@ import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
+import PROMPT_PM from "./prompt/pm.txt"
+import PROMPT_ORCHESTRATOR from "./prompt/orchestrator.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -161,6 +163,46 @@ export namespace Agent {
         ),
         prompt: PROMPT_SUMMARY,
         singleShot: true, // Hidden internal agent
+      },
+      // OpenCodeOrchestra: PM agent - primary user interface, long-term context holder
+      pm: {
+        name: "pm",
+        description: "Project Manager - holds context, drafts specs, spawns orchestrators",
+        mode: "primary",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            plan_enter: "allow",
+            task: "allow",
+            project_state_read: "allow",
+            project_state_write: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_PM,
+        singleShot: false, // PM persists, user interacts directly
+      },
+      // OpenCodeOrchestra: Orchestrator agent - executes approved specs via sub-agents
+      orchestrator: {
+        name: "orchestrator",
+        description: "Executes approved specs through phased implementation and sub-agent delegation",
+        mode: "subagent", // Spawnable via task tool
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            question: "allow",
+            task: "allow",
+            finish_task: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_ORCHESTRATOR,
+        singleShot: false, // Orchestrator persists until finish_task called
       },
     }
 

@@ -78,7 +78,19 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       }
       
       const currentDepth = await calculateDepth(ctx.sessionID)
-      const childDepth = currentDepth + 1
+      // OpenCodeOrchestra: Depth hierarchy enforcement
+      // - PM (depth 0) spawns orchestrator → depth 1
+      // - PM (depth 0) spawns non-orchestrator → depth 2 (skip depth 1)
+      // - Orchestrator (depth 1) spawns anything → depth 2+
+      const childDepth = (() => {
+        if (currentDepth === 0 && params.subagent_type === "orchestrator") {
+          return 1 // Only orchestrator resides at depth 1
+        }
+        if (currentDepth === 0) {
+          return 2 // PM's non-orchestrator sub-agents skip to depth 2
+        }
+        return currentDepth + 1 // Normal increment for orchestrator's sub-agents
+      })()
       
       // OpenCodeOrchestra: Determine completion mode based on agent config
       // singleShot: true (default) → auto-return first response (subagents)
