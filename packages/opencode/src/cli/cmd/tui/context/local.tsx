@@ -1,4 +1,4 @@
-import { createStore } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { batch, createEffect, createMemo } from "solid-js"
 import { useSync } from "@tui/context/sync"
 import { useTheme } from "@tui/context/theme"
@@ -292,6 +292,17 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
               save()
             }
           })
+        },
+        // OpenCodeOrchestra: Clear ephemeral model override for an agent
+        // When switching to a subagent, call this to reset to agent's default model
+        clear(agentName?: string) {
+          const targetAgent = agentName ?? agent.current().name
+          setModelStore(
+            "model",
+            produce((model) => {
+              delete model[targetAgent]
+            }),
+          )
         },
         toggleFavorite(model: { providerID: string; modelID: string }) {
           batch(() => {

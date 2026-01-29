@@ -4,7 +4,7 @@ import { createStore } from "solid-js/store"
 import { useTheme } from "../../context/theme"
 import { Locale } from "@/util/locale"
 import path from "path"
-import type { AssistantMessage } from "@opencodeorchestra/sdk/v2"
+import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { Global } from "@/global"
 import { Installation } from "@/installation"
 import { useKeybind } from "../../context/keybind"
@@ -299,10 +299,10 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
             <span style={{ fg: theme.textMuted }}>{directory().split("/").slice(0, -1).join("/")}/</span>
             <span style={{ fg: theme.text }}>{directory().split("/").at(-1)}</span>
           </text>
-          <text fg={theme.textMuted}>
-            <span style={{ fg: theme.success }}>•</span> <b>Open</b>
-            <span style={{ fg: theme.text }}>
-              <b>Code</b>
+           <text fg={theme.textMuted}>
+            <span style={{ fg: theme.success }}>•</span> <b>OpenCode</b>
+            <span style={{ fg: theme.accent }}>
+              <b>Orchestra</b>
             </span>{" "}
             <span>{Installation.VERSION}</span>
           </text>

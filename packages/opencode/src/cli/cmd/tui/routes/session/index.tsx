@@ -27,7 +27,7 @@ import {
   RGBA,
 } from "@opentui/core"
 import { Prompt, type PromptRef } from "@tui/component/prompt"
-import type { AssistantMessage, Part, ToolPart, UserMessage, TextPart, ReasoningPart } from "@opencodeorchestra/sdk/v2"
+import type { AssistantMessage, Part, ToolPart, UserMessage, TextPart, ReasoningPart } from "@opencode-ai/sdk/v2"
 import { useLocal } from "@tui/context/local"
 import { Locale } from "@/util/locale"
 import type { Tool } from "@/tool/tool"
@@ -123,9 +123,11 @@ export function Session() {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.permission[x.id] ?? [])
   })
-  const questions = createMemo(() => {
-    if (session()?.parentID) return []
-    return children().flatMap((x) => sync.data.question[x.id] ?? [])
+   const questions = createMemo(() => {
+    const currentSession = session()
+    if (!currentSession) return []
+    // Show questions only for the current session (not aggregated from children)
+    return sync.data.question[currentSession.id] ?? []
   })
 
   const pending = createMemo(() => {
@@ -170,6 +172,17 @@ export function Session() {
     return new CustomSpeedScroll(3)
   })
 
+  // Reset model to agent's default when entering a subagent session
+  createEffect(() => {
+    const agentID = session()?.agentID
+    if (!agentID) return
+    // Find the agent config to get its default model
+    const agentConfig = sync.data.agent.find((a) => a.name === agentID)
+    if (agentConfig?.model) {
+      local.model.set(agentConfig.model, { recent: false })
+    }
+  })
+
   createEffect(async () => {
     await sync.session
       .sync(route.sessionID)
@@ -204,7 +217,7 @@ export function Session() {
     if (part.state.status !== "completed") return
     if (part.id === lastSwitch) return
 
-    if (part.tool === "plan_exit") {
+     if (part.tool === "plan_exit") {
       local.agent.set("build")
       lastSwitch = part.id
     } else if (part.tool === "plan_enter") {
@@ -280,28 +293,32 @@ export function Session() {
 
   const local = useLocal()
 
-  function moveChild(direction: number) {
-    // OpenCodeOrchestra: Filter siblings to only include sessions at the same depth level
-    // At PM level (no parentID): only navigate between root sessions
-    // At subagent level (has parentID): only navigate between siblings with same parentID
-    const currentParentID = session()?.parentID
-    const siblings = children().filter((x) => {
-      if (!currentParentID) {
-        // At root level: only show other root sessions (no parentID)
-        return !x.parentID
-      } else {
-        // At subagent level: only show sessions with same parentID
-        return x.parentID === currentParentID
-      }
-    })
+  function moveSibling(direction: number) {
+    const currentSession = session()
+    const currentParentID = currentSession?.parentID
+    const currentAgentID = currentSession?.agentID
+    const siblings = sync.data.session
+      .filter((x) => {
+        const parentMatch = !currentParentID ? !x.parentID : x.parentID === currentParentID
+        // Only filter by agentID at PM level to prevent mixing different agent types
+        const agentMatch = !currentParentID
+          ? !currentAgentID
+            ? !x.agentID
+            : x.agentID === currentAgentID
+          : true
+        return parentMatch && agentMatch
+      })
+      .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     if (siblings.length <= 1) return
-    let next = siblings.findIndex((x) => x.id === session()?.id) + direction
+    let next = siblings.findIndex((x) => x.id === currentSession?.id) + direction
+    // Wrap around for sibling navigation per spec
     if (next >= siblings.length) next = 0
     if (next < 0) next = siblings.length - 1
-    if (siblings[next]) {
+    const targetSession = siblings[next]
+    if (targetSession) {
       navigate({
         type: "session",
-        sessionID: siblings[next].id,
+        sessionID: targetSession.id,
       })
     }
   }
@@ -862,35 +879,38 @@ export function Session() {
       },
     },
     {
-      title: "Next child session",
+      title: "Next sibling session",
       value: "session.child.next",
       keybind: "session_child_cycle",
       category: "Session",
       hidden: true,
       onSelect: (dialog) => {
-        moveChild(1)
+        moveSibling(1)
         dialog.clear()
       },
     },
     {
-      title: "Previous child session",
+      title: "Previous sibling session",
       value: "session.child.previous",
       keybind: "session_child_cycle_reverse",
       category: "Session",
       hidden: true,
       onSelect: (dialog) => {
-        moveChild(-1)
+        moveSibling(-1)
         dialog.clear()
       },
     },
     {
       title: "Go to parent session",
       value: "session.parent",
-      keybind: "session_parent",
-      category: "Session",
-      hidden: true,
-      onSelect: (dialog) => {
-        const parentID = session()?.parentID
+       keybind: "session_parent",
+       category: "Session",
+       hidden: true,
+       onSelect: (dialog) => {
+        // Navigate to parent session (if exists)
+        // At depth=0 (no parentID), do nothing per spec
+        const currentSession = session()
+        const parentID = currentSession?.parentID
         if (parentID) {
           navigate({
             type: "session",
@@ -903,18 +923,28 @@ export function Session() {
     {
       title: "Go to child session",
       value: "session.child",
-      keybind: "session_child",
-      category: "Session",
-      hidden: true,
-      onSelect: (dialog) => {
-        // Navigate to first child session (most recent)
-        const childSessions = children().filter((c) => c.id !== session()?.id)
+       keybind: "session_child",
+       category: "Session",
+       hidden: true,
+       onSelect: (dialog) => {
+        // Navigate to first child session (sessions where parentID === currentSessionID)
+        const currentSession = session()
+        const currentSessionID = currentSession?.id
+        if (!currentSessionID) {
+          dialog.clear()
+          return
+        }
+        // Find sessions that have THIS session as their parent (true children, not siblings)
+        const childSessions = sync.data.session
+          .filter((s) => s.parentID === currentSessionID)
+          .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
         if (childSessions.length > 0) {
           navigate({
             type: "session",
             sessionID: childSessions[0].id,
           })
         }
+        // If no children exist, do nothing (per spec)
         dialog.clear()
       },
     },
