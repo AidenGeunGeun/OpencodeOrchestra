@@ -31,5 +31,5 @@ test("smoke file viewer renders real file content", async ({ page, gotoSession }
 
   const code = page.locator('[data-component="code"]').first()
   await expect(code).toBeVisible()
-  await expect(code.getByText("@opencodeorchestra/app")).toBeVisible()
+  await expect(code.getByText("@opencode-ai/app")).toBeVisible()
 })

@@ -1,15 +1,15 @@
 import { createStore, produce, reconcile } from "solid-js/store"
 import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } from "remeda"
-import type { FileContent, FileNode, Model, Provider, File as FileStatus } from "@opencodeorchestra/sdk/v2"
-import { createSimpleContext } from "@opencodeorchestra/ui/context"
+import type { FileContent, FileNode, Model, Provider, File as FileStatus } from "@opencode-ai/sdk/v2"
+import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
-import { base64Encode } from "@opencodeorchestra/util/encode"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useProviders } from "@/hooks/use-providers"
 import { DateTime } from "luxon"
 import { Persist, persisted } from "@/utils/persist"
-import { showToast } from "@opencodeorchestra/ui/toast"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 
 export type LocalFile = FileNode &
@@ -84,8 +84,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             setStore("current", undefined)
             return
           }
-          if (name && available.some((x) => x.name === name)) {
-            setStore("current", name)
+           if (name && available.some((x) => x.name === name)) {
+             setStore("current", name)
+             setEphemeral("model", name, undefined)
             return
           }
           setStore("current", available[0].name)

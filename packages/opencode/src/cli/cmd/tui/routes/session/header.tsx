@@ -4,7 +4,7 @@ import { useSync } from "@tui/context/sync"
 import { pipe, sumBy } from "remeda"
 import { useTheme } from "@tui/context/theme"
 import { SplitBorder } from "@tui/component/border"
-import type { AssistantMessage, Session } from "@opencodeorchestra/sdk/v2"
+import type { AssistantMessage, Session } from "@opencode-ai/sdk/v2"
 import { useCommandDialog } from "@tui/component/dialog-command"
 import { useKeybind } from "../../context/keybind"
 import { Installation } from "@/installation"
@@ -85,7 +85,7 @@ export function Header() {
             <box flexDirection="column" gap={1}>
               <box flexDirection={narrow() ? "column" : "row"} justifyContent="space-between" gap={narrow() ? 1 : 0}>
                 <text fg={theme.text}>
-                  <b>Subagent session</b>
+                  <b>{session()?.agentID ?? "Subagent session"}</b>
                 </text>
                 <box flexDirection="row" gap={1} flexShrink={0}>
                   <ContextInfo context={context} cost={cost} />

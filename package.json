@@ -73,9 +73,9 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.933.0",
-    "@opencodeorchestra/plugin": "workspace:*",
-    "@opencodeorchestra/script": "workspace:*",
-    "@opencodeorchestra/sdk": "workspace:*",
+    "@opencode-ai/plugin": "workspace:*",
+    "@opencode-ai/script": "workspace:*",
+    "@opencode-ai/sdk": "workspace:*",
     "typescript": "catalog:"
   },
   "repository": {

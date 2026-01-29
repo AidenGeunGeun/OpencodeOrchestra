@@ -4,7 +4,7 @@ import { useSDK } from "@/context/sdk"
 import { monoFontFamily, useSettings } from "@/context/settings"
 import { SerializeAddon } from "@/addons/serialize"
 import { LocalPTY } from "@/context/terminal"
-import { resolveThemeVariant, useTheme, withAlpha, type HexColor } from "@opencodeorchestra/ui/theme"
+import { resolveThemeVariant, useTheme, withAlpha, type HexColor } from "@opencode-ai/ui/theme"
 
 export interface TerminalProps extends ComponentProps<"div"> {
   pty: LocalPTY

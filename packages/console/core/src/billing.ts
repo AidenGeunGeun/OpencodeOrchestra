@@ -4,7 +4,7 @@ import { BillingTable, PaymentTable, SubscriptionTable, UsageTable } from "./sch
 import { Actor } from "./actor"
 import { fn } from "./util/fn"
 import { z } from "zod"
-import { Resource } from "@opencodeorchestra/console-resource"
+import { Resource } from "@opencode-ai/console-resource"
 import { Identifier } from "./identifier"
 import { centsToMicroCents } from "./util/price"
 import { User } from "./user"

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "@opencodeorchestra/console-resource",
+  "name": "@opencode-ai/console-resource",
   "license": "MIT",
   "dependencies": {
     "@cloudflare/workers-types": "catalog:"

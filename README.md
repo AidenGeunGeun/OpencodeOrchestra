@@ -6,6 +6,19 @@ OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode)
 
 ---
 
+## Installation
+
+```bash
+npm install -g @skybluejacket/oco
+```
+
+Then run:
+```bash
+oco
+```
+
+---
+
 ## Key Features
 
 - **Spec-Driven Workflow** - Specs and tests are the alignment mechanism between user intent and code
@@ -39,7 +52,7 @@ PM (Depth 0) -----> Holds long-term context, drafts specs, advises on design
 | **Investigator** | 2+ | Codebase analysis (read-only) |
 | **Researcher** | 2+ | External web research (read-only) |
 | **Auditor** | 2+ | Code review, issues PASS/FAIL verdict |
-| **Cleanup** | 2+ | Removes TODO markers after Auditor PASS |
+| **Cleanup** | 2+ | Removes @TODO markers after Auditor PASS |
 | **Docs** | 2+ | Documentation updates |
 
 ### Workflow
@@ -55,41 +68,16 @@ PM (Depth 0) -----> Holds long-term context, drafts specs, advises on design
 
 ---
 
-## Installation
+## Navigation
 
-```bash
-# Clone the repository
-git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
-cd OpenCodeOrchestra
-
-# Install dependencies
-bun install
-
-# Build
-cd packages/opencode
-OPENCODE_VERSION=0.0.2 bun run build --single
-
-# Binary output: dist/@opencodeorchestra/cli-windows-x64/bin/OcOrchestra.exe
-```
+- `Tab` - Switch between PM modes (Plan/Build)
+- `Ctrl+X Up/Down` - Navigate parent/child sessions (depth traversal)
+- `Ctrl+X Left/Right` - Navigate sibling sessions (same depth)
+- `Ctrl+X M` - Model selection
 
 ---
 
-## Usage
-
-```bash
-# Run the CLI
-oco
-
-# Or run the binary directly
-./OcOrchestra.exe
-```
-
-### Navigation
-
-- `Tab` - Switch between PM modes (Plan/Build)
-- `Ctrl+X` - Navigate agent hierarchy (depth traversal)
-
-### Configuration
+## Configuration
 
 Config files are loaded in priority order:
 1. `./opencode.json` (project-specific)
@@ -113,16 +101,20 @@ Config files are loaded in priority order:
 ## Development
 
 ```bash
-cd packages/opencode
+# Clone and install
+git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
+cd OpenCodeOrchestra
+bun install
 
 # Run tests
+cd packages/opencode
 bun test
 
 # Typecheck
 bun run typecheck
 
 # Build with version
-OPENCODE_VERSION=x.x.x bun run build --single
+OPENCODE_VERSION=x.x.x bun run build
 ```
 
 ---

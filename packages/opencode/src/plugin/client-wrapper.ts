@@ -17,7 +17,7 @@
  * the pruning behavior through the client wrapper.
  */
 
-import type { createOpencodeClient } from "@opencodeorchestra/sdk"
+import type { createOpencodeClient } from "@opencode-ai/sdk"
 import { calculateDepth, shouldApplyPruning } from "../session/depth"
 import { Log } from "../util/log"
 

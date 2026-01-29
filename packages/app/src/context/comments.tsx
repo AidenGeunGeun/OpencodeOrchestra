@@ -1,6 +1,6 @@
 import { batch, createMemo, createRoot, createSignal, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
-import { createSimpleContext } from "@opencodeorchestra/ui/context"
+import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useParams } from "@solidjs/router"
 import { Persist, persisted } from "@/utils/persist"
 import type { SelectedLineRange } from "@/context/file"

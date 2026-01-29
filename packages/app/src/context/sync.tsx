@@ -1,11 +1,11 @@
 import { batch, createMemo } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
-import { Binary } from "@opencodeorchestra/util/binary"
-import { retry } from "@opencodeorchestra/util/retry"
-import { createSimpleContext } from "@opencodeorchestra/ui/context"
+import { Binary } from "@opencode-ai/util/binary"
+import { retry } from "@opencode-ai/util/retry"
+import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
-import type { Message, Part } from "@opencodeorchestra/sdk/v2/client"
+import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 
 const keyFor = (directory: string, id: string) => `${directory}\n${id}`
 

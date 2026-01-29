@@ -1,5 +1,5 @@
 import { useGlobalSync } from "@/context/global-sync"
-import { base64Decode } from "@opencodeorchestra/util/encode"
+import { base64Decode } from "@opencode-ai/util/encode"
 import { useParams } from "@solidjs/router"
 import { createMemo } from "solid-js"
 
