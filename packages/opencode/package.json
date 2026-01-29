@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.0.2",
+  "version": "0.1.1",
   "name": "@skybluejacket/oco",
   "type": "module",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "deploy": "echo 'Deploying application...' && bun run build && echo 'Deployment completed successfully'"
   },
   "bin": {
-    "oco": "./bin/oco"
+    "oco": "./bin/opencode"
   },
   "exports": {
     "./*": "./src/*.ts"
@@ -25,7 +25,7 @@
   "devDependencies": {
     "@babel/core": "7.28.4",
     "@octokit/webhooks-types": "7.6.1",
-    "@opencodeorchestra/script": "workspace:*",
+    "@opencode-ai/script": "workspace:*",
     "@parcel/watcher-darwin-arm64": "2.5.1",
     "@parcel/watcher-darwin-x64": "2.5.1",
     "@parcel/watcher-linux-arm64-glibc": "2.5.1",
@@ -76,10 +76,10 @@
     "@octokit/graphql": "9.0.2",
     "@octokit/rest": "catalog:",
     "@openauthjs/openauth": "catalog:",
-    "@opencodeorchestra/plugin": "workspace:*",
-    "@opencodeorchestra/script": "workspace:*",
-    "@opencodeorchestra/sdk": "workspace:*",
-    "@opencodeorchestra/util": "workspace:*",
+    "@opencode-ai/plugin": "workspace:*",
+    "@opencode-ai/script": "workspace:*",
+    "@opencode-ai/sdk": "workspace:*",
+    "@opencode-ai/util": "workspace:*",
     "@openrouter/ai-sdk-provider": "1.5.2",
     "@opentui/core": "0.1.74",
     "@opentui/solid": "0.1.74",
