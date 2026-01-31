@@ -22,6 +22,12 @@ target
 .scripts
 .direnv/
 
+# OpenCode local state
+.opencode/
+**/.npmrc
+*.tgz
+nul
+
 # Local dev files
 opencode-dev
 logs/

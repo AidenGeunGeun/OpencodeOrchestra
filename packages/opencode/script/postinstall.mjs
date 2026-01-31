@@ -49,8 +49,8 @@ function detectPlatformAndArch() {
 
 function findBinary() {
   const { platform, arch } = detectPlatformAndArch()
-  const packageName = `opencode-${platform}-${arch}`
-  const binaryName = platform === "windows" ? "opencode.exe" : "opencode"
+   const packageName = `@skybluejacket/oco-${platform}-${arch}`
+   const binaryName = platform === "windows" ? "oco.exe" : "oco"
 
   try {
     // Use require.resolve to find the package
@@ -88,8 +88,8 @@ function prepareBinDirectory(binaryName) {
 function symlinkBinary(sourcePath, binaryName) {
   const { targetPath } = prepareBinDirectory(binaryName)
 
-  fs.symlinkSync(sourcePath, targetPath)
-  console.log(`opencode binary symlinked: ${targetPath} -> ${sourcePath}`)
+   fs.symlinkSync(sourcePath, targetPath)
+   console.log(`oco binary symlinked: ${targetPath} -> ${sourcePath}`)
 
   // Verify the file exists after operation
   if (!fs.existsSync(targetPath)) {
@@ -112,7 +112,7 @@ async function main() {
     console.log(`Platform binary verified at: ${binaryPath}`)
     console.log("Wrapper script will handle binary execution")
   } catch (error) {
-    console.error("Failed to setup opencode binary:", error.message)
+     console.error("Failed to setup oco binary:", error.message)
     process.exit(1)
   }
 }

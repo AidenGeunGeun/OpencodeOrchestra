@@ -1,8 +1,10 @@
 import { Tool } from "./tool"
 import z from "zod"
-import { Storage } from "../storage/storage"
 import { Log } from "../util/log"
-import { Global } from "../global"
+import { Instance } from "../project/instance"
+import { Lock } from "../util/lock"
+import path from "path"
+import fs from "fs/promises"
 
 const log = Log.create({ service: "project-state" })
 
@@ -35,26 +37,34 @@ export type ProjectState = z.infer<typeof ProjectStateSchema>
  * Project State storage namespace
  */
 export namespace ProjectStateStorage {
-  function getKey(projectID: string): string[] {
-    return ["project-state", projectID]
+  function getStateFile(projectRoot: string): string {
+    return path.join(projectRoot, ".opencode", "project-state.json")
   }
 
-  export async function read(projectID: string): Promise<ProjectState> {
+  export async function read(projectRoot: string): Promise<ProjectState> {
+    const stateFile = getStateFile(projectRoot)
     try {
-      const data = await Storage.read<ProjectState>(getKey(projectID))
-      log.info("read project state", { projectID })
-      return ProjectStateSchema.parse(data)
-    } catch (e) {
-      if (Storage.NotFoundError.isInstance(e)) {
-        log.info("no existing project state, returning defaults", { projectID })
+      using _ = await Lock.read(stateFile)
+      const file = Bun.file(stateFile)
+      if (!(await file.exists())) {
+        log.info("no existing project state, returning defaults", { projectRoot })
         return ProjectStateSchema.parse({})
       }
+      const data = await file.json()
+      log.info("read project state", { projectRoot })
+      return ProjectStateSchema.parse(data)
+    } catch (e) {
       throw e
     }
   }
 
-  export async function write(projectID: string, state: Partial<ProjectState>): Promise<ProjectState> {
-    const existing = await read(projectID)
+  export async function write(projectRoot: string, state: Partial<ProjectState>): Promise<ProjectState> {
+    const stateFile = getStateFile(projectRoot)
+    const dir = path.dirname(stateFile)
+    await fs.mkdir(dir, { recursive: true })
+    using _ = await Lock.write(stateFile)
+    const file = Bun.file(stateFile)
+    const existing = (await file.exists()) ? ProjectStateSchema.parse(await file.json()) : ProjectStateSchema.parse({})
     const updated: ProjectState = {
       objectives: state.objectives ?? existing.objectives,
       decisions: state.decisions ?? existing.decisions,
@@ -62,33 +72,20 @@ export namespace ProjectStateStorage {
       todos: state.todos ?? existing.todos,
       lastUpdated: new Date().toISOString(),
     }
-    await Storage.write(getKey(projectID), updated)
-    log.info("wrote project state", { projectID })
+    await Bun.write(stateFile, JSON.stringify(updated, null, 2))
+    log.info("wrote project state", { projectRoot })
     return updated
   }
 }
 
 /**
- * Get project ID from session context
- * PM sessions are always associated with a project
+ * Get project root directory for state storage
  */
-async function getProjectID(ctx: { sessionID: string }): Promise<string> {
-  // Use the root session ID as the project ID
-  // This ensures all sessions in a hierarchy share the same project state
-  const { Session } = await import("../session")
-  type SessionInfo = Awaited<ReturnType<typeof Session.get>>
-  
-  let rootSessionID = ctx.sessionID
-  let currentID: string | undefined = ctx.sessionID
-  
-  while (currentID) {
-    const sess: SessionInfo | undefined = await Session.get(currentID).catch(() => undefined)
-    if (!sess) break
-    rootSessionID = currentID
-    currentID = sess.parentID
+function getProjectRoot(): string {
+  if (Instance.project.vcs && Instance.worktree !== "/") {
+    return Instance.worktree
   }
-  
-  return rootSessionID
+  return Instance.directory
 }
 
 /**
@@ -109,6 +106,8 @@ export const ProjectStateReadTool = Tool.define("project_state_read", async (ctx
   return {
     description: `Read the current project state. This tool is ONLY available to PM (depth 0).
 
+State is stored at .opencode/project-state.json in the project root (git root if present, otherwise the current working directory).
+
 Returns:
 - objectives: Current goals/objectives
 - decisions: Important decisions with rationale
@@ -124,14 +123,15 @@ Use this at session start to restore context from previous sessions.`,
         throw new Error("project_state_read is PM-only (depth 0). Subagents cannot access project state.")
       }
 
-      const projectID = await getProjectID(ctx)
-      const state = await ProjectStateStorage.read(projectID)
+      const projectRoot = getProjectRoot()
+      const state = await ProjectStateStorage.read(projectRoot)
 
-      log.info("project_state_read executed", { projectID, sessionID: ctx.sessionID })
+      log.info("project_state_read executed", { projectRoot, sessionID: ctx.sessionID })
+      const stateFile = path.join(projectRoot, ".opencode", "project-state.json")
 
       return {
         title: "Project State",
-        metadata: { projectID },
+        metadata: { projectRoot, stateFile },
         output: JSON.stringify(state, null, 2),
       }
     },
@@ -177,6 +177,8 @@ export const ProjectStateWriteTool = Tool.define("project_state_write", async (c
   return {
     description: `Update the project state. This tool is ONLY available to PM (depth 0).
 
+State is stored at .opencode/project-state.json in the project root (git root if present, otherwise the current working directory).
+
 Use this to:
 - Track current objectives when they change
 - Record important decisions with rationale
@@ -193,18 +195,18 @@ This state persists across sessions.`,
         throw new Error("project_state_write is PM-only (depth 0). Subagents cannot modify project state.")
       }
 
-      const projectID = await getProjectID(ctx)
-      const updated = await ProjectStateStorage.write(projectID, params)
+      const projectRoot = getProjectRoot()
+      const updated = await ProjectStateStorage.write(projectRoot, params)
 
       log.info("project_state_write executed", { 
-        projectID, 
+        projectRoot, 
         sessionID: ctx.sessionID,
         updatedFields: Object.keys(params).filter(k => params[k as keyof typeof params] !== undefined),
       })
 
       return {
         title: "Project State Updated",
-        metadata: { projectID, lastUpdated: updated.lastUpdated },
+        metadata: { projectRoot, lastUpdated: updated.lastUpdated },
         output: `Project state updated successfully.\n\nCurrent state:\n${JSON.stringify(updated, null, 2)}`,
       }
     },

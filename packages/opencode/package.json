@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "name": "@skybluejacket/oco",
   "type": "module",
   "license": "MIT",
@@ -16,8 +16,9 @@
     "docs": "echo 'Generating documentation...' && find src -name '*.ts' -exec echo 'Processing: {}' \\;",
     "deploy": "echo 'Deploying application...' && bun run build && echo 'Deployment completed successfully'"
   },
+  "files": ["bin/", "dist/", "src/", "script/postinstall.mjs"],
   "bin": {
-    "oco": "./bin/opencode"
+    "oco": "./bin/oco"
   },
   "exports": {
     "./*": "./src/*.ts"

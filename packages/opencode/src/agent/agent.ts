@@ -10,11 +10,17 @@ import { ProviderTransform } from "../provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
-import PROMPT_EXPLORE from "./prompt/explore.txt"
+
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_PM from "./prompt/pm.txt"
 import PROMPT_ORCHESTRATOR from "./prompt/orchestrator.txt"
+import PROMPT_INVESTIGATOR from "./prompt/investigator.txt"
+import PROMPT_AUDITOR from "./prompt/auditor.txt"
+import PROMPT_RESEARCHER from "./prompt/researcher.txt"
+import PROMPT_CLEANUP from "./prompt/cleanup.txt"
+import PROMPT_DOCS from "./prompt/docs.txt"
+import PROMPT_PM_PLAN from "./prompt/pm-plan.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
@@ -89,6 +95,7 @@ export namespace Agent {
         ),
         mode: "primary",
         native: true,
+        prompt: PROMPT_PM,
         singleShot: false, // OpenCodeOrchestra: PM persists, must call finish_task
       },
       plan: {
@@ -112,6 +119,7 @@ export namespace Agent {
         ),
         mode: "primary",
         native: true,
+        prompt: PROMPT_PM_PLAN,
         singleShot: false, // OpenCodeOrchestra: Plan mode persists
       },
 
@@ -182,6 +190,109 @@ export namespace Agent {
         ),
         prompt: PROMPT_ORCHESTRATOR,
         singleShot: false, // Orchestrator persists until finish_task called
+      },
+      // OpenCodeOrchestra: Investigator agent - READ-ONLY codebase analysis (depth 2)
+      investigator: {
+        name: "investigator",
+        description: "Codebase analysis. READ-ONLY. FACTS ONLY.",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            // READ-ONLY: deny write operations only
+            edit: "deny",
+            write: "deny",
+            // Allow everything else (read, glob, grep, bash, playwright, etc.)
+          }),
+          user,
+        ),
+        prompt: PROMPT_INVESTIGATOR,
+        singleShot: true, // Depth 2: auto-returns first response
+      },
+      // OpenCodeOrchestra: Auditor agent - READ-ONLY code review at @TODO markers (depth 2)
+      auditor: {
+        name: "auditor",
+        description: "Code review at @TODO markers. READ-ONLY. PASS/FAIL verdict.",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            // READ-ONLY: deny write operations only
+            edit: "deny",
+            write: "deny",
+            // Allow everything else (read, glob, grep, playwright, etc.)
+          }),
+          user,
+        ),
+        prompt: PROMPT_AUDITOR,
+        singleShot: true, // Depth 2: auto-returns first response
+      },
+      // OpenCodeOrchestra: Researcher agent - READ-ONLY external web research (depth 2)
+      researcher: {
+        name: "researcher",
+        description: "External web research. READ-ONLY. FACTS ONLY.",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            // READ-ONLY: deny write operations only
+            edit: "deny",
+            write: "deny",
+            // Allow everything else (webfetch, perplexity, deepwiki, playwright, etc.)
+          }),
+          user,
+        ),
+        prompt: PROMPT_RESEARCHER,
+        singleShot: true, // Depth 2: auto-returns first response
+      },
+      // OpenCodeOrchestra: Cleanup agent - removes @TODO markers after Auditor PASS (depth 2)
+      cleanup: {
+        name: "cleanup",
+        description: "@TODO marker removal ONLY. After Auditor PASS.",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+            edit: "allow", // Limited to @TODO removal per prompt
+          }),
+          user,
+        ),
+        prompt: PROMPT_CLEANUP,
+        singleShot: true, // Depth 2: auto-returns first response
+      },
+      // OpenCodeOrchestra: Docs agent - documentation updates only (depth 2)
+      docs: {
+        name: "docs",
+        description: "Documentation updates. README, AGENTS.md, API docs.",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            read: "allow",
+            glob: "allow",
+            grep: "allow",
+            edit: "allow", // Limited to docs per prompt
+            write: "allow", // For new doc files
+          }),
+          user,
+        ),
+        prompt: PROMPT_DOCS,
+        singleShot: true, // Depth 2: auto-returns first response
       },
     }
 

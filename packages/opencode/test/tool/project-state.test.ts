@@ -3,10 +3,12 @@ import { ProjectStateReadTool, ProjectStateWriteTool, ProjectStateStorage } from
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 import path from "path"
+import fs from "fs/promises"
 
 const SRC_ROOT = path.resolve(__dirname, "../../src")
 const SESSION_PATH = path.join(SRC_ROOT, "session/index.ts")
 const STORAGE_PATH = path.join(SRC_ROOT, "storage/storage.ts")
+const getStateFile = (root: string) => path.join(root, ".opencode", "project-state.json")
 
 const ctx = {
   sessionID: "test-session",
@@ -25,16 +27,8 @@ describe("tool.project-state", () => {
 
   describe("ProjectStateStorage", () => {
     test("read returns empty state on NotFoundError", async () => {
-      mock.module(STORAGE_PATH, () => ({
-        Storage: {
-          read: mock(() => Promise.reject({ name: "NotFoundError" })),
-          NotFoundError: {
-            isInstance: (e: any) => e.name === "NotFoundError",
-          },
-        },
-      }))
-
-      const state = await ProjectStateStorage.read("proj-1")
+      await using tmp = await tmpdir()
+      const state = await ProjectStateStorage.read(tmp.path)
       expect(state).toEqual({
         objectives: [],
         decisions: [],
@@ -50,28 +44,14 @@ describe("tool.project-state", () => {
         learnings: [],
         todos: [],
       }
-      let saved: any = null
+      await using tmp = await tmpdir()
+      const stateFile = getStateFile(tmp.path)
+      await fs.mkdir(path.dirname(stateFile), { recursive: true })
+      await Bun.write(stateFile, JSON.stringify(existing, null, 2))
 
-      // Use a local mock function to capture the data correctly
-      const writeMock = mock((_key, data) => { 
-        saved = data; 
-        return Promise.resolve() 
-      })
-
-      mock.module(STORAGE_PATH, () => ({
-        Storage: {
-          read: mock(() => Promise.resolve(existing)),
-          write: writeMock,
-        },
-      }))
-
-      // Import the tool AFTER the mock is registered to ensure it uses the mock
-      // However, ProjectStateStorage is already imported. 
-      // In Bun, we need to ensure the module is re-evaluated or the mock is properly bound.
-      
-      const updated = await ProjectStateStorage.write("proj-1", { objectives: ["new"] })
+      const updated = await ProjectStateStorage.write(tmp.path, { objectives: ["new"] })
       expect(updated.objectives).toEqual(["new"])
-      expect(saved).not.toBeNull()
+      const saved = await Bun.file(stateFile).json()
       expect(saved.objectives).toEqual(["new"])
       expect(saved.lastUpdated).toBeDefined()
     })
@@ -106,7 +86,7 @@ describe("tool.project-state", () => {
       mock.module(STORAGE_PATH, () => ({
         Storage: {
           read: mock(() => Promise.reject({ name: "NotFoundError" })),
-          write: mock(() => Promise.resolve()), // Added to prevent Project.fromDirectory failure
+          write: mock(() => Promise.resolve()),
           NotFoundError: { isInstance: (e: any) => e.name === "NotFoundError" },
         },
       }))
@@ -128,11 +108,12 @@ describe("tool.project-state", () => {
           get: mock(() => Promise.resolve({ id: "root", parentID: undefined })),
         },
       }))
-      
+
       mock.module(STORAGE_PATH, () => ({
         Storage: {
-          read: mock(() => Promise.resolve({ objectives: [], decisions: [], learnings: [], todos: [] })),
+          read: mock(() => Promise.reject({ name: "NotFoundError" })),
           write: mock(() => Promise.resolve()),
+          NotFoundError: { isInstance: (e: any) => e.name === "NotFoundError" },
         },
       }))
 

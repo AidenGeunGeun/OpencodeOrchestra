@@ -256,9 +256,9 @@
     },
     "packages/opencode": {
       "name": "@skybluejacket/oco",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "bin": {
-        "oco": "./bin/opencode",
+        "oco": "./bin/oco",
       },
       "dependencies": {
         "@actions/core": "1.11.1",
