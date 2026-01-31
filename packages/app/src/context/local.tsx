@@ -64,6 +64,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       }
     }
 
+    const [ephemeral, setEphemeral] = createStore<{
+      model: Record<string, ModelKey | undefined>
+    }>({
+      model: {},
+    })
+
     const agent = (() => {
       const list = createMemo(() => sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden))
       const [store, setStore] = createStore<{
@@ -125,12 +131,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           variant: {},
         }),
       )
-
-      const [ephemeral, setEphemeral] = createStore<{
-        model: Record<string, ModelKey | undefined>
-      }>({
-        model: {},
-      })
 
       const available = createMemo(() =>
         providers.connected().flatMap((p) =>
