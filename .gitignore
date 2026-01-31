@@ -28,6 +28,9 @@ target
 *.tgz
 nul
 
+# Release artifacts
+packages/opencode/release-assets/
+
 # Local dev files
 opencode-dev
 logs/

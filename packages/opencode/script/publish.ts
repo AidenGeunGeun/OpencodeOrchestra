@@ -113,23 +113,37 @@ await Bun.file(`./dist/${pkg.name}/package.json`).write(
 )
 
 const tags = [Script.channel]
-const otp = process.env.NPM_OTP?.trim()
-const otpArg = otp ? `--otp=${otp}` : ""
+
+// Bridge NPM_OTP → NPM_CONFIG_OTP so npm reads it natively from env.
+// This avoids shell interpolation issues with --otp= CLI arg.
+if (process.env.NPM_OTP?.trim() && !process.env.NPM_CONFIG_OTP) {
+  process.env.NPM_CONFIG_OTP = process.env.NPM_OTP.trim()
+}
+
+async function publish(cwd: string) {
+  await $`bun pm pack`.cwd(cwd)
+  for (const tag of tags) {
+    try {
+      await $`npm publish *.tgz --access public --tag ${tag}`.cwd(cwd)
+    } catch (e: any) {
+      const stderr = e?.stderr?.toString() || ""
+      if (stderr.includes("previously published versions") || stderr.includes("EPUBLISHCONFLICT")) {
+        console.log(`⏭ Already published, skipping: ${cwd}`)
+        continue
+      }
+      throw e
+    }
+  }
+}
 
 const tasks = Object.entries(binaries).map(async ([name]) => {
   if (process.platform !== "win32") {
     await $`chmod -R 755 .`.cwd(`./dist/${name}`)
   }
-  await $`bun pm pack`.cwd(`./dist/${name}`)
-  for (const tag of tags) {
-    await $`npm publish *.tgz --access public --tag ${tag} ${otpArg}`.cwd(`./dist/${name}`)
-  }
+  await publish(`./dist/${name}`)
 })
 await Promise.all(tasks)
-await $`bun pm pack`.cwd(`./dist/${pkg.name}`)
-for (const tag of tags) {
-  await $`npm publish *.tgz --access public --tag ${tag} ${otpArg}`.cwd(`./dist/${pkg.name}`)
-}
+await publish(`./dist/${pkg.name}`)
 
 if (!Script.preview) {
   // Create archives for GitHub release
