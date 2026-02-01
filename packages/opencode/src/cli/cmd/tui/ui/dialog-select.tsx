@@ -236,15 +236,18 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                 props.onFilter?.(e)
               })
             }}
-            focusedBackgroundColor={theme.backgroundPanel}
-            cursorColor={theme.primary}
-            focusedTextColor={theme.textMuted}
-            ref={(r) => {
-              input = r
-              setTimeout(() => input.focus(), 1)
-            }}
-            placeholder={props.placeholder ?? "Search"}
-          />
+             focusedBackgroundColor={theme.backgroundPanel}
+             cursorColor={theme.primary}
+             focusedTextColor={theme.textMuted}
+             ref={(r) => {
+               input = r
+               setTimeout(() => {
+                 if (!input || input.isDestroyed) return
+                 input.focus()
+               }, 1)
+             }}
+             placeholder={props.placeholder ?? "Search"}
+           />
         </box>
       </box>
       <Show

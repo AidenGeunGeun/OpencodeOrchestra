@@ -68,11 +68,9 @@ export namespace Agent {
         [Truncate.DIR]: "allow",
         [Truncate.GLOB]: "allow",
       },
-      question: "deny",
-      plan_enter: "deny",
-      plan_exit: "deny",
-      // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
-      read: {
+       question: "deny",
+       // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
+       read: {
         "*": "allow",
         "*.env": "ask",
         "*.env.*": "ask",
@@ -81,31 +79,30 @@ export namespace Agent {
     })
     const user = PermissionNext.fromConfig(cfg.permission ?? {})
 
-    const result: Record<string, Info> = {
-      build: {
+     const result: Record<string, Info> = {
+       build: {
         name: "build",
         options: {},
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
-            plan_enter: "allow",
           }),
           user,
-        ),
-        mode: "primary",
-        native: true,
-        prompt: PROMPT_PM,
-        singleShot: false, // OpenCodeOrchestra: PM persists, must call finish_task
-      },
-      plan: {
+         ),
+         mode: "primary",
+         native: true,
+         color: "#FFC400",
+         prompt: PROMPT_PM,
+         singleShot: false, // OpenCodeOrchestra: PM persists, must call finish_task
+       },
+       plan: {
         name: "plan",
         options: {},
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
-            plan_exit: "allow",
             external_directory: {
               [path.join(Global.Path.data, "plans", "*").replaceAll("\\", "/")]: "allow",
             },
@@ -116,12 +113,14 @@ export namespace Agent {
             },
           }),
           user,
-        ),
-        mode: "primary",
-        native: true,
-        prompt: PROMPT_PM_PLAN,
-        singleShot: false, // OpenCodeOrchestra: Plan mode persists
-      },
+         ),
+         mode: "primary",
+         native: true,
+         hidden: true,
+         color: "#FFC400",
+         prompt: PROMPT_PM,
+         singleShot: false, // OpenCodeOrchestra: Plan mode persists
+       },
 
       compaction: {
         name: "compaction",
@@ -176,7 +175,8 @@ export namespace Agent {
       orchestrator: {
         name: "orchestrator",
         description: "Executes approved specs through phased implementation and sub-agent delegation",
-        mode: "subagent", // Spawnable via task tool
+         color: "#FF6200",
+         mode: "subagent", // Spawnable via task tool
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -195,7 +195,8 @@ export namespace Agent {
       investigator: {
         name: "investigator",
         description: "Codebase analysis. READ-ONLY. FACTS ONLY.",
-        mode: "subagent",
+         color: "#77DD77",
+         mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -215,7 +216,8 @@ export namespace Agent {
       auditor: {
         name: "auditor",
         description: "Code review at @TODO markers. READ-ONLY. PASS/FAIL verdict.",
-        mode: "subagent",
+         color: "#CDB4DB",
+         mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -235,7 +237,8 @@ export namespace Agent {
       researcher: {
         name: "researcher",
         description: "External web research. READ-ONLY. FACTS ONLY.",
-        mode: "subagent",
+         color: "#FFB6C1",
+         mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -255,7 +258,8 @@ export namespace Agent {
       cleanup: {
         name: "cleanup",
         description: "@TODO marker removal ONLY. After Auditor PASS.",
-        mode: "subagent",
+         color: "#80CBC4",
+         mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -276,7 +280,8 @@ export namespace Agent {
       docs: {
         name: "docs",
         description: "Documentation updates. README, AGENTS.md, API docs.",
-        mode: "subagent",
+         color: "#A8D8EA",
+         mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(

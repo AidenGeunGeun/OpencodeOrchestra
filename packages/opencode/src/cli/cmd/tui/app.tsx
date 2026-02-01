@@ -592,6 +592,28 @@ renderer.setTerminalTitle("OpenCodeOrchestra")
           return next
         })
         dialog.clear()
+       },
+     },
+     {
+       title: kv.get("animations_enabled", true) ? "Disable animations" : "Enable animations",
+      value: "app.toggle.animations",
+      category: "System",
+      onSelect: (dialog) => {
+        kv.set("animations_enabled", !kv.get("animations_enabled", true))
+        dialog.clear()
+      },
+    },
+    {
+      title: "Toggle diff wrapping",
+      value: "app.toggle.diffwrap",
+      category: "System",
+      slash: {
+        name: "diffwrap",
+      },
+      onSelect: (dialog) => {
+        const current = kv.get("diff_wrap_mode", "word") as "word" | "none"
+        kv.set("diff_wrap_mode", current === "word" ? "none" : "word")
+        dialog.clear()
       },
     },
   ])

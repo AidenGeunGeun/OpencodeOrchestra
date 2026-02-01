@@ -152,8 +152,9 @@ async function createToolContext(agent: Agent.Info) {
     messageID,
     callID: Identifier.ascending("part"),
     agent: agent.name,
-    abort: new AbortController().signal,
-    metadata: () => {},
+     abort: new AbortController().signal,
+     metadata: () => {},
+     messages: [],
     async ask(req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) {
       for (const pattern of req.patterns) {
         const rule = PermissionNext.evaluate(req.permission, pattern, ruleset)

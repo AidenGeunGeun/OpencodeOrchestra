@@ -24,13 +24,14 @@ export function DialogPrompt(props: DialogPromptProps) {
     }
   })
 
-  onMount(() => {
-    dialog.setSize("medium")
-    setTimeout(() => {
-      textarea.focus()
-    }, 1)
-    textarea.gotoLineEnd()
-  })
+   onMount(() => {
+     dialog.setSize("medium")
+     setTimeout(() => {
+       if (!textarea || textarea.isDestroyed) return
+       textarea.focus()
+     }, 1)
+     textarea.gotoLineEnd()
+   })
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>

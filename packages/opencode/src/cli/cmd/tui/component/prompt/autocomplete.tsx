@@ -344,9 +344,9 @@ export function Autocomplete(props: {
   const commands = createMemo((): AutocompleteOption[] => {
     const results: AutocompleteOption[] = [...command.slashes()]
 
-    for (const serverCommand of sync.data.command) {
-      results.push({
-        display: "/" + serverCommand.name + (serverCommand.mcp ? " (MCP)" : ""),
+     for (const serverCommand of sync.data.command) {
+       results.push({
+         display: "/" + serverCommand.name + (serverCommand.mcp ? " :mcp" : ""),
         description: serverCommand.description,
         onSelect: () => {
           const newText = "/" + serverCommand.name + " "

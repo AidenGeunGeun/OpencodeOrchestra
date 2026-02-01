@@ -102,4 +102,16 @@ export class ACPSessionManager {
     this.sessions.set(sessionId, session)
     return session
   }
+
+   getVariant(sessionId: string): string | undefined {
+    const session = this.get(sessionId)
+    return session.variant
+  }
+
+  setVariant(sessionId: string, variant?: string) {
+    const session = this.get(sessionId)
+    session.variant = variant
+    this.sessions.set(sessionId, session)
+    return session
+  }
 }

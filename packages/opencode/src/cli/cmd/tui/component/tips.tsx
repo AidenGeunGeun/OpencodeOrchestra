@@ -51,7 +51,7 @@ export function Tips() {
 const TIPS = [
   "Type {highlight}@{/highlight} followed by a filename to fuzzy search and attach files",
   "Start a message with {highlight}!{/highlight} to run shell commands directly (e.g., {highlight}!ls -la{/highlight})",
-  "Press {highlight}Tab{/highlight} to cycle between Build and Plan agents",
+  "Press {highlight}Tab{/highlight} to cycle between PM and Orchestrator agents",
   "Use {highlight}/undo{/highlight} to revert the last message and file changes",
   "Use {highlight}/redo{/highlight} to restore previously undone messages and file changes",
   "Run {highlight}/share{/highlight} to create a public link to your conversation at opencode.ai",
@@ -77,7 +77,7 @@ const TIPS = [
   "Press {highlight}Shift+Enter{/highlight} or {highlight}Ctrl+J{/highlight} to add newlines in your prompt",
   "Press {highlight}Ctrl+C{/highlight} when typing to clear the input field",
   "Press {highlight}Escape{/highlight} to stop the AI mid-response",
-  "Switch to {highlight}Plan{/highlight} agent to get suggestions without making actual changes",
+  "The {highlight}PM{/highlight} agent handles both planning and building in a unified workflow",
   "Use {highlight}@agent-name{/highlight} in prompts to invoke specialized subagents",
   "Press {highlight}Ctrl+X Right/Left{/highlight} to cycle through parent and child sessions",
   "Create {highlight}opencode.json{/highlight} in project root for project-specific settings",

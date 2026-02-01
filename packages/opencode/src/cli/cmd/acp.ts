@@ -19,8 +19,9 @@ export const AcpCommand = cmd({
       default: process.cwd(),
     })
   },
-  handler: async (args) => {
-    await bootstrap(process.cwd(), async () => {
+   handler: async (args) => {
+     process.env.OPENCODE_CLIENT = "acp"
+     await bootstrap(process.cwd(), async () => {
       const opts = await resolveNetworkOptions(args)
       const server = Server.listen(opts)
 

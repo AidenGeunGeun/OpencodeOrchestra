@@ -92,9 +92,11 @@ export function Prompt(props: PromptProps) {
   const pasteStyleId = syntax().getStyleId("extmark.paste")!
   let promptPartTypeId = 0
 
-  sdk.event.on(TuiEvent.PromptAppend.type, (evt) => {
+   sdk.event.on(TuiEvent.PromptAppend.type, (evt) => {
+     if (!input || input.isDestroyed) return
     input.insertText(evt.properties.text)
     setTimeout(() => {
+      if (!input || input.isDestroyed) return
       input.getLayoutNode().markDirty()
       input.gotoBufferEnd()
       renderer.requestRender()
@@ -355,9 +357,10 @@ const lastUserMessage = createMemo(() => {
     },
   }
 
-  createEffect(() => {
-    if (props.visible !== false) input?.focus()
-    if (props.visible === false) input?.blur()
+   createEffect(() => {
+     if (!input || input.isDestroyed) return
+    if (props.visible !== false) input.focus()
+    if (props.visible === false) input.blur()
   })
 
   function restoreExtmarksFromParts(parts: PromptInfo["parts"]) {
@@ -952,7 +955,7 @@ sdk.client.session
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1}>
               <text fg={highlight()}>
-                {store.mode === "shell" ? "Shell" : Locale.titlecase(effectiveAgent())}{" "}
+                {store.mode === "shell" ? "Shell" : (effectiveAgent() === "build" || effectiveAgent() === "plan" ? "PM" : Locale.titlecase(effectiveAgent()))}{" "}
               </text>
               <Show when={store.mode === "normal"}>
                 <box flexDirection="row" gap={1}>

@@ -146,9 +146,8 @@ export function Session() {
   const [timestamps, setTimestamps] = kv.signal<"hide" | "show">("timestamps", "hide")
   const [showDetails, setShowDetails] = kv.signal("tool_details_visibility", true)
   const [showAssistantMetadata, setShowAssistantMetadata] = kv.signal("assistant_metadata_visibility", true)
-  const [showScrollbar, setShowScrollbar] = kv.signal("scrollbar_visible", false)
-  const [diffWrapMode, setDiffWrapMode] = createSignal<"word" | "none">("word")
-  const [animationsEnabled, setAnimationsEnabled] = kv.signal("animations_enabled", true)
+   const [showScrollbar, setShowScrollbar] = kv.signal("scrollbar_visible", false)
+   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -206,27 +205,10 @@ export function Session() {
   createEffect(() => {
     if (route.initialPrompt && prompt) {
       prompt.set(route.initialPrompt)
-    }
-  })
+     }
+   })
 
-  let lastSwitch: string | undefined = undefined
-  sdk.event.on("message.part.updated", (evt) => {
-    const part = evt.properties.part
-    if (part.type !== "tool") return
-    if (part.sessionID !== route.sessionID) return
-    if (part.state.status !== "completed") return
-    if (part.id === lastSwitch) return
-
-     if (part.tool === "plan_exit") {
-      local.agent.set("build")
-      lastSwitch = part.id
-    } else if (part.tool === "plan_enter") {
-      local.agent.set("plan")
-      lastSwitch = part.id
-    }
-  })
-
-  let scroll: ScrollBoxRenderable
+   let scroll: ScrollBoxRenderable
   let prompt: PromptRef
   const keybind = useKeybind()
 
@@ -285,11 +267,12 @@ export function Session() {
     dialog.clear()
   }
 
-  function toBottom() {
-    setTimeout(() => {
-      if (scroll) scroll.scrollTo(scroll.scrollHeight)
-    }, 50)
-  }
+   function toBottom() {
+     setTimeout(() => {
+       if (!scroll || scroll.isDestroyed) return
+       scroll.scrollTo(scroll.scrollHeight)
+     }, 50)
+   }
 
   const local = useLocal()
 
@@ -565,63 +548,11 @@ export function Session() {
       },
       onSelect: (dialog) => {
         setShowThinking((prev) => !prev)
-        dialog.clear()
-      },
-    },
-    {
-      title: "Toggle diff wrapping",
-      value: "session.toggle.diffwrap",
-      category: "Session",
-      slash: {
-        name: "diffwrap",
-      },
-      onSelect: (dialog) => {
-        setDiffWrapMode((prev) => (prev === "word" ? "none" : "word"))
-        dialog.clear()
-      },
-    },
-    {
-      title: showDetails() ? "Hide tool details" : "Show tool details",
-      value: "session.toggle.actions",
-      keybind: "tool_details",
-      category: "Session",
-      onSelect: (dialog) => {
-        setShowDetails((prev) => !prev)
-        dialog.clear()
-      },
-    },
-    {
-      title: "Toggle session scrollbar",
-      value: "session.toggle.scrollbar",
-      keybind: "scrollbar_toggle",
-      category: "Session",
-      onSelect: (dialog) => {
-        setShowScrollbar((prev) => !prev)
-        dialog.clear()
-      },
-    },
-    {
-      title: animationsEnabled() ? "Disable animations" : "Enable animations",
-      value: "session.toggle.animations",
-      category: "Session",
-      onSelect: (dialog) => {
-        setAnimationsEnabled((prev) => !prev)
-        dialog.clear()
-      },
-    },
-    {
-      title: "Page up",
-      value: "session.page.up",
-      keybind: "messages_page_up",
-      category: "Session",
-      hidden: true,
-      onSelect: (dialog) => {
-        scroll.scrollBy(-scroll.height / 2)
-        dialog.clear()
-      },
-    },
-    {
-      title: "Page down",
+         dialog.clear()
+       },
+     },
+     {
+       title: "Page down",
       value: "session.page.down",
       keybind: "messages_page_down",
       category: "Session",
@@ -1359,7 +1290,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
               >
                 ▣{" "}
               </span>{" "}
-              <span style={{ fg: theme.text }}>{Locale.titlecase(props.message.mode)}</span>
+              <span style={{ fg: theme.text }}>{props.message.mode === "build" || props.message.mode === "plan" ? "PM" : Locale.titlecase(props.message.mode)}</span>
               <span style={{ fg: theme.textMuted }}> · {props.message.modelID}</span>
               <Show when={duration()}>
                 <span style={{ fg: theme.textMuted }}> · {Locale.duration(duration())}</span>

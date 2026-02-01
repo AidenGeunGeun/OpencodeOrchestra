@@ -31,13 +31,12 @@ export const { use: useKeybind, provider: KeybindProvider } = createSimpleContex
         focus = renderer.currentFocusedRenderable
         focus?.blur()
         if (timeout) clearTimeout(timeout)
-        timeout = setTimeout(() => {
-          if (!store.leader) return
-          leader(false)
-          if (focus) {
-            focus.focus()
-          }
-        }, 2000)
+         timeout = setTimeout(() => {
+           if (!store.leader) return
+           leader(false)
+           if (!focus || focus.isDestroyed) return
+           focus.focus()
+         }, 2000)
         return
       }
 

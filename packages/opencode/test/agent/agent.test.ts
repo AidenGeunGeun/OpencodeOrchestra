@@ -493,7 +493,7 @@ test("defaultAgent returns build when no default_agent config", async () => {
   })
 })
 
-test("defaultAgent respects default_agent config set to plan", async () => {
+test("defaultAgent throws when default_agent set to plan (plan is hidden)", async () => {
   await using tmp = await tmpdir({
     config: {
        default_agent: "plan",
@@ -502,8 +502,8 @@ test("defaultAgent respects default_agent config set to plan", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agent = await Agent.defaultAgent()
-      expect(agent).toBe("plan")
+      // plan is hidden (unified under PM), so setting it as default should throw
+      await expect(Agent.defaultAgent()).rejects.toThrow('default agent "plan" is hidden')
     },
   })
 })
@@ -576,7 +576,7 @@ test("defaultAgent throws when default_agent points to non-existent agent", asyn
   })
 })
 
-test("defaultAgent returns plan when build is disabled and default_agent not set", async () => {
+test("defaultAgent throws when build is disabled and plan is hidden", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
@@ -587,9 +587,9 @@ test("defaultAgent returns plan when build is disabled and default_agent not set
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const agent = await Agent.defaultAgent()
-      // build is disabled, so it should return plan (next primary agent)
-      expect(agent).toBe("plan")
+      // build is disabled and plan is hidden (unified under PM),
+      // so no primary visible agent remains
+      await expect(Agent.defaultAgent()).rejects.toThrow("no primary visible agent found")
     },
   })
 })

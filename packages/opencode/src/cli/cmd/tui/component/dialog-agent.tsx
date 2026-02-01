@@ -35,17 +35,16 @@ export function DialogAgent() {
       if (agent) {
         return [{
           value: agent.name,
-          title: agent.name,
+          title: agent.name === "build" || agent.name === "plan" ? "PM" : agent.name,
           description: agent.native ? "locked" : agent.description,
         }]
       }
-    }
-    
-    // Normal case: show all primary agents
-    return local.agent.list().map((item) => {
+     }
+     
+     return local.agent.list().map((item) => {
       return {
         value: item.name,
-        title: item.name,
+        title: item.name === "build" || item.name === "plan" ? "PM" : item.name,
         description: item.native ? "native" : item.description,
       }
     })
