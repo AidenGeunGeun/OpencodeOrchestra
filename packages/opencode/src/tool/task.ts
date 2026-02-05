@@ -296,7 +296,7 @@ return await Session.create({
             todoread: false,
             finish_task: true, // Enable finish_task for orchestrators
             ...(hasTaskPermission ? {} : { task: false }),
-            ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
+            // primary_tools (DCP: compress/distill/prune) intentionally NOT denied for depth-1 orchestrators
           },
           parts: promptParts,
         }).catch((error) => {
