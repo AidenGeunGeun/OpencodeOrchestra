@@ -33,6 +33,8 @@ export const ProjectStateSchema = z.object({
 
 export type ProjectState = z.infer<typeof ProjectStateSchema>
 
+const projectStateSectionSchema = z.enum(["objectives", "decisions", "learnings", "todos"])
+
 /**
  * Project State storage namespace
  */
@@ -103,6 +105,13 @@ async function isPM(ctx: { sessionID: string }): Promise<boolean> {
 // ============================================================================
 
 export const ProjectStateReadTool = Tool.define("project_state_read", async (ctx) => {
+  const readParameters = z.object({
+    section: z
+      .union([projectStateSectionSchema, z.array(projectStateSectionSchema)])
+      .optional()
+      .describe("Optional section(s) to return. If omitted, returns full state."),
+  })
+
   return {
     description: `Read the current project state. This tool is ONLY available to PM (depth 0).
 
@@ -115,8 +124,8 @@ Returns:
 - todos: Task items and their status
 
 Use this at session start to restore context from previous sessions.`,
-    parameters: z.object({}),
-    async execute(_params: z.infer<z.ZodObject<{}>>, ctx) {
+    parameters: readParameters,
+    async execute(params: z.infer<typeof readParameters>, ctx) {
       // Enforce PM-only
       const pmCheck = await isPM(ctx)
       if (!pmCheck) {
@@ -125,14 +134,25 @@ Use this at session start to restore context from previous sessions.`,
 
       const projectRoot = getProjectRoot()
       const state = await ProjectStateStorage.read(projectRoot)
+      const stateFile = path.join(projectRoot, ".opencode", "project-state.json")
+
+      let outputState: Record<string, unknown>
+      if (params.section) {
+        const sections = Array.isArray(params.section) ? params.section : [params.section]
+        outputState = {}
+        for (const section of sections) {
+          outputState[section] = state[section]
+        }
+      } else {
+        outputState = state
+      }
 
       log.info("project_state_read executed", { projectRoot, sessionID: ctx.sessionID })
-      const stateFile = path.join(projectRoot, ".opencode", "project-state.json")
 
       return {
         title: "Project State",
         metadata: { projectRoot, stateFile },
-        output: JSON.stringify(state, null, 2),
+        output: JSON.stringify(outputState),
       }
     },
   }
@@ -171,6 +191,30 @@ const writeParameters = z.object({
     }))
     .optional()
     .describe("Task items and progress. Replaces existing todos."),
+  addDecisions: z
+    .array(z.object({
+      decision: z.string().describe("The decision made"),
+      rationale: z.string().describe("Why this decision was made"),
+      timestamp: z.string().describe("When the decision was made (ISO format)"),
+    }))
+    .optional()
+    .describe("Append new decisions without replacing existing ones."),
+  addLearnings: z
+    .array(z.object({
+      topic: z.string().describe("Topic or area of the learning"),
+      insight: z.string().describe("The insight or knowledge gained"),
+    }))
+    .optional()
+    .describe("Append new learnings without replacing existing ones."),
+  addTodos: z
+    .array(z.object({
+      id: z.string().describe("Unique ID for the todo item"),
+      task: z.string().describe("Description of the task"),
+      status: z.enum(["pending", "in_progress", "completed", "cancelled"]).describe("Current status"),
+      priority: z.enum(["high", "medium", "low"]).describe("Priority level"),
+    }))
+    .optional()
+    .describe("Append new todos without replacing existing ones."),
 })
 
 export const ProjectStateWriteTool = Tool.define("project_state_write", async (ctx) => {
@@ -196,18 +240,33 @@ This state persists across sessions.`,
       }
 
       const projectRoot = getProjectRoot()
-      const updated = await ProjectStateStorage.write(projectRoot, params)
+      const { addDecisions, addLearnings, addTodos, ...writeState } = params
+
+      if (addDecisions || addLearnings || addTodos) {
+        const current = await ProjectStateStorage.read(projectRoot)
+        if (addDecisions) {
+          writeState.decisions = [...(writeState.decisions ?? current.decisions), ...addDecisions]
+        }
+        if (addLearnings) {
+          writeState.learnings = [...(writeState.learnings ?? current.learnings), ...addLearnings]
+        }
+        if (addTodos) {
+          writeState.todos = [...(writeState.todos ?? current.todos), ...addTodos]
+        }
+      }
+
+      const updated = await ProjectStateStorage.write(projectRoot, writeState)
 
       log.info("project_state_write executed", { 
         projectRoot, 
         sessionID: ctx.sessionID,
-        updatedFields: Object.keys(params).filter(k => params[k as keyof typeof params] !== undefined),
+        updatedFields: Object.keys(writeState).filter((k) => writeState[k as keyof typeof writeState] !== undefined),
       })
 
       return {
         title: "Project State Updated",
         metadata: { projectRoot, lastUpdated: updated.lastUpdated },
-        output: `Project state updated successfully.\n\nCurrent state:\n${JSON.stringify(updated, null, 2)}`,
+        output: "Project state updated successfully.",
       }
     },
   }

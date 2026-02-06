@@ -10,7 +10,7 @@ import { ProviderTransform } from "../provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
-
+import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import PROMPT_PM from "./prompt/pm.txt"
@@ -25,6 +25,8 @@ import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
 import { Global } from "@/global"
 import path from "path"
+import { Plugin } from "@/plugin"
+import { Skill } from "../skill"
 
 export namespace Agent {
   export const Info = z
@@ -44,6 +46,7 @@ export namespace Agent {
           providerID: z.string(),
         })
         .optional(),
+      variant: z.string().optional(),
       prompt: z.string().optional(),
       options: z.record(z.string(), z.any()),
       steps: z.number().int().positive().optional(),
@@ -60,6 +63,7 @@ export namespace Agent {
   const state = Instance.state(async () => {
     const cfg = await Config.get()
 
+    const skillDirs = await Skill.dirs()
     const defaults = PermissionNext.fromConfig({
       "*": "allow",
       doom_loop: "ask",
@@ -67,8 +71,11 @@ export namespace Agent {
         "*": "ask",
         [Truncate.DIR]: "allow",
         [Truncate.GLOB]: "allow",
+        ...Object.fromEntries(skillDirs.map((dir) => [path.join(dir, "*"), "allow"])),
       },
        question: "deny",
+       plan_enter: "deny",
+       plan_exit: "deny",
        // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
        read: {
         "*": "allow",
@@ -83,10 +90,11 @@ export namespace Agent {
        build: {
         name: "build",
         options: {},
-        permission: PermissionNext.merge(
+         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
+            plan_enter: "allow",
           }),
           user,
          ),
@@ -103,6 +111,7 @@ export namespace Agent {
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
+            plan_exit: "allow",
             external_directory: {
               [path.join(Global.Path.data, "plans", "*").replaceAll("\\", "/")]: "allow",
             },
@@ -121,6 +130,49 @@ export namespace Agent {
          prompt: PROMPT_PM,
          singleShot: false, // OpenCodeOrchestra: Plan mode persists
        },
+      general: {
+        name: "general",
+        description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            todoread: "deny",
+            todowrite: "deny",
+          }),
+          user,
+        ),
+        options: {},
+        mode: "subagent",
+        native: true,
+        singleShot: true,
+      },
+      explore: {
+        name: "explore",
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            grep: "allow",
+            glob: "allow",
+            list: "allow",
+            bash: "allow",
+            webfetch: "allow",
+            websearch: "allow",
+            codesearch: "allow",
+            read: "allow",
+            external_directory: {
+              [Truncate.GLOB]: "allow",
+            },
+          }),
+          user,
+        ),
+        description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
+        prompt: PROMPT_EXPLORE,
+        options: {},
+        mode: "subagent",
+        native: true,
+        singleShot: true,
+      },
 
       compaction: {
         name: "compaction",
@@ -326,6 +378,7 @@ export namespace Agent {
       item.hidden = value.hidden ?? item.hidden
       item.name = value.name ?? item.name
       item.steps = value.steps ?? item.steps
+      item.variant = value.variant ?? item.variant
       item.singleShot = value.single_shot ?? item.singleShot // OpenCodeOrchestra: Config override
       item.options = mergeDeep(item.options, value.options ?? {})
       item.permission = PermissionNext.merge(item.permission, PermissionNext.fromConfig(value.permission ?? {}))
@@ -386,8 +439,8 @@ export namespace Agent {
     const model = await Provider.getModel(defaultModel.providerID, defaultModel.modelID)
     const language = await Provider.getLanguage(model)
 
-    const system = SystemPrompt.header(defaultModel.providerID)
-    system.push(PROMPT_GENERATE)
+    const system = [PROMPT_GENERATE]
+    await Plugin.trigger("experimental.chat.system.transform", { model }, { system })
     const existing = await list()
 
     const params = {

@@ -19,7 +19,12 @@ const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
   prompt: z.string().describe("The task for the agent to perform"),
   subagent_type: z.string().describe("The type of specialized agent to use for this task"),
-  session_id: z.string().describe("Existing Task session to continue").optional(),
+  task_id: z
+    .string()
+    .describe(
+      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+    )
+    .optional(),
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
@@ -107,8 +112,8 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       })
 
       const session = await iife(async () => {
-        if (params.session_id) {
-          const found = await Session.get(params.session_id).catch(() => {})
+        if (params.task_id) {
+          const found = await Session.get(params.task_id).catch(() => {})
           if (found) return found
         }
 
@@ -230,7 +235,13 @@ return await Session.create({
           }))
         const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
 
-        const output = text + "\n\n" + ["<task_metadata>", `session_id: ${session.id}`, "</task_metadata>"].join("\n")
+        const output = [
+          `task_id: ${session.id} (for resuming to continue this task if needed)`,
+          "",
+          "<task_result>",
+          text,
+          "</task_result>",
+        ].join("\n")
 
         return {
           title: params.description,
@@ -331,7 +342,13 @@ return await Session.create({
           output: `[${result.status.toUpperCase()}] ${result.summary}` + 
             (result.learnings?.length ? 
               "\n\nLearnings:\n" + result.learnings.map(l => `- ${l}`).join("\n") : "") +
-            "\n\n" + ["<task_metadata>", `session_id: ${session.id}`, "</task_metadata>"].join("\n"),
+            "\n\n" + [
+              `task_id: ${session.id} (for resuming to continue this task if needed)`,
+              "",
+              "<task_result>",
+              `[${result.status.toUpperCase()}] ${result.summary}`,
+              "</task_result>",
+            ].join("\n"),
         }
       }
     },

@@ -1050,6 +1050,11 @@ export namespace Config {
           prune: z.boolean().optional().describe("Enable pruning of old tool outputs (default: true)"),
         })
         .optional(),
+      skills: z
+        .object({
+          paths: z.string().array().optional().describe("Additional directories to scan for skills"),
+        })
+        .optional(),
       experimental: z
         .object({
           hook: z
@@ -1369,5 +1374,11 @@ export namespace Config {
 
   export async function directories() {
     return state().then((x) => x.directories)
+  }
+
+  export async function waitForDependencies() {
+    // Stub: upstream Config tracks dependency install promises.
+    // Orchestra does not yet dynamically install plugin deps at runtime,
+    // so this is a no-op that keeps call-sites compatible.
   }
 }
