@@ -713,6 +713,14 @@ export namespace SessionPrompt {
               args,
             },
           )
+          // Enforce permission check for plugin tools (same as MCP tools)
+          // Without this, plugin tools bypass agent permission rules entirely
+          await ctx.ask({
+            permission: item.id,
+            metadata: {},
+            patterns: ["*"],
+            always: ["*"],
+          })
           const result = await item.execute(args, ctx)
           await Plugin.trigger(
             "tool.execute.after",
