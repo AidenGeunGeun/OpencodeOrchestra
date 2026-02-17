@@ -24,6 +24,11 @@ target
 
 # OpenCode local state
 .opencode/
+.code-intel/
+**/.code-intel/
+
+# Large files
+*.zip
 **/.npmrc
 *.tgz
 nul

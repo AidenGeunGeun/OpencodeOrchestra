@@ -89,26 +89,6 @@ describe("tool.registry", () => {
         const tools = await ToolRegistry.tools({ providerID: "openai", modelID: "gpt-5.3-codex" }, orchestrator)
         const ids = tools.map((tool) => tool.id)
 
-        expect(ids).not.toContain("project_state_read")
-        expect(ids).not.toContain("project_state_write")
-      },
-    })
-  }, SLOW_TIMEOUT_MS)
-
-  test("includes project state tools for PM agent", async () => {
-    await using tmp = await tmpdir()
-
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const pm = await Agent.get("build")
-        expect(pm).toBeDefined()
-
-        const tools = await ToolRegistry.tools({ providerID: "openai", modelID: "gpt-5.3-codex" }, pm)
-        const ids = tools.map((tool) => tool.id)
-
-        expect(ids).toContain("project_state_read")
-        expect(ids).toContain("project_state_write")
       },
     })
   }, SLOW_TIMEOUT_MS)

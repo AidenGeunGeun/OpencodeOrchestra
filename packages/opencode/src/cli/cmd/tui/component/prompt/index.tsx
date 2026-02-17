@@ -1,5 +1,5 @@
 import { BoxRenderable, TextareaRenderable, MouseEvent, PasteEvent, t, dim, fg } from "@opentui/core"
-import { createEffect, createMemo, type JSX, onMount, createSignal, onCleanup, Show, Switch, Match } from "solid-js"
+import { createEffect, createMemo, type JSX, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
 import "opentui-spinner/solid"
 import { useLocal } from "@tui/context/local"
 import { useTheme } from "@tui/context/theme"
@@ -31,6 +31,7 @@ import { DialogAlert } from "../../ui/dialog-alert"
 import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { useTextareaKeybindings } from "../textarea-keybindings"
+import { DialogSkill } from "../dialog-skill"
 
 export type PromptProps = {
   sessionID?: string
@@ -53,6 +54,7 @@ export type PromptRef = {
 }
 
 const PLACEHOLDERS = ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"]
+const SHELL_PLACEHOLDERS = ["ls -la", "git status", "pwd"]
 
 export function Prompt(props: PromptProps) {
   let input: TextareaRenderable
@@ -92,10 +94,11 @@ export function Prompt(props: PromptProps) {
   const pasteStyleId = syntax().getStyleId("extmark.paste")!
   let promptPartTypeId = 0
 
-   sdk.event.on(TuiEvent.PromptAppend.type, (evt) => {
-     if (!input || input.isDestroyed) return
+  sdk.event.on(TuiEvent.PromptAppend.type, (evt) => {
+    if (!input || input.isDestroyed) return
     input.insertText(evt.properties.text)
     setTimeout(() => {
+      // setTimeout is a workaround and needs to be addressed properly
       if (!input || input.isDestroyed) return
       input.getLayoutNode().markDirty()
       input.gotoBufferEnd()
@@ -108,14 +111,13 @@ export function Prompt(props: PromptProps) {
     if (!props.disabled) input.cursorColor = theme.text
   })
 
-const lastUserMessage = createMemo(() => {
+  const lastUserMessage = createMemo(() => {
     if (!props.sessionID) return undefined
     const messages = sync.data.message[props.sessionID]
     if (!messages) return undefined
     return messages.findLast((m) => m.role === "user")
   })
 
-  // OpenCodeOrchestra: Get agent name from session.agentID if set, otherwise use local.agent
   const effectiveAgent = createMemo(() => {
     if (!props.sessionID) return local.agent.current().name
     const session = sync.session.get(props.sessionID)
@@ -138,6 +140,16 @@ const lastUserMessage = createMemo(() => {
     extmarkToPartIndex: new Map(),
     interrupt: 0,
   })
+
+  createEffect(
+    on(
+      () => props.sessionID,
+      () => {
+        setStore("placeholder", Math.floor(Math.random() * PLACEHOLDERS.length))
+      },
+      { defer: true },
+    ),
+  )
 
   // Initialize agent/model/variant from last user message when session changes
   let syncedSessionID: string | undefined
@@ -321,6 +333,28 @@ const lastUserMessage = createMemo(() => {
           input.cursorOffset = Bun.stringWidth(content)
         },
       },
+      {
+        title: "Skills",
+        value: "prompt.skills",
+        category: "Prompt",
+        slash: {
+          name: "skills",
+        },
+        onSelect: () => {
+          dialog.replace(() => (
+            <DialogSkill
+              onSelect={(skill) => {
+                input.setText(`/${skill} `)
+                setStore("prompt", {
+                  input: `/${skill} `,
+                  parts: [],
+                })
+                input.gotoBufferEnd()
+              }}
+            />
+          ))
+        },
+      },
     ]
   })
 
@@ -357,10 +391,9 @@ const lastUserMessage = createMemo(() => {
     },
   }
 
-   createEffect(() => {
-     if (!input || input.isDestroyed) return
-    if (props.visible !== false) input.focus()
-    if (props.visible === false) input.blur()
+  createEffect(() => {
+    if (props.visible !== false) input?.focus()
+    if (props.visible === false) input?.blur()
   })
 
   function restoreExtmarksFromParts(parts: PromptInfo["parts"]) {
@@ -543,7 +576,7 @@ const lastUserMessage = createMemo(() => {
     const variant = local.model.variant.current()
 
     if (store.mode === "shell") {
-sdk.client.session.shell({
+      sdk.client.session.shell({
         sessionID,
         agent: effectiveAgent(),
         model: {
@@ -568,7 +601,7 @@ sdk.client.session.shell({
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-sdk.client.session.command({
+      sdk.client.session.command({
         sessionID,
         command: command.slice(1),
         arguments: args,
@@ -584,7 +617,7 @@ sdk.client.session.command({
           })),
       })
     } else {
-sdk.client.session
+      sdk.client.session
         .prompt({
           sessionID,
           ...selectedModel,
@@ -720,6 +753,15 @@ sdk.client.session
     return !!current
   })
 
+  const placeholderText = createMemo(() => {
+    if (props.sessionID) return undefined
+    if (store.mode === "shell") {
+      const example = SHELL_PLACEHOLDERS[store.placeholder % SHELL_PLACEHOLDERS.length]
+      return `Run a command... "${example}"`
+    }
+    return `Ask anything... "${PLACEHOLDERS[store.placeholder % PLACEHOLDERS.length]}"`
+  })
+
   const spinnerDef = createMemo(() => {
     const color = local.agent.color(effectiveAgent())
     return {
@@ -781,7 +823,7 @@ sdk.client.session
             flexGrow={1}
           >
             <textarea
-              placeholder={props.sessionID ? undefined : `Ask anything... "${PLACEHOLDERS[store.placeholder]}"`}
+              placeholder={placeholderText()}
               textColor={keybind.leader ? theme.textMuted : theme.text}
               focusedTextColor={keybind.leader ? theme.textMuted : theme.text}
               minHeight={1}
@@ -834,6 +876,7 @@ sdk.client.session
                   }
                 }
                 if (e.name === "!" && input.visualCursor.offset === 0) {
+                  setStore("placeholder", Math.floor(Math.random() * SHELL_PLACEHOLDERS.length))
                   setStore("mode", "shell")
                   e.preventDefault()
                   return
@@ -934,6 +977,8 @@ sdk.client.session
 
                 // Force layout update and render for the pasted content
                 setTimeout(() => {
+                  // setTimeout is a workaround and needs to be addressed properly
+                  if (!input || input.isDestroyed) return
                   input.getLayoutNode().markDirty()
                   renderer.requestRender()
                 }, 0)
@@ -945,6 +990,8 @@ sdk.client.session
                 }
                 props.ref?.(ref)
                 setTimeout(() => {
+                  // setTimeout is a workaround and needs to be addressed properly
+                  if (!input || input.isDestroyed) return
                   input.cursorColor = theme.text
                 }, 0)
               }}
@@ -955,7 +1002,11 @@ sdk.client.session
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1}>
               <text fg={highlight()}>
-                {store.mode === "shell" ? "Shell" : (effectiveAgent() === "build" || effectiveAgent() === "plan" ? "PM" : Locale.titlecase(effectiveAgent()))}{" "}
+                {store.mode === "shell"
+                  ? "Shell"
+                  : effectiveAgent() === "build" || effectiveAgent() === "plan"
+                    ? "PM"
+                    : Locale.titlecase(effectiveAgent())}{" "}
               </text>
               <Show when={store.mode === "normal"}>
                 <box flexDirection="row" gap={1}>

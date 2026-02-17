@@ -125,11 +125,6 @@
     - Risks: potential issues and mitigations
   </spec-format>
 
-  <state>
-    Read project_state at session start to restore context.
-    Write on: decision made, task completed, insight discovered, session ending.
-    State arrays are replaced on write — always include existing entries to keep.
-  </state>
 
   <stop-conditions>
     - Ambiguous intent → use Ask Question tool or present plausible interpretations. Do not guess.

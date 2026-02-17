@@ -1,10 +1,25 @@
 export const dict = {
   "ui.sessionReview.title": "Zmiany w sesji",
+  "ui.sessionReview.title.lastTurn": "Zmiany z ostatniej tury",
   "ui.sessionReview.diffStyle.unified": "Ujednolicony",
   "ui.sessionReview.diffStyle.split": "Podzielony",
   "ui.sessionReview.expandAll": "Rozwiń wszystko",
   "ui.sessionReview.collapseAll": "Zwiń wszystko",
 
+  "ui.sessionReview.change.added": "Dodano",
+  "ui.sessionReview.change.removed": "Usunięto",
+  "ui.sessionReview.change.modified": "Zmodyfikowano",
+  "ui.sessionReview.image.loading": "Ładowanie...",
+  "ui.sessionReview.image.placeholder": "Obraz",
+  "ui.sessionReview.largeDiff.title": "Diff jest zbyt duży, aby go wyrenderować",
+  "ui.sessionReview.largeDiff.meta": "Limit: {{lines}} linii / {{limit}}. Obecnie: {{current}}.",
+  "ui.sessionReview.largeDiff.renderAnyway": "Renderuj mimo to",
+  "ui.lineComment.label.prefix": "Komentarz do ",
+  "ui.lineComment.label.suffix": "",
+  "ui.lineComment.editorLabel.prefix": "Komentowanie: ",
+  "ui.lineComment.editorLabel.suffix": "",
+  "ui.lineComment.placeholder": "Dodaj komentarz",
+  "ui.lineComment.submit": "Skomentuj",
   "ui.sessionTurn.steps.show": "Pokaż kroki",
   "ui.sessionTurn.steps.hide": "Ukryj kroki",
   "ui.sessionTurn.summary.response": "Odpowiedź",
@@ -12,6 +27,8 @@ export const dict = {
 
   "ui.sessionTurn.retry.retrying": "ponawianie",
   "ui.sessionTurn.retry.inSeconds": "za {{seconds}}s",
+  "ui.sessionTurn.error.freeUsageExceeded": "Przekroczono limit darmowego użytkowania",
+  "ui.sessionTurn.error.addCredits": "Dodaj kredyty",
 
   "ui.sessionTurn.status.delegating": "Delegowanie pracy",
   "ui.sessionTurn.status.planning": "Planowanie kolejnych kroków",
@@ -46,6 +63,7 @@ export const dict = {
   "ui.imagePreview.alt": "Podgląd obrazu",
 
   "ui.tool.read": "Odczyt",
+  "ui.tool.loaded": "Załadowano",
   "ui.tool.list": "Lista",
   "ui.tool.glob": "Glob",
   "ui.tool.grep": "Grep",

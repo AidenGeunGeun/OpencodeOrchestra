@@ -110,6 +110,8 @@ const MODEL_COLORS: Record<string, string> = {
   "gpt-5": "#7DB8F8",
   "gpt-5-codex": "#9FCAFF",
   "gpt-5-nano": "#B8D8FF",
+  "gpt-5.3-codex": "#5B9EE6",
+  "gpt-5.3-codex-spark": "#FFD700",
   "grok-code": "#8B5CF6",
   "big-pickle": "#10B981",
   "kimi-k2": "#F59E0B",

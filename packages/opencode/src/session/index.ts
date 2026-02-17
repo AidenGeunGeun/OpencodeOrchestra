@@ -10,6 +10,8 @@ import { Flag } from "../flag/flag"
 import { Identifier } from "../id/id"
 import { Installation } from "../installation"
 
+import { Database, NotFoundError, and, desc, eq, isNull, like, sql } from "../storage/db"
+import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { Storage } from "../storage/storage"
 import { Log } from "../util/log"
 import { MessageV2 } from "./message-v2"
@@ -37,6 +39,81 @@ export namespace Session {
     return new RegExp(
       `^(${parentTitlePrefix}|${childTitlePrefix})\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`,
     ).test(title)
+  }
+
+  type SessionRow = typeof SessionTable.$inferSelect
+
+  function sessionAgentKey(sessionID: string) {
+    return ["session_agent", Instance.project.id, sessionID]
+  }
+
+  async function getAgentID(sessionID: string) {
+    return Storage.read<string>(sessionAgentKey(sessionID)).catch(() => undefined)
+  }
+
+  async function setAgentID(sessionID: string, agentID: string | undefined) {
+    if (agentID) {
+      await Storage.write(sessionAgentKey(sessionID), agentID)
+      return
+    }
+    await Storage.remove(sessionAgentKey(sessionID)).catch(() => {})
+  }
+
+  export function fromRow(row: SessionRow): Info {
+    const summary =
+      row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
+        ? {
+            additions: row.summary_additions ?? 0,
+            deletions: row.summary_deletions ?? 0,
+            files: row.summary_files ?? 0,
+            diffs: row.summary_diffs ?? undefined,
+          }
+        : undefined
+    const share = row.share_url ? { url: row.share_url } : undefined
+    const revert = row.revert ?? undefined
+
+    return {
+      id: row.id,
+      slug: row.slug,
+      projectID: row.project_id,
+      directory: row.directory,
+      parentID: row.parent_id ?? undefined,
+      title: row.title,
+      version: row.version,
+      summary,
+      share,
+      revert,
+      permission: row.permission ?? undefined,
+      time: {
+        created: row.time_created,
+        updated: row.time_updated,
+        compacting: row.time_compacting ?? undefined,
+        archived: row.time_archived ?? undefined,
+      },
+    }
+  }
+
+  function toRow(info: Info): typeof SessionTable.$inferInsert {
+    return {
+      id: info.id,
+      project_id: info.projectID,
+      parent_id: info.parentID,
+      slug: info.slug,
+      directory: info.directory,
+      title: info.title,
+      version: info.version,
+      share_url: info.share?.url,
+      summary_additions: info.summary?.additions,
+      summary_deletions: info.summary?.deletions,
+      summary_files: info.summary?.files,
+      summary_diffs: info.summary?.diffs,
+      revert: info.revert ?? null,
+      permission: info.permission,
+      time_created: info.time.created,
+      time_updated: info.time.updated,
+      time_compacting: info.time.compacting,
+      time_archived: info.time.archived,
+    }
   }
 
 export const Info = z
@@ -217,21 +294,20 @@ export async function createNext(input: {
       },
     }
     log.info("created", result)
-    await Storage.write(["session", Instance.project.id, result.id], result)
-    Bus.publish(Event.Created, {
-      info: result,
+    Database.use((db) => {
+      db.insert(SessionTable).values(toRow(result)).run()
+      Database.effect(() =>
+        Bus.publish(Event.Created, {
+          info: result,
+        }),
+      )
     })
+    await setAgentID(result.id, result.agentID)
     const cfg = await Config.get()
     if (!result.parentID && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto"))
-      share(result.id)
-        .then((share) => {
-          update(result.id, (draft) => {
-            draft.share = share
-          })
-        })
-        .catch(() => {
-          // Silently ignore sharing errors during session creation
-        })
+      share(result.id).catch(() => {
+        // Silently ignore sharing errors during session creation
+      })
     Bus.publish(Event.Updated, {
       info: result,
     })
@@ -246,8 +322,11 @@ export async function createNext(input: {
   }
 
   export const get = fn(Identifier.schema("session"), async (id) => {
-    const read = await Storage.read<Info>(["session", Instance.project.id, id])
-    return read as Info
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+    const info = fromRow(row)
+    info.agentID = await getAgentID(id)
+    return info
   })
 
   export const getShare = fn(Identifier.schema("session"), async (id) => {
@@ -261,15 +340,15 @@ export async function createNext(input: {
     }
     const { ShareNext } = await import("@/share/share-next")
     const share = await ShareNext.create(id)
-    await update(
-      id,
-      (draft) => {
-        draft.share = {
-          url: share.url,
-        }
-      },
-      { touch: false },
-    )
+    Database.use((db) => {
+      const row = db.update(SessionTable).set({ share_url: share.url }).where(eq(SessionTable.id, id)).returning().get()
+      if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+      const info = fromRow(row)
+      Database.effect(async () => {
+        info.agentID = await getAgentID(id)
+        Bus.publish(Event.Updated, { info })
+      })
+    })
     return share
   })
 
@@ -277,28 +356,117 @@ export async function createNext(input: {
     // Use ShareNext to remove the share (same as share function uses ShareNext to create)
     const { ShareNext } = await import("@/share/share-next")
     await ShareNext.remove(id)
-    await update(
-      id,
-      (draft) => {
-        draft.share = undefined
-      },
-      { touch: false },
-    )
+    Database.use((db) => {
+      const row = db.update(SessionTable).set({ share_url: null }).where(eq(SessionTable.id, id)).returning().get()
+      if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+      const info = fromRow(row)
+      Database.effect(async () => {
+        info.agentID = await getAgentID(id)
+        Bus.publish(Event.Updated, { info })
+      })
+    })
   })
 
   export async function update(id: string, editor: (session: Info) => void, options?: { touch?: boolean }) {
-    const project = Instance.project
-    const result = await Storage.update<Info>(["session", project.id, id], (draft) => {
+    const existingAgentID = await getAgentID(id)
+    const result = Database.use((db) => {
+      const existing = db.select().from(SessionTable).where(eq(SessionTable.id, id)).get()
+      if (!existing) throw new NotFoundError({ message: `Session not found: ${id}` })
+
+      const draft = fromRow(existing)
+      draft.agentID = existingAgentID
       editor(draft)
       if (options?.touch !== false) {
         draft.time.updated = Date.now()
       }
+
+      const row = db.update(SessionTable).set(toRow(draft)).where(eq(SessionTable.id, id)).returning().get()
+      if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+      const info = fromRow(row)
+      Database.effect(async () => {
+        await setAgentID(id, draft.agentID)
+        info.agentID = draft.agentID
+        Bus.publish(Event.Updated, {
+          info,
+        })
+      })
+      return info
     })
-    Bus.publish(Event.Updated, {
-      info: result,
-    })
+
     return result
   }
+
+  export const setTitle = fn(
+    z.object({
+      sessionID: Identifier.schema("session"),
+      title: z.string(),
+    }),
+    async (input) => {
+      return update(input.sessionID, (draft) => {
+        draft.title = input.title
+      })
+    },
+  )
+
+  export const setArchived = fn(
+    z.object({
+      sessionID: Identifier.schema("session"),
+      time: z.number().optional(),
+    }),
+    async (input) => {
+      return update(
+        input.sessionID,
+        (draft) => {
+          draft.time.archived = input.time
+        },
+        { touch: false },
+      )
+    },
+  )
+
+  export const setPermission = fn(
+    z.object({
+      sessionID: Identifier.schema("session"),
+      permission: PermissionNext.Ruleset,
+    }),
+    async (input) => {
+      return update(input.sessionID, (draft) => {
+        draft.permission = input.permission
+      })
+    },
+  )
+
+  export const setRevert = fn(
+    z.object({
+      sessionID: Identifier.schema("session"),
+      revert: Info.shape.revert,
+      summary: Info.shape.summary,
+    }),
+    async (input) => {
+      return update(input.sessionID, (draft) => {
+        draft.revert = input.revert
+        draft.summary = input.summary
+      })
+    },
+  )
+
+  export const clearRevert = fn(Identifier.schema("session"), async (sessionID) => {
+    return update(sessionID, (draft) => {
+      draft.revert = undefined
+    })
+  })
+
+  export const setSummary = fn(
+    z.object({
+      sessionID: Identifier.schema("session"),
+      summary: Info.shape.summary,
+    }),
+    async (input) => {
+      return update(input.sessionID, (draft) => {
+        draft.summary = input.summary
+      })
+    },
+  )
 
   export const diff = fn(Identifier.schema("session"), async (sessionID) => {
     const diffs = await Storage.read<Snapshot.FileDiff[]>(["session_diff", sessionID])
@@ -321,51 +489,105 @@ export async function createNext(input: {
     },
   )
 
-  export async function* list() {
+  export async function* list(input?: {
+    directory?: string
+    roots?: boolean
+    start?: number
+    search?: string
+    limit?: number
+  }) {
     const project = Instance.project
-    for (const item of await Storage.list(["session", project.id])) {
-      yield Storage.read<Info>(item)
+    const conditions = [eq(SessionTable.project_id, project.id)]
+
+    if (input?.directory) {
+      conditions.push(eq(SessionTable.directory, input.directory))
+    }
+    if (input?.roots) {
+      conditions.push(isNull(SessionTable.parent_id))
+    }
+    if (input?.start !== undefined) {
+      conditions.push(sql`${SessionTable.time_updated} >= ${input.start}`)
+    }
+    if (input?.search) {
+      conditions.push(like(SessionTable.title, `%${input.search}%`))
+    }
+
+    const limit = input?.limit ?? 100
+
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(...conditions))
+        .orderBy(desc(SessionTable.time_updated))
+        .limit(limit)
+        .all(),
+    )
+
+    for (const row of rows) {
+      const info = fromRow(row)
+      info.agentID = await getAgentID(info.id)
+      yield info
     }
   }
 
   export const children = fn(Identifier.schema("session"), async (parentID) => {
     const project = Instance.project
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(SessionTable)
+        .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
+        .all(),
+    )
     const result = [] as Session.Info[]
-    for (const item of await Storage.list(["session", project.id])) {
-      const session = await Storage.read<Info>(item)
-      if (session.parentID !== parentID) continue
-      result.push(session)
+    for (const row of rows) {
+      const info = fromRow(row)
+      info.agentID = await getAgentID(info.id)
+      result.push(info)
     }
     return result
   })
 
   export const remove = fn(Identifier.schema("session"), async (sessionID) => {
-    const project = Instance.project
     try {
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
         await remove(child.id)
       }
       await unshare(sessionID).catch(() => {})
-      for (const msg of await Storage.list(["message", sessionID])) {
-        for (const part of await Storage.list(["part", msg.at(-1)!])) {
-          await Storage.remove(part)
-        }
-        await Storage.remove(msg)
-      }
-      await Storage.remove(["session", project.id, sessionID])
-      Bus.publish(Event.Deleted, {
-        info: session,
+      Database.use((db) => {
+        db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+        Database.effect(() =>
+          Bus.publish(Event.Deleted, {
+            info: session,
+          }),
+        )
       })
+      await setAgentID(sessionID, undefined)
     } catch (e) {
       log.error(e)
     }
   })
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
-    await Storage.write(["message", msg.sessionID, msg.id], msg)
-    Bus.publish(MessageV2.Event.Updated, {
-      info: msg,
+    const time_created = msg.time.created
+    const { id, sessionID, ...data } = msg
+    Database.use((db) => {
+      db.insert(MessageTable)
+        .values({
+          id,
+          session_id: sessionID,
+          time_created,
+          data,
+        })
+        .onConflictDoUpdate({ target: MessageTable.id, set: { data } })
+        .run()
+      Database.effect(() =>
+        Bus.publish(MessageV2.Event.Updated, {
+          info: msg,
+        }),
+      )
     })
     return msg
   })
@@ -376,10 +598,17 @@ export async function createNext(input: {
       messageID: Identifier.schema("message"),
     }),
     async (input) => {
-      await Storage.remove(["message", input.sessionID, input.messageID])
-      Bus.publish(MessageV2.Event.Removed, {
-        sessionID: input.sessionID,
-        messageID: input.messageID,
+      Database.use((db) => {
+        db
+          .delete(MessageTable)
+          .where(and(eq(MessageTable.id, input.messageID), eq(MessageTable.session_id, input.sessionID)))
+          .run()
+        Database.effect(() =>
+          Bus.publish(MessageV2.Event.Removed, {
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+          }),
+        )
       })
       return input.messageID
     },
@@ -392,11 +621,24 @@ export async function createNext(input: {
       partID: Identifier.schema("part"),
     }),
     async (input) => {
-      await Storage.remove(["part", input.messageID, input.partID])
-      Bus.publish(MessageV2.Event.PartRemoved, {
-        sessionID: input.sessionID,
-        messageID: input.messageID,
-        partID: input.partID,
+      Database.use((db) => {
+        db
+          .delete(PartTable)
+          .where(
+            and(
+              eq(PartTable.id, input.partID),
+              eq(PartTable.message_id, input.messageID),
+              eq(PartTable.session_id, input.sessionID),
+            ),
+          )
+          .run()
+        Database.effect(() =>
+          Bus.publish(MessageV2.Event.PartRemoved, {
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+            partID: input.partID,
+          }),
+        )
       })
       return input.partID
     },
@@ -417,10 +659,25 @@ export async function createNext(input: {
   export const updatePart = fn(UpdatePartInput, async (input) => {
     const part = "delta" in input ? input.part : input
     const delta = "delta" in input ? input.delta : undefined
-    await Storage.write(["part", part.messageID, part.id], part)
-    Bus.publish(MessageV2.Event.PartUpdated, {
-      part,
-      delta,
+    const { id, messageID, sessionID, ...data } = part
+    const time_created = Date.now()
+    Database.use((db) => {
+      db.insert(PartTable)
+        .values({
+          id,
+          message_id: messageID,
+          session_id: sessionID,
+          time_created,
+          data,
+        })
+        .onConflictDoUpdate({ target: PartTable.id, set: { data } })
+        .run()
+      Database.effect(() =>
+        Bus.publish(MessageV2.Event.PartUpdated, {
+          part,
+          delta,
+        }),
+      )
     })
     return part
   })

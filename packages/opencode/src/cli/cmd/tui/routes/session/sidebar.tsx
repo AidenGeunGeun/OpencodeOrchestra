@@ -299,7 +299,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
             <span style={{ fg: theme.textMuted }}>{directory().split("/").slice(0, -1).join("/")}/</span>
             <span style={{ fg: theme.text }}>{directory().split("/").at(-1)}</span>
           </text>
-           <text fg={theme.textMuted}>
+          <text fg={theme.textMuted}>
             <span style={{ fg: theme.success }}>•</span> <b>OpenCode</b>
             <span style={{ fg: theme.accent }}>
               <b>Orchestra</b>

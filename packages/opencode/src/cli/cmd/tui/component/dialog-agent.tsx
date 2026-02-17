@@ -11,37 +11,36 @@ export function DialogAgent() {
   const route = useRoute()
   const sync = useSync()
 
-  // Check if we're in a subagent session (has parentID)
   const isSubagentSession = createMemo(() => {
     if (route.data.type !== "session") return false
     const session = sync.session.get(route.data.sessionID)
     return !!session?.parentID
   })
 
-  // Get the locked agent for subagent sessions
   const lockedAgentID = createMemo(() => {
-    if (route.data.type !== "session") return null
+    if (route.data.type !== "session") return undefined
     const session = sync.session.get(route.data.sessionID)
     if (session?.parentID) return session.agentID
-    return null
+    return undefined
   })
 
   const options = createMemo(() => {
-    // If in subagent session, only show the locked agent
     const locked = lockedAgentID()
     if (locked) {
-      const allAgents = [...local.agent.list(), ...sync.data.agent.filter(a => a.mode === "subagent")]
-      const agent = allAgents.find(a => a.name === locked)
+      const allAgents = [...local.agent.list(), ...sync.data.agent.filter((agent) => agent.mode === "subagent")]
+      const agent = allAgents.find((item) => item.name === locked)
       if (agent) {
-        return [{
-          value: agent.name,
-          title: agent.name === "build" || agent.name === "plan" ? "PM" : agent.name,
-          description: agent.native ? "locked" : agent.description,
-        }]
+        return [
+          {
+            value: agent.name,
+            title: agent.name === "build" || agent.name === "plan" ? "PM" : agent.name,
+            description: agent.native ? "locked" : agent.description,
+          },
+        ]
       }
-     }
-     
-     return local.agent.list().map((item) => {
+    }
+
+    return local.agent.list().map((item) => {
       return {
         value: item.name,
         title: item.name === "build" || item.name === "plan" ? "PM" : item.name,
@@ -56,7 +55,6 @@ export function DialogAgent() {
       current={lockedAgentID() ?? local.agent.current().name}
       options={options()}
       onSelect={(option) => {
-        // Don't allow changing agent in subagent session
         if (isSubagentSession()) {
           dialog.clear()
           return

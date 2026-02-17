@@ -328,7 +328,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const exit = useExit()
     const args = useArgs()
 
-     async function bootstrap() {
+    async function bootstrap() {
       console.log("bootstrapping")
       const start = Date.now() - 30 * 24 * 60 * 60 * 1000
       const sessionListPromise = sdk.client.session
@@ -363,19 +363,19 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             configResponse,
             ...(sessionListResponse ? [sessionListResponse] : []),
           ]).then((responses) => {
-            const providers = responses[0] as Awaited<typeof providersPromise>["data"]
+            const providers = responses[0]
             const providerList = responses[1]
             const agents = responses[2]
             const config = responses[3]
             const sessions = responses[4]
 
             batch(() => {
-              setStore("provider", reconcile(providers!.providers))
-              setStore("provider_default", reconcile(providers!.default))
-              setStore("provider_next", reconcile(providerList as any))
-              setStore("agent", reconcile(agents as any))
-              setStore("config", reconcile(config as any))
-              if (sessions !== undefined) setStore("session", reconcile(sessions as any))
+              setStore("provider", reconcile(providers.providers))
+              setStore("provider_default", reconcile(providers.default))
+              setStore("provider_next", reconcile(providerList))
+              setStore("agent", reconcile(agents))
+              setStore("config", reconcile(config))
+              if (sessions !== undefined) setStore("session", reconcile(sessions))
             })
           })
         })

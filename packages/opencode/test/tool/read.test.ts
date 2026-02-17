@@ -229,7 +229,7 @@ describe("tool.read truncation", () => {
   test("respects offset parameter", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        const lines = Array.from({ length: 20 }, (_, i) => `line${i}`).join("\n")
+        const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join("\n")
         await Bun.write(path.join(dir, "offset.txt"), lines)
       },
     })

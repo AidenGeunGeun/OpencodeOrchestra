@@ -6,20 +6,17 @@ Guide for AI coding agents working in this repository.
 
 | Task                 | Command                                          | Where to run       |
 | -------------------- | ------------------------------------------------ | ------------------- |
-| **Build**            | `bun run script/build.ts`                        | `packages/opencode` |
-| **Build (single)**   | `bun run script/build.ts --single`               | `packages/opencode` |
-| **Typecheck**        | `bun typecheck`                                  | repo root           |
-| **Typecheck (pkg)**  | `tsgo --noEmit`                                  | `packages/opencode` |
+| **Build**            | `bun run build`                                  | `packages/opencode` |
+| **Build (single)**   | `bun run build --single --skip-install`          | `packages/opencode` |
+| **Typecheck**        | `tsgo --noEmit`                                  | `packages/opencode` |
 | **Test all**         | `bun test`                                       | `packages/opencode` |
 | **Test single file** | `bun test path/to/file.test.ts`                  | `packages/opencode` |
-| **Format**           | `bun run --prettier --write src/**/*.ts`         | `packages/opencode` |
-| **Publish**          | `bun run script/publish.ts`                      | `packages/opencode` |
-| **SDK regen**        | `./packages/sdk/js/script/build.ts`              | repo root           |
+| **SDK regen**        | `bunx @hey-api/openapi-ts`                       | `packages/sdk/js`   |
 
-- Package manager: **bun@1.3.5**
+- Package manager: **bun@1.3.9**
 - Build orchestrator: **Turbo** (`turbo.json`)
-- Default branch: **`dev`**
-- CI runs on push to `dev`, all PRs, and manual dispatch
+- Default branch: **`main`**
+- Storage: **SQLite** (drizzle-orm) at `~/.local/share/opencode/opencode.db`
 
 ## Project Structure
 
@@ -28,63 +25,68 @@ Monorepo with `packages/*` workspaces. The core is `packages/opencode/`:
 ```
 packages/opencode/src/
   agent/          # Agent definitions, prompts (.txt files)
-  session/        # Session management, depth hierarchy, compaction
+  session/        # Session management, depth hierarchy, compaction, revert
+  storage/        # SQLite (db.ts, schema), JSON migration, legacy JSON storage
   provider/       # LLM provider abstraction (16+ providers)
-  tool/           # 60+ tools (bash, read, write, edit, glob, grep, task...)
-  permission/     # Permission system with custom error classes
+  tool/           # 60+ tools (bash, read, write, edit, glob, grep, task, finish-task...)
+  permission/     # Permission system
   config/         # Configuration management
-  cli/            # CLI bootstrap and commands
-  plugin/         # Plugin system (copilot, codex)
+  cli/            # CLI bootstrap, commands, TUI (Solid.js + @opentui)
+  plugin/         # Plugin system (copilot, codex, client-wrapper)
   mcp/            # Model Context Protocol integration
   lsp/            # Language Server Protocol
   project/        # Project/instance/VCS management
-  util/           # Shared utilities (log, context, defer, lock, queue...)
+  control/        # Control account/token management
+  skill/          # Skill loading system (file + URL discovery)
+  share/          # Session sharing (legacy + DB-backed)
+  snapshot/       # File diff/snapshot management
+  worktree/       # Git worktree management
+  util/           # Shared utilities (log, context, defer, lock, queue, git...)
   bus/            # Event bus system
-  skill/          # Skill loading system
+
+packages/opencode/migration/  # Drizzle SQL migration files (bundled at build time)
+packages/opencode/test/       # Test files (878 pass / 29 skip / 0 fail)
+packages/sdk/                 # SDK (generated from openapi.yml)
+packages/app/                 # Desktop app (Solid.js)
+packages/web/                 # Documentation site (Astro)
 ```
 
 Agent hierarchy: PM (depth 0) -> Orchestrator (depth 1) -> Subagents (depth 2+, singleShot).
+
+## Orchestra-Specific Code (DO NOT OVERWRITE on upstream sync)
+
+These files contain fork-only logic. During upstream syncs, merge carefully:
+
+- `agent/agent.ts` — Orchestra agent definitions, `singleShot` field
+- `agent/prompt/*.txt` — All custom agent prompts
+- `session/depth.ts` — Depth calculation, pruning logic
+- `tool/finish-task.ts`, `tool/task.ts` — Orchestration tools
+- `tool/registry.ts` — FinishTaskTool registration, todoread
+- `plugin/client-wrapper.ts` — Depth-aware parentID masking
+- `session/index.ts` — `agentID` sidecar, `Session.update()`, `getShare()`
+- `session/processor.ts` — `updatePart({ part, delta })` pattern
+- `cli/cmd/tui/component/prompt/index.tsx` — `effectiveAgent` memo
+- `cli/cmd/tui/app.tsx` — Agent cycle lock for subagent sessions
+- `cli/cmd/tui/routes/session/index.tsx` — Model reset, sibling nav, `oco -s`
+- `cli/cmd/tui/routes/session/sidebar.tsx` — OpenCodeOrchestra branding
+- `cli/cmd/tui/context/local.tsx` — `model.clear()` method
+- `storage/json-migration.ts` — agentID sidecar backfill
 
 ## Formatting
 
 - **Prettier** with `semi: false` and `printWidth: 120`
 - 2-space indentation
 - No semicolons
-- ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE
 
 ## Style Guide
 
 ### Prefer `const` over `let`
 
-Especially combined with if/else. Use ternaries or early returns instead.
-
-```ts
-// Good
-const foo = condition ? 1 : 2
-
-// Bad
-let foo
-if (condition) foo = 1
-else foo = 2
-```
+Use ternaries or early returns instead of mutable reassignment.
 
 ### Avoid `else` statements
 
 Prefer early returns or IIFEs.
-
-```ts
-// Good
-function foo() {
-  if (condition) return 1
-  return 2
-}
-
-// Bad
-function foo() {
-  if (condition) return 1
-  else return 2
-}
-```
 
 ### Keep things in one function
 
@@ -92,28 +94,11 @@ Unless composable or reusable, don't split into multiple functions.
 
 ### Avoid unnecessary destructuring
 
-Preserve context by using dot access.
-
-```ts
-// Good
-obj.a
-obj.b
-
-// Bad
-const { a, b } = obj
-```
-
-### Avoid `try`/`catch` where possible
-
-Use Promise chains, custom error classes, or early validation instead.
-
-### Avoid `any` type
-
-Use `unknown`, generics, or proper Zod schemas instead.
+Preserve context by using dot access: `obj.a` not `const { a } = obj`.
 
 ### Use Bun APIs
 
-Prefer `Bun.file()`, `Bun.write()`, `Bun.build()` over Node equivalents when possible.
+Prefer `Bun.file()`, `Bun.write()`, `Bun.build()` over Node equivalents.
 
 ## Naming Conventions
 
@@ -125,28 +110,9 @@ Prefer `Bun.file()`, `Bun.write()`, `Bun.build()` over Node equivalents when pos
 | Error classes     | `PascalCase`  | `RejectedError`, `BusyError`, `NotFound`    |
 | Constants         | `UPPER_CASE`  | `MAX_DEPTH`                                 |
 
-**Prefer single-word names.** Only use multi-word if you truly cannot find a single word.
+**Prefer single-word names.** Only use multi-word if truly necessary.
 
-```ts
-// Good
-const result = 1
-
-// Bad
-const queryResult = 1
-```
-
-## Import & Export Patterns
-
-### Import ordering (observed convention)
-
-1. Internal config: `import { Config } from "../config/config"`
-2. Libraries: `import z from "zod"`
-3. Internal domain: `import { Provider } from "../provider/provider"`
-4. AI/LLM: `import { generateObject } from "ai"`
-5. Text resources: `import PROMPT_PM from "./prompt/pm.txt"`
-6. Path aliases: `import { PermissionNext } from "@/permission/next"`
-
-### Export pattern: Namespaces
+## Export Pattern: Namespaces
 
 The codebase uses **namespace exports** with nested types and functions:
 
@@ -158,31 +124,20 @@ export namespace Agent {
 }
 ```
 
-This is the dominant pattern — follow it for new modules.
+Follow this pattern for new modules.
 
 ## Error Handling
 
-Custom error classes in `permission/next.ts`:
-- `RejectedError` — permission rejected
-- `CorrectedError` — permission corrected/modified
-- `DeniedError` — permission denied
-- `BusyError` (session) — session busy
-- `NotFound` (context) — context not found
+- Custom error classes via `NamedError.create()` pattern
+- `NotFoundError` from `storage/db.ts`
+- Permission errors: `RejectedError`, `CorrectedError`, `DeniedError`
+- Session errors: `BusyError`
+- Logging: `Log.create({ service: "name" })` with levels DEBUG/INFO/WARN/ERROR
 
-Throwing pattern:
-```ts
-if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type}`)
-```
+## Database
 
-Error wrapping with cause:
-```ts
-throw new Error(`Tool called with invalid args: ${error}`, { cause: error })
-```
-
-Logging:
-```ts
-const log = Log.create({ service: "task" })
-log.info("message", { key: "value" })
-```
-
-Levels: `DEBUG`, `INFO`, `WARN`, `ERROR` (defined in `util/log.ts`).
+- SQLite via drizzle-orm (`src/storage/db.ts`)
+- `Database.use(db => ...)` for queries, `Database.transaction(db => ...)` for writes
+- Schema in `*.sql.ts` files alongside domain modules
+- Migrations in `migration/` directory, bundled as `OPENCODE_MIGRATIONS` at build time
+- Legacy JSON storage (`src/storage/storage.ts`) still used for sidecar data

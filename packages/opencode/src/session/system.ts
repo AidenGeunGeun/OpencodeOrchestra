@@ -8,6 +8,7 @@ import PROMPT_BEAST from "./prompt/beast.txt"
 import PROMPT_GEMINI from "./prompt/gemini.txt"
 
 import PROMPT_CODEX from "./prompt/codex_header.txt"
+import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider/provider"
 
 export namespace SystemPrompt {
@@ -16,6 +17,7 @@ export namespace SystemPrompt {
   }
 
   export function provider(model: Provider.Model) {
+    if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
     if (model.api.id.includes("gpt-5")) return [PROMPT_CODEX]
     if (model.api.id.includes("gpt-") || model.api.id.includes("o1") || model.api.id.includes("o3"))
       return [PROMPT_BEAST]

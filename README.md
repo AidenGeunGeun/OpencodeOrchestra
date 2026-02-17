@@ -2,14 +2,25 @@
 
 **A spec-driven agentic workflow framework for long-term context programming.**
 
-OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
+OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) (v1.2.5) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
 
 ---
 
 ## Installation
 
+Download the latest release from [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases), or build from source:
+
 ```bash
-npm install -g @skybluejacket/oco
+git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
+cd OpenCodeOrchestra
+bun install
+cd packages/opencode
+bun run build --single --skip-install
+```
+
+Copy the binary to your PATH:
+```bash
+cp dist/@skybluejacket/oco-linux-x64/bin/oco ~/.local/bin/oco
 ```
 
 Then run:
@@ -22,8 +33,9 @@ oco
 ## Key Features
 
 - **Spec-Driven Workflow** - Specs and tests are the alignment mechanism between user intent and code
-- **Long-Term Context** - PM agent maintains persistent memory across sessions via `project-state.md`
 - **Hierarchical Delegation** - Clear depth-based agent hierarchy with enforced boundaries
+- **Agent Type Inheritance** - Subagent sessions preserve their agent type, model, and system prompt
+- **SQLite Storage** - Fast, reliable session/message storage with automatic JSON migration
 - **User-Controlled Flow** - User approves specs, triggers finish_task, and resolves escalations
 
 ---
@@ -73,48 +85,42 @@ PM (Depth 0) -----> Holds long-term context, drafts specs, advises on design
 - `Tab` - Switch between PM modes (Plan/Build)
 - `Ctrl+X Up/Down` - Navigate parent/child sessions (depth traversal)
 - `Ctrl+X Left/Right` - Navigate sibling sessions (same depth)
-- `Ctrl+X M` - Model selection
+- Agent type and model automatically match when entering subagent sessions
 
 ---
 
 ## Configuration
 
 Config files are loaded in priority order:
-1. `./opencode.json` (project-specific)
-2. `~/.config/opencode/opencode.json` (global)
+1. `./opencode.json` or `./opencode.jsonc` (project-specific)
+2. `~/.config/opencode/opencode.jsonc` (global)
 
 ---
 
-## Key Differences from Upstream
+## Key Differences from Upstream opencode
 
 | Feature | OpenCode | OpenCodeOrchestra |
 |---------|----------|-------------------|
-| Agent Hierarchy | Flat | PM -> Orchestrator -> Subagent |
+| Agent Hierarchy | Flat (build/plan) | PM -> Orchestrator -> Subagent |
 | Depth Enforcement | None | Orchestrator at depth 1 only |
-| Long-term Context | None | `project-state.md` persistence |
 | Spec-Driven | No | Yes, specs + tests as alignment |
-| finish_task | Auto | User-triggered |
-| Removed Agents | - | general, explore |
+| finish_task | Auto | User-triggered at depth 1 |
+| Agent Inheritance | None | Session preserves agent type + model |
+| Removed Agents | - | general, explore (disabled) |
 
 ---
 
 ## Development
 
 ```bash
-# Clone and install
-git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
-cd OpenCodeOrchestra
-bun install
-
-# Run tests
-cd packages/opencode
-bun test
+# Run tests (878 pass / 29 skip / 0 fail)
+cd packages/opencode && bun test
 
 # Typecheck
-bun run typecheck
+tsgo --noEmit
 
-# Build with version
-OPENCODE_VERSION=x.x.x bun run build
+# Rebuild after changes
+bun run build --single --skip-install
 ```
 
 ---

@@ -363,12 +363,13 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.2",
           "gpt-5.2-codex",
           "gpt-5.3-codex",
+          "gpt-5.3-codex-spark",
           "gpt-5.1-codex",
         ])
         for (const modelId of Object.keys(provider.models)) {
-          if (!allowedModels.has(modelId)) {
-            delete provider.models[modelId]
-          }
+          if (modelId.includes("codex")) continue
+          if (allowedModels.has(modelId)) continue
+          delete provider.models[modelId]
         }
 
         if (!provider.models["gpt-5.3-codex"]) {
@@ -401,6 +402,38 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           }
           model.variants = ProviderTransform.variants(model)
           provider.models["gpt-5.3-codex"] = model
+        }
+
+        if (!provider.models["gpt-5.3-codex-spark"]) {
+          const model = {
+            id: "gpt-5.3-codex-spark",
+            providerID: "openai",
+            api: {
+              id: "gpt-5.3-codex-spark",
+              url: "https://chatgpt.com/backend-api/codex",
+              npm: "@ai-sdk/openai",
+            },
+            name: "GPT-5.3 Codex Spark",
+            capabilities: {
+              temperature: false,
+              reasoning: true,
+              attachment: false,
+              toolcall: true,
+              input: { text: true, audio: false, image: false, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 128_000, input: 96_000, output: 32_000 },
+            status: "active" as const,
+            options: {},
+            headers: {},
+            release_date: "2026-02-12",
+            variants: {} as Record<string, Record<string, any>>,
+            family: "gpt-codex",
+          }
+          model.variants = ProviderTransform.variants(model)
+          provider.models["gpt-5.3-codex-spark"] = model
         }
 
         // Zero out costs for Codex (included with ChatGPT subscription)

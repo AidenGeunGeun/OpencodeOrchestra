@@ -30,7 +30,24 @@ import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 
 export namespace Config {
+  const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
+
   const log = Log.create({ service: "config" })
+
+  // Managed settings directory for enterprise deployments (highest priority, admin-controlled)
+  // These settings override all user and project settings
+  function getManagedConfigDir(): string {
+    switch (process.platform) {
+      case "darwin":
+        return "/Library/Application Support/opencode"
+      case "win32":
+        return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
+      default:
+        return "/etc/opencode"
+    }
+  }
+
+  const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || getManagedConfigDir()
 
   // Custom merge function that concatenates array fields instead of replacing them
   function mergeConfigConcatArrays(target: Info, source: Info): Info {
@@ -126,6 +143,8 @@ export namespace Config {
       log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
     }
 
+    const deps: Promise<void>[] = []
+
     for (const dir of unique(directories)) {
       if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
         for (const file of ["opencode.jsonc", "opencode.json"]) {
@@ -140,6 +159,7 @@ export namespace Config {
 
       const exists = existsSync(path.join(dir, "node_modules"))
       const installing = installDependencies(dir)
+      deps.push(installing)
       if (!exists) await installing
 
       result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
@@ -148,8 +168,14 @@ export namespace Config {
       result.plugin.push(...(await loadPlugin(dir)))
     }
 
+    if (existsSync(managedConfigDir)) {
+      for (const file of ["opencode.jsonc", "opencode.json"]) {
+        result = mergeConfigConcatArrays(result, await loadFile(path.join(managedConfigDir, file)))
+      }
+    }
+
     // Migrate deprecated mode field to agent field
-    for (const [name, mode] of Object.entries(result.mode)) {
+    for (const [name, mode] of Object.entries(result.mode ?? {})) {
       result.agent = mergeDeep(result.agent ?? {}, {
         [name]: {
           ...mode,
@@ -198,6 +224,7 @@ export namespace Config {
     return {
       config: result,
       directories,
+      deps,
     }
   })
 
@@ -542,6 +569,7 @@ export namespace Config {
           codesearch: PermissionAction.optional(),
           lsp: PermissionRule.optional(),
           doom_loop: PermissionAction.optional(),
+          skill: PermissionRule.optional(),
         })
         .catchall(PermissionRule)
         .or(PermissionAction),
@@ -556,14 +584,27 @@ export namespace Config {
     template: z.string(),
     description: z.string().optional(),
     agent: z.string().optional(),
-    model: z.string().optional(),
+    model: ModelId.optional(),
     subtask: z.boolean().optional(),
   })
   export type Command = z.infer<typeof Command>
 
+  export const Skills = z.object({
+    paths: z.array(z.string()).optional().describe("Additional paths to skill folders"),
+    urls: z
+      .array(z.string().url())
+      .optional()
+      .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
+  })
+  export type Skills = z.infer<typeof Skills>
+
   export const Agent = z
     .object({
-      model: z.string().optional(),
+      model: ModelId.optional(),
+      variant: z
+        .string()
+        .optional()
+        .describe("Default model variant for this agent (applies only when using the agent's configured model)."),
       temperature: z.number().optional(),
       top_p: z.number().optional(),
       prompt: z.string().optional(),
@@ -600,6 +641,7 @@ export namespace Config {
       const knownKeys = new Set([
         "name",
         "model",
+        "variant",
         "prompt",
         "description",
         "temperature",
@@ -700,6 +742,7 @@ export namespace Config {
         .optional()
         .default("<leader>h")
         .describe("Toggle code block concealment in messages"),
+      display_thinking: z.string().optional().default("none").describe("Toggle thinking visibility"),
       tool_details: z.string().optional().default("none").describe("Toggle tool details visibility"),
       model_list: z.string().optional().default("<leader>m").describe("List available models"),
       model_cycle_recent: z.string().optional().default("f2").describe("Next recently used model"),
@@ -931,11 +974,10 @@ export namespace Config {
         .array(z.string())
         .optional()
         .describe("When set, ONLY these providers will be enabled. All other providers will be ignored"),
-      model: z.string().describe("Model to use in the format of provider/model, eg anthropic/claude-2").optional(),
-      small_model: z
-        .string()
-        .describe("Small model to use for tasks like title generation in the format of provider/model")
-        .optional(),
+      model: ModelId.describe("Model to use in the format of provider/model, eg anthropic/claude-2").optional(),
+      small_model: ModelId.describe(
+        "Small model to use for tasks like title generation in the format of provider/model",
+      ).optional(),
       default_agent: z
         .string()
         .optional()
@@ -1048,13 +1090,15 @@ export namespace Config {
         .object({
           auto: z.boolean().optional().describe("Enable automatic compaction when context is full (default: true)"),
           prune: z.boolean().optional().describe("Enable pruning of old tool outputs (default: true)"),
+          reserved: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
         })
         .optional(),
-      skills: z
-        .object({
-          paths: z.string().array().optional().describe("Additional directories to scan for skills"),
-        })
-        .optional(),
+      skills: Skills.optional().describe("Additional skill folder paths"),
       experimental: z
         .object({
           hook: z
@@ -1377,8 +1421,7 @@ export namespace Config {
   }
 
   export async function waitForDependencies() {
-    // Stub: upstream Config tracks dependency install promises.
-    // Orchestra does not yet dynamically install plugin deps at runtime,
-    // so this is a no-op that keeps call-sites compatible.
+    const deps = await state().then((x) => x.deps)
+    await Promise.all(deps)
   }
 }

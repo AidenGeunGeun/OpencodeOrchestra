@@ -28,7 +28,7 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 import { PlanExitTool, PlanEnterTool } from "./plan"
 import { ApplyPatchTool } from "./apply_patch"
-import { ProjectStateReadTool, ProjectStateWriteTool } from "./project-state"
+// import { ProjectStateReadTool, ProjectStateWriteTool } from "./project-state"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
@@ -108,8 +108,6 @@ export namespace ToolRegistry {
       WriteTool,
       TaskTool,
       FinishTaskTool,
-      ProjectStateReadTool,
-      ProjectStateWriteTool,
       WebFetchTool,
       TodoWriteTool,
       TodoReadTool,
@@ -149,11 +147,6 @@ export namespace ToolRegistry {
             model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4")
           if (t.id === "apply_patch") return usePatch
           if (t.id === "edit" || t.id === "write") return !usePatch
-
-          // Project state tools are PM-only; omit from subagent tool schemas.
-          if ((t.id === "project_state_read" || t.id === "project_state_write") && agent?.mode === "subagent") {
-            return false
-          }
 
           return true
         })
