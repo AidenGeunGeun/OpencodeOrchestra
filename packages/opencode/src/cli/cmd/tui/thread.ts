@@ -179,7 +179,7 @@ export const TuiThreadCommand = cmd({
           fork: args.fork,
         },
         onExit: async () => {
-          await client.call("shutdown", undefined)
+          await client?.call("shutdown", undefined)
         },
       })
 
