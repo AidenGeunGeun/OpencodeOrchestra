@@ -1505,6 +1505,40 @@ describe("ProviderTransform.variants", () => {
         },
       })
     })
+
+    test("claude-sonnet-4-6 returns adaptive low/medium/high without max", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-sonnet-4-6",
+        providerID: "anthropic",
+        api: {
+          id: "claude-sonnet-4-6",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.low).toEqual({ thinking: { type: "adaptive" }, effort: "low" })
+      expect(result.medium).toEqual({ thinking: { type: "adaptive" }, effort: "medium" })
+      expect(result.high).toEqual({ thinking: { type: "adaptive" }, effort: "high" })
+    })
+
+    test("claude-opus-4-6 includes max adaptive effort", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-opus-4-6",
+        providerID: "anthropic",
+        api: {
+          id: "claude-opus-4-6",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
+      expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
+    })
   })
 
   describe("@ai-sdk/amazon-bedrock", () => {
@@ -1526,6 +1560,39 @@ describe("ProviderTransform.variants", () => {
           maxReasoningEffort: "low",
         },
       })
+    })
+
+    test("anthropic claude-sonnet-4-6 uses adaptive low/medium/high only", () => {
+      const model = createMockModel({
+        id: "bedrock/claude-sonnet-4-6",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-sonnet-4-6",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.low).toEqual({ thinking: { type: "adaptive" }, effort: "low" })
+      expect(result.high).toEqual({ thinking: { type: "adaptive" }, effort: "high" })
+    })
+
+    test("anthropic claude-opus-4-6 includes adaptive max effort", () => {
+      const model = createMockModel({
+        id: "bedrock/claude-opus-4-6",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-opus-4-6",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
+      expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
     })
   })
 

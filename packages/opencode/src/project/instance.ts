@@ -16,10 +16,14 @@ const cache = new Map<string, Promise<Context>>()
 
 const disposal = {
   all: undefined as Promise<void> | undefined,
+  byDirectory: new Map<string, Promise<void>>(),
 }
 
 export const Instance = {
   async provide<R>(input: { directory: string; init?: () => Promise<any>; fn: () => R }): Promise<R> {
+    const pendingDisposal = disposal.byDirectory.get(input.directory)
+    if (pendingDisposal) await pendingDisposal
+
     let existing = cache.get(input.directory)
     if (!existing) {
       Log.Default.info("creating instance", { directory: input.directory })
@@ -68,18 +72,31 @@ export const Instance = {
     return State.create(() => Instance.directory, init, dispose)
   },
   async dispose() {
-    Log.Default.info("disposing instance", { directory: Instance.directory })
-    await State.dispose(Instance.directory)
-    cache.delete(Instance.directory)
-    GlobalBus.emit("event", {
-      directory: Instance.directory,
-      payload: {
-        type: "server.instance.disposed",
-        properties: {
-          directory: Instance.directory,
+    const directory = Instance.directory
+    const existing = disposal.byDirectory.get(directory)
+    if (existing) return existing
+
+    const promise = iife(async () => {
+      Log.Default.info("disposing instance", { directory })
+      await State.dispose(directory)
+      cache.delete(directory)
+      GlobalBus.emit("event", {
+        directory,
+        payload: {
+          type: "server.instance.disposed",
+          properties: {
+            directory,
+          },
         },
-      },
+      })
+    }).finally(() => {
+      if (disposal.byDirectory.get(directory) === promise) {
+        disposal.byDirectory.delete(directory)
+      }
     })
+
+    disposal.byDirectory.set(directory, promise)
+    return promise
   },
   async disposeAll() {
     if (disposal.all) return disposal.all

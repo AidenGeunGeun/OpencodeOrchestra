@@ -153,6 +153,7 @@ export const RunCommand = cmd({
 
       const events = await sdk.event.subscribe()
       let errorMsg: string | undefined
+      const childSessionIDs = new Set<string>([sessionID])
 
       const eventProcessor = (async () => {
         for await (const event of events.stream) {
@@ -206,9 +207,16 @@ export const RunCommand = cmd({
             break
           }
 
+          if (event.type === "session.created") {
+            const info = event.properties.info
+            if (info.parentID && childSessionIDs.has(info.parentID)) {
+              childSessionIDs.add(info.id)
+            }
+          }
+
           if (event.type === "permission.asked") {
             const permission = event.properties
-            if (permission.sessionID !== sessionID) continue
+            if (!childSessionIDs.has(permission.sessionID)) continue
             const result = await select({
               message: `Permission required: ${permission.permission} (${permission.patterns.join(", ")})`,
               options: [

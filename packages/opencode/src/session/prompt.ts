@@ -60,6 +60,14 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
 
+function normalizeFinishReason(fr: unknown): string {
+  if (typeof fr === "string") return fr
+  if (fr && typeof fr === "object" && "unified" in fr) {
+    return (fr as { unified?: unknown }).unified?.toString() ?? "unknown"
+  }
+  return "unknown"
+}
+
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
   export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
@@ -321,7 +329,7 @@ export namespace SessionPrompt {
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
       if (
         lastAssistant?.finish &&
-        !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        !["tool-calls", "unknown"].includes(normalizeFinishReason(lastAssistant.finish)) &&
         lastUser.id < lastAssistant.id
       ) {
         log.info("exiting loop", { sessionID })
@@ -649,6 +657,7 @@ export namespace SessionPrompt {
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
+      const modelMessages = await MessageV2.toModelMessages(sessionMessages, model)
 
       const result = await processor.process({
         user: lastUser,
@@ -657,7 +666,7 @@ export namespace SessionPrompt {
         sessionID,
         system,
         messages: [
-          ...MessageV2.toModelMessages(sessionMessages, model),
+          ...modelMessages,
           ...(isLastStep
             ? [
                 {
@@ -678,7 +687,8 @@ export namespace SessionPrompt {
         break
       }
 
-      const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      const modelFinished =
+        processor.message.finish && !["tool-calls", "unknown"].includes(normalizeFinishReason(processor.message.finish))
       if (modelFinished && !processor.message.error && format.type === "json_schema") {
         processor.message.error = new NamedError.Unknown({
           message: "Model did not produce structured output",
@@ -814,7 +824,7 @@ export namespace SessionPrompt {
       const execute = item.execute
       if (!execute) continue
 
-      const transformed = ProviderTransform.schema(input.model, asSchema(item.inputSchema).jsonSchema)
+      const transformed = ProviderTransform.schema(input.model, await asSchema(item.inputSchema).jsonSchema)
       item.inputSchema = jsonSchema(transformed)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
@@ -1933,10 +1943,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         ...(hasOnlySubtaskParts
           ? [{ role: "user" as const, content: subtaskParts.map((p) => p.prompt).join("\n") }]
-          : MessageV2.toModelMessages(contextMessages, model)),
+          : await MessageV2.toModelMessages(contextMessages, model)),
       ],
     })
-    const text = await result.text.catch((err) => log.error("failed to generate title", { error: err }))
+    let text: string | undefined
+    try {
+      text = await result.text
+    } catch (error) {
+      log.error("failed to generate title", { error })
+      text = undefined
+    }
     if (text)
       return Session.update(
         input.session.id,
@@ -1944,8 +1960,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const cleaned = text
             .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
             .split("\n")
-            .map((line) => line.trim())
-            .find((line) => line.length > 0)
+            .map((line: string) => line.trim())
+            .find((line: string) => line.length > 0)
           if (!cleaned) return
 
           const title = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned

@@ -15,7 +15,19 @@ export function Footer() {
   const lsp = createMemo(() => Object.keys(sync.data.lsp))
   const permissions = createMemo(() => {
     if (route.data.type !== "session") return []
-    return sync.data.permission[route.data.sessionID] ?? []
+    const sessionID = route.data.sessionID
+    const ids: string[] = [sessionID]
+    const queue = [sessionID]
+    while (queue.length > 0) {
+      const current = queue.pop()!
+      for (const s of sync.data.session) {
+        if (s.parentID === current && !ids.includes(s.id)) {
+          ids.push(s.id)
+          queue.push(s.id)
+        }
+      }
+    }
+    return ids.flatMap((id) => sync.data.permission[id] ?? [])
   })
   const directory = useDirectory()
   const connected = useConnected()

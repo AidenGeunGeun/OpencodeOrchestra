@@ -51,11 +51,12 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   const context = createMemo(() => {
     const last = messages().findLast((x) => x.role === "assistant" && x.tokens.output > 0) as AssistantMessage
     if (!last) return
-    const total =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
+    const total = last.tokens.input + last.tokens.output + last.tokens.cache.read + last.tokens.cache.write
+    const cached = last.tokens.cache.read
     const model = sync.data.provider.find((x) => x.id === last.providerID)?.models[last.modelID]
     return {
       tokens: total.toLocaleString(),
+      cached: cached > 0 ? cached.toLocaleString() : null,
       percentage: model?.limit.context ? Math.round((total / model.limit.context) * 100) : null,
     }
   })
@@ -95,6 +96,9 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                 <b>Context</b>
               </text>
               <text fg={theme.textMuted}>{context()?.tokens ?? 0} tokens</text>
+              <Show when={context()?.cached}>
+                <text fg={theme.textMuted}>{context()!.cached} cached</text>
+              </Show>
               <text fg={theme.textMuted}>{context()?.percentage ?? 0}% used</text>
               <text fg={theme.textMuted}>{cost()} spent</text>
             </box>

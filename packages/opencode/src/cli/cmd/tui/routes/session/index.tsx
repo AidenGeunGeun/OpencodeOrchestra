@@ -117,16 +117,25 @@ export function Session() {
   const local = useLocal()
   const promptRef = usePromptRef()
   const session = createMemo(() => sync.session.get(route.sessionID))
-  const children = createMemo(() => {
-    const parentID = session()?.parentID ?? session()?.id
-    return sync.data.session
-      .filter((x) => x.parentID === parentID || x.id === parentID)
-      .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  })
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const descendants = createMemo(() => {
+    const id = session()?.id
+    if (!id) return []
+    const ids: string[] = [id]
+    const queue = [id]
+    while (queue.length > 0) {
+      const current = queue.pop()!
+      for (const s of sync.data.session) {
+        if (s.parentID === current && !ids.includes(s.id)) {
+          ids.push(s.id)
+          queue.push(s.id)
+        }
+      }
+    }
+    return ids
+  })
   const permissions = createMemo(() => {
-    if (session()?.parentID) return []
-    return children().flatMap((x) => sync.data.permission[x.id] ?? [])
+    return descendants().flatMap((id) => sync.data.permission[id] ?? [])
   })
   const questions = createMemo(() => {
     const currentSession = session()

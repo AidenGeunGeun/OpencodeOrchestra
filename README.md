@@ -4,11 +4,13 @@
 
 OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) (v1.2.5) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
 
+**v1.0.0** — AI SDK 6.x, Claude 4.6 adaptive thinking, 1M context beta support.
+
 ---
 
 ## Installation
 
-Download the latest release from [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases), or build from source:
+Build from source:
 
 ```bash
 git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
@@ -36,6 +38,8 @@ oco
 - **Hierarchical Delegation** - Clear depth-based agent hierarchy with enforced boundaries
 - **Agent Type Inheritance** - Subagent sessions preserve their agent type, model, and system prompt
 - **SQLite Storage** - Fast, reliable session/message storage with automatic JSON migration
+- **AI SDK 6.x** - Full ecosystem upgrade with Claude 4.6 adaptive thinking and effort levels
+- **1M Context Beta** - Extended context window for compaction via `anthropic/claude-sonnet-4-6-1m` model
 - **User-Controlled Flow** - User approves specs, triggers finish_task, and resolves escalations
 
 ---
@@ -106,6 +110,8 @@ Config files are loaded in priority order:
 | Spec-Driven | No | Yes, specs + tests as alignment |
 | finish_task | Auto | User-triggered at depth 1 |
 | Agent Inheritance | None | Session preserves agent type + model |
+| AI SDK | 5.x (provider 2.x) | 6.x (provider 3.x, adaptive thinking) |
+| 1M Context | Console only | Beta header in CLI, configurable per-model |
 | Removed Agents | - | general, explore (disabled) |
 
 ---
@@ -113,7 +119,7 @@ Config files are loaded in priority order:
 ## Development
 
 ```bash
-# Run tests (878 pass / 29 skip / 0 fail)
+# Run tests (884 pass / 29 skip / 0 fail)
 cd packages/opencode && bun test
 
 # Typecheck

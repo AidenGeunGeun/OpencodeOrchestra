@@ -74,7 +74,7 @@ export namespace ProviderTransform {
     if (model.api.id.includes("claude")) {
       return msgs.map((msg) => {
         if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
-          msg.content = msg.content.map((part) => {
+          ;(msg as any).content = msg.content.map((part: any) => {
             if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
               return {
                 ...part,
@@ -98,7 +98,7 @@ export namespace ProviderTransform {
         const nextMsg = msgs[i + 1]
 
         if ((msg.role === "assistant" || msg.role === "tool") && Array.isArray(msg.content)) {
-          msg.content = msg.content.map((part) => {
+          ;(msg as any).content = msg.content.map((part: any) => {
             if ((part.type === "tool-call" || part.type === "tool-result") && "toolCallId" in part) {
               // Mistral requires alphanumeric tool call IDs with exactly 9 characters
               const normalizedId = part.toolCallId
@@ -200,7 +200,11 @@ export namespace ProviderTransform {
       if (shouldUseContentOptions) {
         const lastContent = msg.content[msg.content.length - 1]
         if (lastContent && typeof lastContent === "object") {
-          lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
+          const currentOptions = (lastContent as { providerOptions?: Record<string, any> }).providerOptions
+          ;(lastContent as { providerOptions?: Record<string, any> }).providerOptions = mergeDeep(
+            currentOptions ?? {},
+            providerOptions,
+          )
           continue
         }
       }
@@ -281,7 +285,10 @@ export namespace ProviderTransform {
         return {
           ...msg,
           providerOptions: remap(msg.providerOptions),
-          content: msg.content.map((part) => ({ ...part, providerOptions: remap(part.providerOptions) })),
+          content: msg.content.map((part) => {
+            const currentOptions = (part as { providerOptions?: Record<string, any> }).providerOptions
+            return { ...part, providerOptions: remap(currentOptions) }
+          }),
         } as typeof msg
       })
     }
@@ -328,6 +335,22 @@ export namespace ProviderTransform {
 
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+
+  function isClaude46(id: string) {
+    return id.includes("4-6") || id.includes("4.6")
+  }
+
+  function claude46Variants(id: string) {
+    const variants: Record<string, any> = {
+      low: { thinking: { type: "adaptive" }, effort: "low" },
+      medium: { thinking: { type: "adaptive" }, effort: "medium" },
+      high: { thinking: { type: "adaptive" }, effort: "high" },
+    }
+    if (id.includes("opus")) {
+      variants.max = { thinking: { type: "adaptive" }, effort: "max" }
+    }
+    return variants
+  }
 
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
     if (!model.capabilities.reasoning) return {}
@@ -502,6 +525,9 @@ export namespace ProviderTransform {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/anthropic
       case "@ai-sdk/google-vertex/anthropic":
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/google-vertex#anthropic-provider
+        if (isClaude46(id)) {
+          return claude46Variants(id)
+        }
         return {
           high: {
             thinking: {
@@ -521,6 +547,9 @@ export namespace ProviderTransform {
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/amazon-bedrock
         // For Anthropic models on Bedrock, use reasoningConfig with budgetTokens
         if (model.api.id.includes("anthropic")) {
+          if (isClaude46(id)) {
+            return claude46Variants(id)
+          }
           return {
             high: {
               reasoningConfig: {
@@ -608,6 +637,9 @@ export namespace ProviderTransform {
       case "@mymediset/sap-ai-provider":
       case "@jerome-benoit/sap-ai-provider-v2":
         if (model.api.id.includes("anthropic")) {
+          if (isClaude46(id)) {
+            return claude46Variants(id)
+          }
           return {
             high: {
               thinking: {

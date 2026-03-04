@@ -50,6 +50,12 @@ const cacheDir = path.join(dir, "cache", "opencode")
 await fs.mkdir(cacheDir, { recursive: true })
 await fs.writeFile(path.join(cacheDir, "version"), "14")
 
+// Set git identity for test tmpdir commits (avoids "Author identity unknown" in sandboxed env)
+process.env["GIT_AUTHOR_NAME"] = "Test"
+process.env["GIT_AUTHOR_EMAIL"] = "test@test.com"
+process.env["GIT_COMMITTER_NAME"] = "Test"
+process.env["GIT_COMMITTER_EMAIL"] = "test@test.com"
+
 // Clear provider env vars to ensure clean test state
 delete process.env["ANTHROPIC_API_KEY"]
 delete process.env["OPENAI_API_KEY"]

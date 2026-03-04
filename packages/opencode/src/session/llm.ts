@@ -3,7 +3,6 @@ import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
 import {
   streamText,
-  wrapLanguageModel,
   type ModelMessage,
   type StreamTextResult,
   type Tool,
@@ -42,7 +41,7 @@ export namespace LLM {
     toolChoice?: "auto" | "required" | "none"
   }
 
-  export type StreamOutput = StreamTextResult<ToolSet, unknown>
+  export type StreamOutput = StreamTextResult<ToolSet, any>
 
   export async function stream(input: StreamInput) {
     const l = log
@@ -174,6 +173,20 @@ export namespace LLM {
       })
     }
 
+    const messages = ProviderTransform.message(
+      [
+        ...system.map(
+          (x): ModelMessage => ({
+            role: "system",
+            content: x,
+          }),
+        ),
+        ...input.messages,
+      ],
+      input.model,
+      options,
+    )
+
     return streamText({
       onError(error) {
         l.error("stream error", {
@@ -227,29 +240,8 @@ export namespace LLM {
         ...headers,
       },
       maxRetries: input.retries ?? 0,
-      messages: [
-        ...system.map(
-          (x): ModelMessage => ({
-            role: "system",
-            content: x,
-          }),
-        ),
-        ...input.messages,
-      ],
-      model: wrapLanguageModel({
-        model: language,
-        middleware: [
-          {
-            async transformParams(args) {
-              if (args.type === "stream") {
-                // @ts-expect-error
-                args.params.prompt = ProviderTransform.message(args.params.prompt, input.model, options)
-              }
-              return args.params
-            },
-          },
-        ],
-      }),
+      messages,
+      model: language,
       experimental_telemetry: {
         isEnabled: cfg.experimental?.openTelemetry,
         metadata: {

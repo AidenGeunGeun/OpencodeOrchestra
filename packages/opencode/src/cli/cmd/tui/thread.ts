@@ -81,6 +81,7 @@ export const TuiThreadCommand = cmd({
     // Keep ENABLE_PROCESSED_INPUT cleared even if other code flips it.
     // (Important when running under `bun run` wrappers on Windows.)
     const unguard = win32InstallCtrlCGuard()
+    let client: RpcClient | undefined
     try {
       // Must be the very first thing — disables CTRL_C_EVENT before any Worker
       // spawn or async work so the OS cannot kill the process group.
@@ -117,7 +118,7 @@ export const TuiThreadCommand = cmd({
       worker.onerror = (e) => {
         Log.Default.error(e)
       }
-      const client = Rpc.client<typeof rpc>(worker)
+      client = Rpc.client<typeof rpc>(worker)
       process.on("uncaughtException", (e) => {
         Log.Default.error(e)
       })
@@ -125,7 +126,13 @@ export const TuiThreadCommand = cmd({
         Log.Default.error(e)
       })
       process.on("SIGUSR2", async () => {
-        await client.call("reload", undefined)
+        await client?.call("reload", undefined)
+      })
+      // Ensure worker shuts down when terminal closes (e.g. window close sends SIGHUP).
+      // Without this, --port mode leaves an orphan process holding the TCP port.
+      process.on("SIGHUP", async () => {
+        await client?.call("shutdown", undefined).catch(() => {})
+        process.exit(0)
       })
 
       const prompt = await iife(async () => {
@@ -177,11 +184,13 @@ export const TuiThreadCommand = cmd({
       })
 
       setTimeout(() => {
-        client.call("checkUpgrade", { directory: cwd }).catch(() => {})
+        client?.call("checkUpgrade", { directory: cwd }).catch(() => {})
       }, 1000)
 
       await tuiPromise
     } finally {
+      // Safety net: ensure worker is shut down even if TUI exits abnormally
+      await client?.call("shutdown", undefined).catch(() => {})
       unguard?.()
     }
   },

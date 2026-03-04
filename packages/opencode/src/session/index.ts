@@ -689,18 +689,28 @@ export async function createNext(input: {
       metadata: z.custom<ProviderMetadata>().optional(),
     }),
     (input) => {
-      const cacheReadInputTokens = input.usage.cachedInputTokens ?? 0
-      const cacheWriteInputTokens = (input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
+      const normalizeTokenCount = (val: unknown): number => {
+        if (typeof val === "number") return val
+        if (val && typeof val === "object" && "total" in val) {
+          const total = (val as { total?: unknown }).total
+          return typeof total === "number" ? total : 0
+        }
+        return 0
+      }
+
+      const cacheReadInputTokens = normalizeTokenCount(input.usage.cachedInputTokens)
+      const cacheWriteInputTokens = normalizeTokenCount(
+        input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
         // @ts-expect-error
         input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
         // @ts-expect-error
         input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"] ??
-        0) as number
+        0,
+      )
 
-      const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
-      const adjustedInputTokens = excludesCachedTokens
-        ? (input.usage.inputTokens ?? 0)
-        : (input.usage.inputTokens ?? 0) - cacheReadInputTokens - cacheWriteInputTokens
+      // AI SDK 6.x: inputTokens always includes cached tokens for all providers
+      const adjustedInputTokens =
+        normalizeTokenCount(input.usage.inputTokens) - cacheReadInputTokens - cacheWriteInputTokens
       const safe = (value: number) => {
         if (!Number.isFinite(value)) return 0
         return value
@@ -708,8 +718,8 @@ export async function createNext(input: {
 
       const tokens = {
         input: safe(adjustedInputTokens),
-        output: safe(input.usage.outputTokens ?? 0),
-        reasoning: safe(input.usage?.reasoningTokens ?? 0),
+        output: safe(normalizeTokenCount(input.usage.outputTokens)),
+        reasoning: safe(normalizeTokenCount(input.usage.reasoningTokens)),
         cache: {
           write: safe(cacheWriteInputTokens),
           read: safe(cacheReadInputTokens),

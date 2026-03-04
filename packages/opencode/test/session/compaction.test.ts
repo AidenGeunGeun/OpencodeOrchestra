@@ -171,7 +171,7 @@ describe("session.getUsage", () => {
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
-      },
+      } as any,
     })
 
     expect(result.tokens.input).toBe(1000)
@@ -190,7 +190,7 @@ describe("session.getUsage", () => {
         outputTokens: 500,
         totalTokens: 1500,
         cachedInputTokens: 200,
-      },
+      } as any,
     })
 
     expect(result.tokens.input).toBe(800)
@@ -205,7 +205,7 @@ describe("session.getUsage", () => {
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
-      },
+      } as any,
       metadata: {
         anthropic: {
           cacheCreationInputTokens: 300,
@@ -216,7 +216,7 @@ describe("session.getUsage", () => {
     expect(result.tokens.cache.write).toBe(300)
   })
 
-  test("does not subtract cached tokens for anthropic provider", () => {
+  test("subtracts cached tokens for anthropic provider in AI SDK 6.x", () => {
     const model = createModel({ context: 100_000, output: 32_000 })
     const result = Session.getUsage({
       model,
@@ -225,13 +225,14 @@ describe("session.getUsage", () => {
         outputTokens: 500,
         totalTokens: 1500,
         cachedInputTokens: 200,
-      },
+      } as any,
       metadata: {
         anthropic: {},
       },
     })
 
-    expect(result.tokens.input).toBe(1000)
+    // AI SDK 6.x: inputTokens includes cached, so input = 1000 - 200 = 800
+    expect(result.tokens.input).toBe(800)
     expect(result.tokens.cache.read).toBe(200)
   })
 
@@ -244,10 +245,54 @@ describe("session.getUsage", () => {
         outputTokens: 500,
         totalTokens: 1500,
         reasoningTokens: 100,
-      },
+      } as any,
     })
 
     expect(result.tokens.reasoning).toBe(100)
+  })
+
+  test("normalizes nested usage token objects", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: { total: 1200 },
+        outputTokens: { total: 300 },
+        totalTokens: 1500,
+        cachedInputTokens: { total: 200 },
+        reasoningTokens: { total: 50 },
+      } as any,
+    })
+
+    expect(result.tokens.input).toBe(1000)
+    expect(result.tokens.output).toBe(300)
+    expect(result.tokens.reasoning).toBe(50)
+    expect(result.tokens.cache.read).toBe(200)
+    expect(result.tokens.cache.write).toBe(0)
+  })
+
+  test("normalizes nested usage token objects for anthropic metadata", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: { total: 1000 },
+        outputTokens: { total: 250 },
+        totalTokens: 1250,
+        cachedInputTokens: { total: 150 },
+      } as any,
+      metadata: {
+        anthropic: {
+          cacheCreationInputTokens: 125,
+        },
+      },
+    })
+
+    // AI SDK 6.x: inputTokens(1000) includes cached, so input = 1000 - 150 - 125 = 725
+    expect(result.tokens.input).toBe(725)
+    expect(result.tokens.output).toBe(250)
+    expect(result.tokens.cache.read).toBe(150)
+    expect(result.tokens.cache.write).toBe(125)
   })
 
   test("handles undefined optional values gracefully", () => {
@@ -258,7 +303,7 @@ describe("session.getUsage", () => {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
-      },
+      } as any,
     })
 
     expect(result.tokens.input).toBe(0)
@@ -285,7 +330,7 @@ describe("session.getUsage", () => {
         inputTokens: 1_000_000,
         outputTokens: 100_000,
         totalTokens: 1_100_000,
-      },
+      } as any,
     })
 
     expect(result.cost).toBe(3 + 1.5)

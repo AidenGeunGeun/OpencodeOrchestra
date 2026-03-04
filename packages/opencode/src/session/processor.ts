@@ -20,6 +20,14 @@ export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
   const log = Log.create({ service: "session.processor" })
 
+  function normalizeFinishReason(fr: unknown): string {
+    if (typeof fr === "string") return fr
+    if (fr && typeof fr === "object" && "unified" in fr) {
+      return (fr as { unified?: unknown }).unified?.toString() ?? "unknown"
+    }
+    return "unknown"
+  }
+
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
 
@@ -241,12 +249,12 @@ export namespace SessionProcessor {
                     usage: value.usage,
                     metadata: value.providerMetadata,
                   })
-                  input.assistantMessage.finish = value.finishReason
+                  input.assistantMessage.finish = normalizeFinishReason(value.finishReason)
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
-                    reason: value.finishReason,
+                    reason: normalizeFinishReason(value.finishReason),
                     snapshot: await Snapshot.track(),
                     messageID: input.assistantMessage.id,
                     sessionID: input.assistantMessage.sessionID,

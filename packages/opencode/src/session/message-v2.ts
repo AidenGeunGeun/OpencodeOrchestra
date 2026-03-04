@@ -463,7 +463,7 @@ export namespace MessageV2 {
   })
   export type WithParts = z.infer<typeof WithParts>
 
-  export function toModelMessages(input: WithParts[], model: Provider.Model): ModelMessage[] {
+  export async function toModelMessages(input: WithParts[], model: Provider.Model): Promise<ModelMessage[]> {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
 
@@ -472,20 +472,59 @@ export namespace MessageV2 {
         return { type: "text", value: output }
       }
 
-      if (typeof output === "object") {
+      if (output && typeof output === "object") {
+        const outputRecord = output as Record<string, unknown>
+        const payload =
+          "output" in outputRecord
+            ? outputRecord.output
+            : "value" in outputRecord
+              ? outputRecord.value
+              : output
+
+        if (typeof payload === "string") {
+          return { type: "text", value: payload }
+        }
+
+        if (payload && typeof payload === "object") {
+          const outputObject = payload as {
+            text?: unknown
+            attachments?: Array<{ mime: string; url: string }>
+          }
+          const text = typeof outputObject.text === "string" ? outputObject.text : ""
+          const attachments = (outputObject.attachments ?? []).filter((attachment) => {
+            return attachment.url.startsWith("data:") && attachment.url.includes(",")
+          })
+
+          if (attachments.length === 0) {
+            return { type: "text", value: text }
+          }
+
+          return {
+            type: "content",
+            value: [
+              { type: "text", text },
+              ...attachments.map((attachment) => ({
+                type: "media",
+                mediaType: attachment.mime,
+                data: iife(() => {
+                  const commaIndex = attachment.url.indexOf(",")
+                  return commaIndex === -1 ? attachment.url : attachment.url.slice(commaIndex + 1)
+                }),
+              })),
+            ],
+          }
+        }
+
         const outputObject = output as {
-          text: string
           attachments?: Array<{ mime: string; url: string }>
         }
         const attachments = (outputObject.attachments ?? []).filter((attachment) => {
           return attachment.url.startsWith("data:") && attachment.url.includes(",")
         })
-
-        return {
-          type: "content",
-          value: [
-            { type: "text", text: outputObject.text },
-            ...attachments.map((attachment) => ({
+        if (attachments.length > 0) {
+          return {
+            type: "content",
+            value: attachments.map((attachment) => ({
               type: "media",
               mediaType: attachment.mime,
               data: iife(() => {
@@ -493,7 +532,7 @@ export namespace MessageV2 {
                 return commaIndex === -1 ? attachment.url : attachment.url.slice(commaIndex + 1)
               }),
             })),
-          ],
+          }
         }
       }
 
@@ -627,7 +666,7 @@ export namespace MessageV2 {
 
     const tools = Object.fromEntries(Array.from(toolNames).map((toolName) => [toolName, { toModelOutput }]))
 
-    return convertToModelMessages(
+    return await convertToModelMessages(
       result.filter((msg) => msg.parts.some((part) => part.type !== "step-start")),
       {
         //@ts-expect-error (convertToModelMessages expects a ToolSet but only actually needs tools[name]?.toModelOutput)

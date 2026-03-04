@@ -175,6 +175,7 @@ When constructing the summary, try to stick to this template:
 [Construct a structured list of relevant files that have been read, edited, or created that pertain to the task at hand. If all the files in a directory are relevant, include the path to the directory.]
 ---`
     const promptText = compacting.prompt ?? [defaultPrompt, ...compacting.context].join("\n\n")
+    const modelMessages = await MessageV2.toModelMessages(input.messages, model)
     const result = await processor.process({
       user: userMessage,
       agent,
@@ -183,7 +184,7 @@ When constructing the summary, try to stick to this template:
       tools: {},
       system: [],
       messages: [
-        ...MessageV2.toModelMessages(input.messages, model),
+        ...modelMessages,
         {
           role: "user",
           content: [

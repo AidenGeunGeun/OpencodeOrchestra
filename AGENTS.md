@@ -2,6 +2,13 @@
 
 Guide for AI coding agents working in this repository.
 
+## Communication Language
+
+- **기본 언어: 한국어** — 사용자와의 모든 대화는 한국어로 진행한다.
+- **기술 용어는 영어 유지** — `finishReason`, `providerOptions`, `streamText`, 파일 경로, 함수명, 타입명 등 코드/기술 용어는 영어 그대로 사용한다.
+- 코드 주석과 commit message는 영어로 작성한다.
+- Spec, backlog, 문서 파일 내용은 영어로 작성하되, 사용자와의 대화 중 설명은 한국어로 한다.
+
 ## Quick Reference
 
 | Task                 | Command                                          | Where to run       |
@@ -45,7 +52,7 @@ packages/opencode/src/
   bus/            # Event bus system
 
 packages/opencode/migration/  # Drizzle SQL migration files (bundled at build time)
-packages/opencode/test/       # Test files (878 pass / 29 skip / 0 fail)
+packages/opencode/test/       # Test files (884 pass / 29 skip / 0 fail)
 packages/sdk/                 # SDK (generated from openapi.yml)
 packages/app/                 # Desktop app (Solid.js)
 packages/web/                 # Documentation site (Astro)
@@ -71,6 +78,139 @@ These files contain fork-only logic. During upstream syncs, merge carefully:
 - `cli/cmd/tui/routes/session/sidebar.tsx` — OpenCodeOrchestra branding
 - `cli/cmd/tui/context/local.tsx` — `model.clear()` method
 - `storage/json-migration.ts` — agentID sidecar backfill
+
+## Upstream Divergences (preserve on sync)
+
+Changes to non-Orchestra files that differ from upstream opencode 1.2.5 (`ai` 5.0.124 → 6.0.90).
+Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-file details.
+
+### Summary Table
+
+| Category | Files affected | Key change |
+|----------|---------------|------------|
+| AI SDK 6.x migration | `package.json`, `session/index.ts`, `session/processor.ts`, `session/prompt.ts`, `provider/transform.ts`, `provider/provider.ts`, +26 more | `ai` 5→6, token semantics, finish reason normalization |
+| Bug fixes | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts` | SIGHUP zombie, reasoning display, text-delta guard |
+| Features | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts` | 1M context, cache display, skill path validation |
+| Config (external) | `opencode.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
+
+### AI SDK 6.x — Package Versions
+
+Upgraded in `packages/opencode/package.json`:
+
+| Package | Upstream 1.2.5 | OCO |
+|---------|---------------|-----|
+| `ai` | 5.0.124 | 6.0.90 |
+| `@ai-sdk/anthropic` | 2.0.62 | 3.0.45 |
+| `@ai-sdk/amazon-bedrock` | 3.0.79 | 4.0.61 |
+| `@ai-sdk/openai` | 2.0.89 | 3.0.29 |
+| `@ai-sdk/google` | 2.0.52 | 3.0.29 |
+| `@ai-sdk/google-vertex` | 3.0.103 | 4.0.59 |
+| `@ai-sdk/gateway` | 2.0.30 | 3.0.49 |
+| `@ai-sdk/azure` | 2.0.91 | 3.0.30 |
+
+Also added `provider/sdk/openai-compatible/src/` (new OpenAI-compatible provider SDK directory).
+
+### AI SDK 6.x — Token Semantics (`session/index.ts`)
+
+`getUsage()` (lines 685–727): removed `excludesCachedTokens` provider-conditional flag.
+
+**Why:** AI SDK 6.x `usage.inputTokens` always includes all cached tokens for all providers.
+Upstream 1.2.5 used `excludesCachedTokens = !!(metadata.anthropic || metadata.bedrock)` to
+conditionally subtract cache — no longer needed in 6.x.
+
+**Now:**
+- `normalizeTokenCount()` (line 692): local helper handling `{ total: number }` objects from AI SDK 6.x.
+- `cacheReadInputTokens = normalizeTokenCount(usage.cachedInputTokens)` (line 701)
+- `cacheWriteInputTokens` from `providerMetadata.anthropic.cacheCreationInputTokens` (line 702)
+- `adjustedInputTokens = inputTokens - cacheRead - cacheWrite` (lines 712–713)
+- DB stores `tokens.input` as this adjusted (uncached) value.
+
+### AI SDK 6.x — Finish Reason Normalization
+
+In AI SDK 6.x, `finishReason` may be `{ unified: string }` instead of a plain string.
+
+**`session/processor.ts` (line 23):** local `normalizeFinishReason(fr: unknown): string` — unwraps
+`{ unified }` objects, falls back to `"unknown"`.
+
+**`session/prompt.ts` (line 63):** identical local `normalizeFinishReason` — guards loop-continuation
+check at line 332 (`!["tool-calls","unknown"].includes(normalizeFinishReason(lastAssistant.finish))`).
+
+Upstream 1.2.5 compared `finishReason` directly as a string; this breaks under AI SDK 6.x.
+
+### AI SDK 6.x — Claude 4.6 Adaptive Thinking (`provider/transform.ts`)
+
+Two new private helpers (lines 339–353):
+- `isClaude46(id)` — returns `true` if model ID contains `"4-6"` or `"4.6"`.
+- `claude46Variants(id)` — returns variant map with `{ thinking: { type: "adaptive" }, effort }`.
+  Opus models additionally get an `"max"` effort tier.
+
+These replace inline per-model checks that existed in upstream (which used `budgetTokens` instead
+of `type: "adaptive"`). Applied in `variants()` for `@ai-sdk/anthropic`, `@ai-sdk/google-vertex/anthropic`,
+`@ai-sdk/amazon-bedrock`, and SAP AI providers.
+
+Also: `ProviderTransform.providerOptions()` (line 818) added for gateway-aware provider option routing.
+
+### AI SDK 6.x — Misc (`session/index.ts`, `session/processor.ts`)
+
+- `Session.updatePart()` (line 659): signature changed to union type — accepts either a bare
+  `MessageV2.Part` or `{ part: MessageV2.Part; delta: string }` for text streaming.
+  Upstream used a separate `updatePartDelta()` function; OCO consolidates into one.
+- `Session.update()` (line 370): new generic update function with draft-editor pattern and
+  `agentID` sidecar awareness. Replaces `setTitle()` / `setPermission()` for most callers.
+- `session/prompt.ts`: `LoopInput` changed to `z.union([Identifier, { sessionID, resume_existing }])`
+  for more flexible invocation; `Session.setPermission` calls replaced with `Session.update()` draft pattern.
+
+### Feature — 1M Context Support (`provider/provider.ts`)
+
+Line 99: `context-1m-2025-08-07` added to Anthropic beta headers string:
+```
+"claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07"
+```
+Upstream does not include this header; without it Anthropic caps context at default limits.
+
+### Feature — Cache Token Display (`cli/cmd/tui/routes/session/header.tsx`, `sidebar.tsx`)
+
+**`header.tsx` (lines 52–62):** token total computed as `input + output + cache.read + cache.write`
+(no reasoning). Displays `"71,025 (Cached 69,211)"` when cache tokens are present.
+
+**`sidebar.tsx` (lines 55–100):** context section shows a separate `"69,211 cached"` line
+(`show when context().cached`).
+
+Upstream included `+ last.tokens.reasoning` in the total — incorrect under AI SDK 6.x where
+reasoning is auto-stripped by providers before returning usage.
+
+### Feature — Skill Path Validation (`skill/discovery.ts`)
+
+Added defensive validation for URL-based skill loading:
+- `normalizeSkillName(name)`: rejects names with chars outside `[a-zA-Z0-9._-]` and `"."` / `".."`.
+- `normalizeSkillFile(file)`: rejects null bytes, absolute paths, protocol URIs; normalizes separators.
+- `isWithin(root, candidate)`: path traversal guard — rejects paths escaping the cache root.
+- URL boundary check: verifies resolved skill file URL stays within `skillBase.origin + pathname`.
+- Zod schema (`Index`) replaces plain type for index parsing, adding `.min(1)` constraints.
+
+Upstream had no validation; a malicious `index.json` could write files outside the skill cache.
+
+### Bug Fix — Zombie Process on Terminal Close (`cli/cmd/tui/thread.ts`)
+
+Lines 131–136: `SIGHUP` handler added:
+```ts
+process.on("SIGHUP", async () => {
+  await client?.call("shutdown", undefined).catch(() => {})
+  process.exit(0)
+})
+```
+Lines 191–193: `finally` block calls `client?.call("shutdown")` as safety net.
+`client` declaration hoisted outside `try` to be accessible in `finally`.
+
+Upstream has no `SIGHUP` handling; closing the terminal window while `--port` is active
+leaves an orphan worker process holding the TCP port.
+
+### External Config (not in `src/`)
+
+| File | Change |
+|------|--------|
+| `opencode.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
+| `~/.config/opencode/prompts/compaction.txt` | Expanded ~71 → ~100 lines; adds self-review pass and proactive enrichment rules. |
 
 ## Formatting
 
@@ -141,3 +281,29 @@ Follow this pattern for new modules.
 - Schema in `*.sql.ts` files alongside domain modules
 - Migrations in `migration/` directory, bundled as `OPENCODE_MIGRATIONS` at build time
 - Legacy JSON storage (`src/storage/storage.ts`) still used for sidecar data
+
+## AI SDK 6.x Token Semantics (Verified 2026-02-18)
+
+Anthropic raw API returns three separate fields:
+- `input_tokens` — uncached input only
+- `cache_creation_input_tokens` — newly cached (cache write)
+- `cache_read_input_tokens` — cache hit (cache read)
+
+AI SDK 6.x maps these as:
+- `usage.inputTokens` = **total** (`input_tokens + cache_creation + cache_read`)
+- `usage.cachedInputTokens` = `cache_read_input_tokens` only
+- `providerMetadata.anthropic.cacheCreationInputTokens` = cache write only
+
+Verified with raw log: `inputTokens(56298) = raw_input(3) + cache_write(166) + cache_read(56129)`.
+
+**In `getUsage()` (`session/index.ts` lines 712–713`):**
+```ts
+const adjustedInputTokens =
+  normalizeTokenCount(input.usage.inputTokens) - cacheReadInputTokens - cacheWriteInputTokens
+```
+→ equals Anthropic's raw `input_tokens` (uncached only).
+DB stores `tokens.input` as this adjusted value. TUI reconstructs display total as `input + cache.read + cache.write + output`.
+
+**Upstream 1.2.5 (AI SDK 5.x):** Anthropic `inputTokens` EXCLUDED cache tokens. A provider-conditional
+flag `excludesCachedTokens = !!(metadata.anthropic || metadata.bedrock)` controlled whether cache was
+subtracted. This flag is gone in OCO — AI SDK 6.x includes cache in `inputTokens` for **all** providers.
