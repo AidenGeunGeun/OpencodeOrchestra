@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "name": "@skybluejacket/oco",
   "type": "module",
   "license": "MIT",
@@ -17,7 +17,12 @@
     "deploy": "echo 'Deploying application...' && bun run build && echo 'Deployment completed successfully'",
     "db": "bun drizzle-kit"
   },
-  "files": ["bin/", "dist/", "src/", "script/postinstall.mjs"],
+  "files": [
+    "bin/",
+    "dist/",
+    "src/",
+    "script/postinstall.mjs"
+  ],
   "bin": {
     "oco": "./bin/oco"
   },

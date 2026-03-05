@@ -365,6 +365,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.3-codex",
           "gpt-5.3-codex-spark",
           "gpt-5.1-codex",
+          "gpt-5.4",
         ])
         for (const modelId of Object.keys(provider.models)) {
           if (modelId.includes("codex")) continue
@@ -434,6 +435,38 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           }
           model.variants = ProviderTransform.variants(model)
           provider.models["gpt-5.3-codex-spark"] = model
+        }
+
+        if (!provider.models["gpt-5.4"]) {
+          const model = {
+            id: "gpt-5.4",
+            providerID: "openai",
+            api: {
+              id: "gpt-5.4",
+              url: "https://chatgpt.com/backend-api/codex",
+              npm: "@ai-sdk/openai",
+            },
+            name: "GPT-5.4",
+            capabilities: {
+              temperature: false,
+              reasoning: true,
+              attachment: true,
+              toolcall: true,
+              input: { text: true, audio: false, image: true, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 1_000_000, input: 872_000, output: 128_000 },
+            status: "active" as const,
+            options: {},
+            headers: {},
+            release_date: "2026-03-05",
+            variants: {} as Record<string, Record<string, any>>,
+            family: "gpt",
+          }
+          model.variants = ProviderTransform.variants(model)
+          provider.models["gpt-5.4"] = model
         }
 
         // Zero out costs for Codex (included with ChatGPT subscription)
