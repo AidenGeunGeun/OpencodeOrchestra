@@ -324,11 +324,7 @@ export function Session() {
     const siblings = sync.data.session
       .filter((item) => {
         const parentMatch = !currentParentID ? !item.parentID : item.parentID === currentParentID
-        const agentMatch = !currentParentID
-          ? !currentAgentID
-            ? !item.agentID
-            : item.agentID === currentAgentID
-          : true
+        const agentMatch = !currentParentID ? (!currentAgentID ? !item.agentID : item.agentID === currentAgentID) : true
         return parentMatch && agentMatch
       })
       .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -1983,7 +1979,16 @@ function Edit(props: ToolProps<typeof EditTool>) {
 
   const ft = createMemo(() => filetype(props.input.filePath))
 
-  const diffContent = createMemo(() => props.metadata.diff)
+  const MAX_DIFF_DISPLAY_SIZE = 512 * 1024 // 512KB
+  const diffContent = createMemo(() => {
+    const diff = props.metadata.diff
+    if (typeof diff === "string" && diff.length > MAX_DIFF_DISPLAY_SIZE) return undefined
+    return diff
+  })
+  const oversizedDiff = createMemo(() => {
+    const diff = props.metadata.diff
+    return typeof diff === "string" && diff.length > MAX_DIFF_DISPLAY_SIZE
+  })
 
   const diagnostics = createMemo(() => {
     const filePath = Filesystem.normalizePath(props.input.filePath ?? "")
@@ -1995,27 +2000,39 @@ function Edit(props: ToolProps<typeof EditTool>) {
     <Switch>
       <Match when={props.metadata.diff !== undefined}>
         <BlockTool title={"← Edit " + normalizePath(props.input.filePath!)} part={props.part}>
-          <box paddingLeft={1}>
-            <diff
-              diff={diffContent()}
-              view={view()}
-              filetype={ft()}
-              syntaxStyle={syntax()}
-              showLineNumbers={true}
-              width="100%"
-              wrapMode={ctx.diffWrapMode()}
-              fg={theme.text}
-              addedBg={theme.diffAddedBg}
-              removedBg={theme.diffRemovedBg}
-              contextBg={theme.diffContextBg}
-              addedSignColor={theme.diffHighlightAdded}
-              removedSignColor={theme.diffHighlightRemoved}
-              lineNumberFg={theme.diffLineNumber}
-              lineNumberBg={theme.diffContextBg}
-              addedLineNumberBg={theme.diffAddedLineNumberBg}
-              removedLineNumberBg={theme.diffRemovedLineNumberBg}
-            />
-          </box>
+          <Show
+            when={!oversizedDiff()}
+            fallback={
+              <box paddingLeft={1}>
+                <text fg={theme.textMuted}>
+                  Diff too large to render (+{props.metadata.filediff?.additions ?? "?"} / -
+                  {props.metadata.filediff?.deletions ?? "?"})
+                </text>
+              </box>
+            }
+          >
+            <box paddingLeft={1}>
+              <diff
+                diff={diffContent()}
+                view={view()}
+                filetype={ft()}
+                syntaxStyle={syntax()}
+                showLineNumbers={true}
+                width="100%"
+                wrapMode={ctx.diffWrapMode()}
+                fg={theme.text}
+                addedBg={theme.diffAddedBg}
+                removedBg={theme.diffRemovedBg}
+                contextBg={theme.diffContextBg}
+                addedSignColor={theme.diffHighlightAdded}
+                removedSignColor={theme.diffHighlightRemoved}
+                lineNumberFg={theme.diffLineNumber}
+                lineNumberBg={theme.diffContextBg}
+                addedLineNumberBg={theme.diffAddedLineNumberBg}
+                removedLineNumberBg={theme.diffRemovedLineNumberBg}
+              />
+            </box>
+          </Show>
           <Show when={diagnostics().length}>
             <box>
               <For each={diagnostics()}>

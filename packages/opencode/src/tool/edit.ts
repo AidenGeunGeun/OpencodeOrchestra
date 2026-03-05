@@ -18,6 +18,8 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
+const MAX_FILEDIFF_CONTENT_SIZE = 128 * 1024 // 128KB - skip before/after storage for large files
+const MAX_DIFF_STORAGE_SIZE = 512 * 1024 // 512KB - truncate diff string for large diffs
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -99,10 +101,11 @@ export const EditTool = Tool.define("edit", {
       FileTime.read(ctx.sessionID, filePath)
     })
 
+    const oversized = contentOld.length > MAX_FILEDIFF_CONTENT_SIZE || contentNew.length > MAX_FILEDIFF_CONTENT_SIZE
     const filediff: Snapshot.FileDiff = {
       file: filePath,
-      before: contentOld,
-      after: contentNew,
+      before: oversized ? "" : contentOld,
+      after: oversized ? "" : contentNew,
       additions: 0,
       deletions: 0,
     }
@@ -111,9 +114,11 @@ export const EditTool = Tool.define("edit", {
       if (change.removed) filediff.deletions += change.count || 0
     }
 
+    const storedDiff =
+      diff.length > MAX_DIFF_STORAGE_SIZE ? diff.slice(0, MAX_DIFF_STORAGE_SIZE) + "\n[Diff truncated]" : diff
     ctx.metadata({
       metadata: {
-        diff,
+        diff: storedDiff,
         filediff,
         diagnostics: {},
       },
@@ -135,7 +140,7 @@ export const EditTool = Tool.define("edit", {
     return {
       metadata: {
         diagnostics,
-        diff,
+        diff: storedDiff,
         filediff,
       },
       title: `${path.relative(Instance.worktree, filePath)}`,
