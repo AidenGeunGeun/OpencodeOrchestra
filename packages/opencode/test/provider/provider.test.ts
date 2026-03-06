@@ -227,6 +227,46 @@ test("custom model alias via config", async () => {
   })
 })
 
+test("openai custom model alias via config", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.4-fast": {
+                  id: "gpt-5.4",
+                  name: "GPT-5.4 Fast",
+                  options: {
+                    serviceTier: "priority",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("OPENAI_API_KEY", "test-openai-key")
+    },
+    fn: async () => {
+      const providers = await Provider.list()
+      expect(providers["openai"]).toBeDefined()
+      expect(providers["openai"].models["gpt-5.4-fast"]).toBeDefined()
+      expect(providers["openai"].models["gpt-5.4-fast"].name).toBe("GPT-5.4 Fast")
+      expect(providers["openai"].models["gpt-5.4-fast"].api.id).toBe("gpt-5.4")
+      expect(providers["openai"].models["gpt-5.4-fast"].options.serviceTier).toBe("priority")
+    },
+  })
+})
+
 test("custom provider with npm package", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
