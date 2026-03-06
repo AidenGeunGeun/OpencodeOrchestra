@@ -6,6 +6,7 @@ import path from "path"
 import { UI } from "@/cli/ui"
 import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
+import { withTimeout } from "@/util/timeout"
 import { withNetworkOptions, resolveNetworkOptions } from "@/cli/network"
 import type { Event } from "@opencode-ai/sdk/v2"
 import type { EventSource } from "./context/sdk"
@@ -82,6 +83,7 @@ export const TuiThreadCommand = cmd({
     // (Important when running under `bun run` wrappers on Windows.)
     const unguard = win32InstallCtrlCGuard()
     let client: RpcClient | undefined
+    let stop: (() => Promise<void>) | undefined
     try {
       // Must be the very first thing — disables CTRL_C_EVENT before any Worker
       // spawn or async work so the OS cannot kill the process group.
@@ -119,21 +121,45 @@ export const TuiThreadCommand = cmd({
         Log.Default.error(e)
       }
       client = Rpc.client<typeof rpc>(worker)
-      process.on("uncaughtException", (e) => {
+      const error = (e: unknown) => {
         Log.Default.error(e)
-      })
-      process.on("unhandledRejection", (e) => {
-        Log.Default.error(e)
-      })
-      process.on("SIGUSR2", async () => {
-        await client?.call("reload", undefined)
-      })
+      }
+      const reload = () => {
+        client?.call("reload", undefined).catch((err) => {
+          Log.Default.warn("worker reload failed", {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
+      }
+      let stopped = false
+      const handleSighup = async () => {
+        await stop?.()
+        process.exit(0)
+      }
+      stop = async () => {
+        if (stopped) return
+        stopped = true
+        process.off("uncaughtException", error)
+        process.off("unhandledRejection", error)
+        process.off("SIGUSR2", reload)
+        process.off("SIGHUP", handleSighup)
+        await withTimeout(client?.call("shutdown", undefined) ?? Promise.resolve(undefined), 5000).catch((error) => {
+          Log.Default.warn("worker shutdown failed", {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+        await Promise.resolve(worker.terminate()).catch((error) => {
+          Log.Default.warn("worker terminate failed", {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      }
+      process.on("uncaughtException", error)
+      process.on("unhandledRejection", error)
+      process.on("SIGUSR2", reload)
       // Ensure worker shuts down when terminal closes (e.g. window close sends SIGHUP).
       // Without this, --port mode leaves an orphan process holding the TCP port.
-      process.on("SIGHUP", async () => {
-        await client?.call("shutdown", undefined).catch(() => {})
-        process.exit(0)
-      })
+      process.on("SIGHUP", handleSighup)
 
       const prompt = await iife(async () => {
         const piped = !process.stdin.isTTY ? await Bun.stdin.text() : undefined
@@ -179,18 +205,18 @@ export const TuiThreadCommand = cmd({
           fork: args.fork,
         },
         onExit: async () => {
-          await client?.call("shutdown", undefined)
+          await stop?.()
         },
       })
 
       setTimeout(() => {
         client?.call("checkUpgrade", { directory: cwd }).catch(() => {})
-      }, 1000)
+      }, 1000).unref?.()
 
       await tuiPromise
     } finally {
       // Safety net: ensure worker is shut down even if TUI exits abnormally
-      await client?.call("shutdown", undefined).catch(() => {})
+      await stop?.()
       unguard?.()
     }
   },

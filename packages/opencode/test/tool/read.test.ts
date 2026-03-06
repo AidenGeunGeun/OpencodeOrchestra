@@ -135,7 +135,7 @@ describe("tool.read env file permissions", () => {
     ["environment.ts", false],
   ]
 
-   describe.each(["build", "plan"])("agent=%s", (agentName) => {
+  describe.each(["build", "plan"])("agent=%s", (agentName) => {
     test.each(cases)("%s asks=%s", async (filename, shouldAsk) => {
       await using tmp = await tmpdir({
         init: (dir) => Bun.write(path.join(dir, filename), "content"),
@@ -242,6 +242,40 @@ describe("tool.read truncation", () => {
         expect(result.output).toContain("line14")
         expect(result.output).not.toContain("line0")
         expect(result.output).not.toContain("line15")
+      },
+    })
+  })
+
+  test("allows reading empty file at default offset", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "empty.txt"), "")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const read = await ReadTool.init()
+        const result = await read.execute({ filePath: path.join(tmp.path, "empty.txt") }, ctx)
+        expect(result.metadata.truncated).toBe(false)
+        expect(result.output).toContain("End of file - total 0 lines")
+      },
+    })
+  })
+
+  test("throws when offset > 1 for empty file", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "empty.txt"), "")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const read = await ReadTool.init()
+        await expect(read.execute({ filePath: path.join(tmp.path, "empty.txt"), offset: 2 }, ctx)).rejects.toThrow(
+          "Offset 2 is out of range for this file (0 lines)",
+        )
       },
     })
   })

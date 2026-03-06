@@ -1,6 +1,8 @@
 import z from "zod"
-import * as fs from "fs"
+import { createReadStream } from "fs"
+import * as fs from "fs/promises"
 import * as path from "path"
+import { createInterface } from "readline"
 import { Tool } from "./tool"
 import { LSP } from "../lsp"
 import { FileTime } from "../file/time"
@@ -53,14 +55,18 @@ export const ReadTool = Tool.define("read", {
       const dir = path.dirname(filepath)
       const base = path.basename(filepath)
 
-      const dirEntries = fs.readdirSync(dir)
-      const suggestions = dirEntries
-        .filter(
-          (entry) =>
-            entry.toLowerCase().includes(base.toLowerCase()) || base.toLowerCase().includes(entry.toLowerCase()),
+      const suggestions = await fs
+        .readdir(dir)
+        .then((entries) =>
+          entries
+            .filter(
+              (entry) =>
+                entry.toLowerCase().includes(base.toLowerCase()) || base.toLowerCase().includes(entry.toLowerCase()),
+            )
+            .map((entry) => path.join(dir, entry))
+            .slice(0, 3),
         )
-        .map((entry) => path.join(dir, entry))
-        .slice(0, 3)
+        .catch(() => [])
 
       if (suggestions.length > 0) {
         throw new Error(`File not found: ${filepath}\n\nDid you mean one of these?\n${suggestions.join("\n")}`)
@@ -70,12 +76,12 @@ export const ReadTool = Tool.define("read", {
     }
 
     if (stat.isDirectory()) {
-      const dirents = await fs.promises.readdir(filepath, { withFileTypes: true })
+      const dirents = await fs.readdir(filepath, { withFileTypes: true })
       const entries = await Promise.all(
         dirents.map(async (dirent) => {
           if (dirent.isDirectory()) return dirent.name + "/"
           if (dirent.isSymbolicLink()) {
-            const target = await fs.promises.stat(path.join(filepath, dirent.name)).catch(() => undefined)
+            const target = await fs.stat(path.join(filepath, dirent.name)).catch(() => undefined)
             if (target?.isDirectory()) return dirent.name + "/"
           }
           return dirent.name
@@ -147,21 +153,42 @@ export const ReadTool = Tool.define("read", {
     const limit = params.limit ?? DEFAULT_READ_LIMIT
     const offset = params.offset ?? 1
     const start = offset - 1
-    const lines = await file.text().then((text) => text.split("\n"))
-    if (start >= lines.length) throw new Error(`Offset ${offset} is out of range for this file (${lines.length} lines)`)
 
     const raw: string[] = []
     let bytes = 0
+    let lines = 0
     let truncatedByBytes = false
-    for (let i = start; i < Math.min(lines.length, start + limit); i++) {
-      const line = lines[i].length > MAX_LINE_LENGTH ? lines[i].substring(0, MAX_LINE_LENGTH) + "..." : lines[i]
-      const size = Buffer.byteLength(line, "utf-8") + (raw.length > 0 ? 1 : 0)
-      if (bytes + size > MAX_BYTES) {
-        truncatedByBytes = true
-        break
+    let hasMoreLines = false
+    const stream = createReadStream(filepath, { encoding: "utf8" })
+    const rl = createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    })
+    try {
+      for await (const text of rl) {
+        lines += 1
+        if (lines <= start) continue
+        if (raw.length >= limit) {
+          hasMoreLines = true
+          break
+        }
+        const line = text.length > MAX_LINE_LENGTH ? text.substring(0, MAX_LINE_LENGTH) + "..." : text
+        const size = Buffer.byteLength(line, "utf-8") + (raw.length > 0 ? 1 : 0)
+        if (bytes + size > MAX_BYTES) {
+          truncatedByBytes = true
+          hasMoreLines = true
+          break
+        }
+        raw.push(line)
+        bytes += size
       }
-      raw.push(line)
-      bytes += size
+    } finally {
+      rl.close()
+      stream.destroy()
+    }
+
+    if (lines < offset && !(lines === 0 && offset === 1)) {
+      throw new Error(`Offset ${offset} is out of range for this file (${lines} lines)`)
     }
 
     const content = raw.map((line, index) => {
@@ -172,9 +199,7 @@ export const ReadTool = Tool.define("read", {
     let output = "<file>\n"
     output += content.join("\n")
 
-    const totalLines = lines.length
     const lastReadLine = offset + raw.length - 1
-    const hasMoreLines = totalLines > lastReadLine
     const truncated = hasMoreLines || truncatedByBytes
 
     if (truncatedByBytes) {
@@ -182,7 +207,7 @@ export const ReadTool = Tool.define("read", {
     } else if (hasMoreLines) {
       output += `\n\n(File has more lines. Use 'offset' parameter to read beyond line ${lastReadLine})`
     } else {
-      output += `\n\n(End of file - total ${totalLines} lines)`
+      output += `\n\n(End of file - total ${lines} lines)`
     }
     output += "\n</file>"
 
@@ -242,18 +267,23 @@ async function isBinaryFile(filepath: string, file: Bun.BunFile): Promise<boolea
   const fileSize = stat.size
   if (fileSize === 0) return false
 
-  const bufferSize = Math.min(4096, fileSize)
-  const buffer = await file.arrayBuffer()
-  if (buffer.byteLength === 0) return false
-  const bytes = new Uint8Array(buffer.slice(0, bufferSize))
+  const handle = await fs.open(filepath, "r")
+  try {
+    const sampleSize = Math.min(4096, fileSize)
+    const bytes = Buffer.alloc(sampleSize)
+    const result = await handle.read(bytes, 0, sampleSize, 0)
+    if (result.bytesRead === 0) return false
 
-  let nonPrintableCount = 0
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0) return true
-    if (bytes[i] < 9 || (bytes[i] > 13 && bytes[i] < 32)) {
-      nonPrintableCount++
+    let nonPrintableCount = 0
+    for (let i = 0; i < result.bytesRead; i++) {
+      if (bytes[i] === 0) return true
+      if (bytes[i] < 9 || (bytes[i] > 13 && bytes[i] < 32)) {
+        nonPrintableCount++
+      }
     }
+    // If >30% non-printable characters, consider it binary
+    return nonPrintableCount / result.bytesRead > 0.3
+  } finally {
+    await handle.close()
   }
-  // If >30% non-printable characters, consider it binary
-  return nonPrintableCount / bytes.length > 0.3
 }

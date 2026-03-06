@@ -48,6 +48,14 @@ if (!arch) {
 const scope = "@skybluejacket"
 const base = "oco-" + platform + "-" + arch
 const binary = platform === "windows" ? "oco.exe" : "oco"
+const packageDir = dirname(scriptDir)
+
+function findDistBinary() {
+  const candidate = join(packageDir, "dist", scope, base, "bin", binary)
+  if (existsSync(candidate)) {
+    return candidate
+  }
+}
 
 function findBinary(startDir) {
   let current = startDir
@@ -89,7 +97,9 @@ function findBinary(startDir) {
 }
 
 const resolved = findBinary(scriptDir)
-if (!resolved) {
+const distResolved = findDistBinary()
+const target = distResolved || resolved
+if (!target) {
   console.error(
     'It seems that your package manager failed to install the right version of the oco CLI for your platform. You can try manually installing the "' +
       scope + "/" + base +
@@ -98,4 +108,4 @@ if (!resolved) {
   process.exit(1)
 }
 
-run(resolved)
+run(target)

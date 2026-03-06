@@ -116,7 +116,7 @@ export namespace Session {
     }
   }
 
-export const Info = z
+  export const Info = z
     .object({
       id: Identifier.schema("session"),
       slug: z.string(),
@@ -206,7 +206,7 @@ export const Info = z
     ),
   }
 
-export const create = fn(
+  export const create = fn(
     z
       .object({
         parentID: Identifier.schema("session").optional(),
@@ -270,7 +270,7 @@ export const create = fn(
     })
   })
 
-export async function createNext(input: {
+  export async function createNext(input: {
     id?: string
     title?: string
     parentID?: string
@@ -599,8 +599,7 @@ export async function createNext(input: {
     }),
     async (input) => {
       Database.use((db) => {
-        db
-          .delete(MessageTable)
+        db.delete(MessageTable)
           .where(and(eq(MessageTable.id, input.messageID), eq(MessageTable.session_id, input.sessionID)))
           .run()
         Database.effect(() =>
@@ -622,8 +621,7 @@ export async function createNext(input: {
     }),
     async (input) => {
       Database.use((db) => {
-        db
-          .delete(PartTable)
+        db.delete(PartTable)
           .where(
             and(
               eq(PartTable.id, input.partID),
@@ -674,7 +672,7 @@ export async function createNext(input: {
         .run()
       Database.effect(() =>
         Bus.publish(MessageV2.Event.PartUpdated, {
-          part,
+          part: structuredClone(part),
           delta,
         }),
       )
@@ -701,11 +699,11 @@ export async function createNext(input: {
       const cacheReadInputTokens = normalizeTokenCount(input.usage.cachedInputTokens)
       const cacheWriteInputTokens = normalizeTokenCount(
         input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
-        // @ts-expect-error
-        input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
-        // @ts-expect-error
-        input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"] ??
-        0,
+          // @ts-expect-error
+          input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
+          // @ts-expect-error
+          input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"] ??
+          0,
       )
 
       // AI SDK 6.x: inputTokens always includes cached tokens for all providers
