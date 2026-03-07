@@ -20,10 +20,49 @@ Guide for AI coding agents working in this repository.
 | **Test single file** | `bun test path/to/file.test.ts`                  | `packages/opencode` |
 | **SDK regen**        | `bunx @hey-api/openapi-ts`                       | `packages/sdk/js`   |
 
+- Built Linux x64 binary path: `packages/opencode/dist/@skybluejacket/oco-linux-x64/bin/oco`
+
 - Package manager: **bun@1.3.9**
 - Build orchestrator: **Turbo** (`turbo.json`)
 - Default branch: **`main`**
 - Storage: **SQLite** (drizzle-orm) at `~/.local/share/opencode/opencode.db`
+
+## Search Safety
+
+- Never run broad repo searches against `.` parent directories, or large home-level paths such as `/home/skybl`.
+- Always scope `rg`, `grep`, `glob`, and `code-intel` to the exact repository or subdirectory you need.
+- Prefer the narrowest viable path first; widen only when the smaller scope is proven insufficient.
+- This avoids runaway CPU usage, long hangs, and noisy results from unrelated repositories.
+
+## Release Workflow
+
+- GitHub repo: `AidenGeunGeun/OpenCodeOrchestra`
+- Current release tag pattern is `oco-v<version>` for 1.x releases (example: `oco-v1.0.5`). Older `v0.x.y` tags exist from before the rename.
+- Version source of truth for CLI releases is `packages/opencode/package.json`.
+- Local `oco` launcher path is `packages/opencode/bin/oco`; it resolves built binaries from `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`.
+- Patch release workflow:
+  1. Bump `packages/opencode/package.json` patch version.
+  2. Run `bun run build` in `packages/opencode`.
+  3. Create release archives from each built package directory under `packages/opencode/dist/@skybluejacket/`:
+     - Linux targets: both `.tar.gz` and `.zip`
+     - Darwin/Windows targets: `.zip`
+  4. Generate `SHA256SUMS.txt` covering all release archives.
+  5. Commit the version bump, code/docs changes, and build-generated files included in the release.
+  6. Create and push tag `oco-v<version>`.
+  7. Publish GitHub release with `gh release create` on `AidenGeunGeun/OpenCodeOrchestra`, attaching all archives plus `SHA256SUMS.txt` and using a manual highlights/body matching recent release style.
+- Recent release asset set for 1.x includes:
+  - `oco-darwin-arm64.zip`
+  - `oco-darwin-x64.zip`
+  - `oco-darwin-x64-baseline.zip`
+  - `oco-linux-arm64.tar.gz`, `oco-linux-arm64.zip`
+  - `oco-linux-arm64-musl.tar.gz`, `oco-linux-arm64-musl.zip`
+  - `oco-linux-x64.tar.gz`, `oco-linux-x64.zip`
+  - `oco-linux-x64-musl.tar.gz`, `oco-linux-x64-musl.zip`
+  - `oco-linux-x64-baseline.tar.gz`, `oco-linux-x64-baseline.zip`
+  - `oco-linux-x64-baseline-musl.tar.gz`, `oco-linux-x64-baseline-musl.zip`
+  - `oco-windows-x64.zip`
+  - `oco-windows-x64-baseline.zip`
+  - `SHA256SUMS.txt`
 
 ## Project Structure
 
@@ -167,6 +206,15 @@ Line 99: `context-1m-2025-08-07` added to Anthropic beta headers string:
 "claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07"
 ```
 Upstream does not include this header; without it Anthropic caps context at default limits.
+
+### Feature — Codex OAuth FAST Alias Handling (`plugin/codex.ts`)
+
+For OpenAI OAuth / ChatGPT Codex sessions, FAST is not a standalone upstream model slug.
+
+- User-facing aliases such as `openai/gpt-5.4-fast` are allowed.
+- These aliases must resolve to the canonical upstream model via `api.id` (for example `gpt-5.4`).
+- FAST behavior must be expressed through `options.serviceTier = "priority"`, not by sending a custom model slug like `gpt-5.4-fast` upstream.
+- When working in the OAuth Codex path, preserve alias display/selection behavior while ensuring outbound requests use the canonical model slug.
 
 ### Feature — Cache Token Display (`cli/cmd/tui/routes/session/header.tsx`, `sidebar.tsx`)
 

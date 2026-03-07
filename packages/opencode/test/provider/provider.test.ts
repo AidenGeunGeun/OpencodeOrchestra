@@ -1,4 +1,5 @@
 import { test, expect, mock } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 
 // Mock BunProc and default plugins to prevent actual installations during tests
@@ -26,6 +27,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { Env } from "../../src/env"
+import { Global } from "../../src/global"
 
 test("provider loaded from env variable", async () => {
   await using tmp = await tmpdir({
@@ -265,6 +267,72 @@ test("openai custom model alias via config", async () => {
       expect(providers["openai"].models["gpt-5.4-fast"].options.serviceTier).toBe("priority")
     },
   })
+})
+
+test("openai OAuth custom model alias via config keeps canonical api id and FAST service tier", async () => {
+  const authPath = path.join(Global.Path.data, "auth.json")
+  const originalAuth = await Bun.file(authPath)
+    .text()
+    .catch(() => undefined)
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.4-fast": {
+                  id: "gpt-5.4",
+                  name: "GPT-5.4 Fast",
+                  options: {
+                    serviceTier: "priority",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Bun.write(
+      authPath,
+      JSON.stringify({
+        openai: {
+          type: "oauth",
+          access: "test-access-token",
+          refresh: "test-refresh-token",
+          expires: Date.now() + 3600000,
+          accountId: "acc-123",
+        },
+      }),
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        Env.set("OPENAI_API_KEY", "")
+      },
+      fn: async () => {
+        const providers = await Provider.list()
+        expect(providers["openai"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.4-fast"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.4-fast"].api.id).toBe("gpt-5.4")
+        expect(providers["openai"].models["gpt-5.4-fast"].options.serviceTier).toBe("priority")
+      },
+    })
+  } finally {
+    if (originalAuth === undefined) {
+      await fs.rm(authPath, { force: true })
+    } else {
+      await Bun.write(authPath, originalAuth)
+    }
+  }
 })
 
 test("custom provider with npm package", async () => {

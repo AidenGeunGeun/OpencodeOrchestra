@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, mock, test } from "bun:test"
 import {
+  CodexAuthPlugin,
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
+import { OAUTH_DUMMY_KEY } from "../../src/auth"
 
 function createTestJwt(payload: object): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")
@@ -118,6 +120,102 @@ describe("plugin.codex", () => {
           refresh_token: "rt",
         }),
       ).toBe("acc-123")
+    })
+  })
+
+  describe("CodexAuthPlugin OAuth fetch", () => {
+    test("rewrites FAST aliases to canonical model slugs and preserves priority tier", async () => {
+      const plugin = await CodexAuthPlugin({
+        client: {
+          auth: {
+            set: async () => undefined,
+          },
+        } as any,
+      } as any)
+
+      const provider = {
+        models: {
+          "gpt-5.4-fast": {
+            id: "gpt-5.4-fast",
+            providerID: "openai",
+            api: {
+              id: "gpt-5.4",
+              url: "https://api.openai.com/v1",
+              npm: "@ai-sdk/openai",
+            },
+            name: "GPT-5.4 Fast",
+            capabilities: {
+              temperature: false,
+              reasoning: true,
+              attachment: true,
+              toolcall: true,
+              input: { text: true, audio: false, image: true, video: false, pdf: false },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+            limit: { context: 272000, input: 272000, output: 128000 },
+            status: "active",
+            options: { serviceTier: "priority" },
+            headers: {},
+            release_date: "2026-03-05",
+            variants: {},
+            family: "gpt",
+          },
+        },
+      } as any
+
+      const auth = {
+        type: "oauth" as const,
+        access: "oauth-access-token",
+        refresh: "oauth-refresh-token",
+        expires: Date.now() + 60_000,
+        accountId: "acc-123",
+      }
+
+      const loader = plugin.auth?.loader
+      expect(loader).toBeDefined()
+      const options = await loader!(async () => auth, provider)
+
+      expect(provider.models["gpt-5.4-fast"]).toBeDefined()
+
+      const originalFetch = globalThis.fetch
+      let seenUrl: string | undefined
+      let seenHeaders: Headers | undefined
+      let seenBody: any
+      const mockFetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+        seenUrl = input.toString()
+        seenHeaders = new Headers(init?.headers)
+        seenBody = init?.body ? JSON.parse(String(init.body)) : undefined
+        return new Response(JSON.stringify({ id: "resp_123", output: [], usage: { input_tokens: 1, output_tokens: 1 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      })
+      globalThis.fetch = mockFetch as unknown as typeof fetch
+
+      try {
+        await options.fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-5.4-fast",
+            input: [],
+            service_tier: "priority",
+          }),
+        })
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(seenUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
+      expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
+      expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
+      expect(seenBody.model).toBe("gpt-5.4")
+      expect(seenBody.service_tier).toBe("priority")
     })
   })
 })

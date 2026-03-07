@@ -12,6 +12,16 @@ const ISSUER = "https://auth.openai.com"
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+const OAUTH_ALLOWED_MODELS = new Set([
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
+  "gpt-5.1-codex",
+  "gpt-5.4",
+])
 
 interface PkceCodes {
   verifier: string
@@ -43,6 +53,32 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
 
 function generateState(): string {
   return base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
+}
+
+function isAllowedCodexOauthModel(modelID: string, model?: { api?: { id?: string } }) {
+  if (modelID.includes("codex")) return true
+  const apiID = model?.api?.id
+  return OAUTH_ALLOWED_MODELS.has(modelID) || (apiID ? OAUTH_ALLOWED_MODELS.has(apiID) : false)
+}
+
+function normalizeCodexOauthBody(body: RequestInit["body"], models: Record<string, { api?: { id?: string } }>) {
+  if (typeof body !== "string") return body
+
+  try {
+    const parsed = JSON.parse(body)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return body
+    if (typeof parsed.model !== "string") return body
+
+    const canonicalModel = models[parsed.model]?.api?.id
+    if (!canonicalModel || canonicalModel === parsed.model) return body
+
+    return JSON.stringify({
+      ...parsed,
+      model: canonicalModel,
+    })
+  } catch {
+    return body
+  }
 }
 
 export interface IdTokenClaims {
@@ -357,19 +393,8 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         if (auth.type !== "oauth") return {}
 
         // Filter models to only allowed Codex models for OAuth
-        const allowedModels = new Set([
-          "gpt-5.1-codex-max",
-          "gpt-5.1-codex-mini",
-          "gpt-5.2",
-          "gpt-5.2-codex",
-          "gpt-5.3-codex",
-          "gpt-5.3-codex-spark",
-          "gpt-5.1-codex",
-          "gpt-5.4",
-        ])
-        for (const modelId of Object.keys(provider.models)) {
-          if (modelId.includes("codex")) continue
-          if (allowedModels.has(modelId)) continue
+        for (const [modelId, model] of Object.entries(provider.models)) {
+          if (isAllowedCodexOauthModel(modelId, model)) continue
           delete provider.models[modelId]
         }
 
@@ -552,9 +577,12 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               parsed.pathname.includes("/v1/responses") || parsed.pathname.includes("/chat/completions")
                 ? new URL(CODEX_API_ENDPOINT)
                 : parsed
+            const body =
+              url.href === CODEX_API_ENDPOINT ? normalizeCodexOauthBody(init?.body, provider.models as any) : init?.body
 
             return fetch(url, {
               ...init,
+              body,
               headers,
             })
           },
