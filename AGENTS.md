@@ -42,14 +42,18 @@ Guide for AI coding agents working in this repository.
 - Local `oco` launcher path is `packages/opencode/bin/oco`; it resolves built binaries from `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`.
 - Patch release workflow:
   1. Bump `packages/opencode/package.json` patch version.
-  2. Run `bun run build` in `packages/opencode`.
-  3. Create release archives from each built package directory under `packages/opencode/dist/@skybluejacket/`:
+  2. For prompt-bundling releases, treat `~/.config/opencode/opencode.jsonc` as the source of truth for which user prompt overrides are currently in use, then sync only those prompt files from `~/.config/opencode/prompts/` into `packages/opencode/src/agent/prompt/`.
+     - Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `researcher.txt`, `investigator.txt`, `auditor.txt`, `compaction.txt`, `docs.txt`
+     - Do not update bundled prompts without active user overrides for this release path: `cleanup.txt`, `explore.txt`, `summary.txt`, `title.txt`, `pm-plan.txt`
+     - Verify synced prompts with exact `diff -u ~/.config/opencode/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` checks before building.
+  3. Run `bun run build` in `packages/opencode`.
+  4. Create release archives from each built package directory under `packages/opencode/dist/@skybluejacket/`:
      - Linux targets: both `.tar.gz` and `.zip`
      - Darwin/Windows targets: `.zip`
-  4. Generate `SHA256SUMS.txt` covering all release archives.
-  5. Commit the version bump, code/docs changes, and build-generated files included in the release.
-  6. Create and push tag `oco-v<version>`.
-  7. Publish GitHub release with `gh release create` on `AidenGeunGeun/OpenCodeOrchestra`, attaching all archives plus `SHA256SUMS.txt` and using a manual highlights/body matching recent release style.
+  5. Generate `SHA256SUMS.txt` covering all release archives.
+  6. Commit the version bump, code/docs changes, and build-generated files included in the release.
+  7. Create and push tag `oco-v<version>`.
+  8. Publish GitHub release with `gh release create` on `AidenGeunGeun/OpenCodeOrchestra`, attaching all archives plus `SHA256SUMS.txt` and using a manual highlights/body matching recent release style.
 - Recent release asset set for 1.x includes:
   - `oco-darwin-arm64.zip`
   - `oco-darwin-x64.zip`
