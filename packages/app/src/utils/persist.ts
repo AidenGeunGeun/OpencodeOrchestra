@@ -319,12 +319,6 @@ export const Persist = {
 }
 
 export function removePersisted(target: { storage?: string; key: string }, platform?: Platform) {
-  const isDesktop = platform?.platform === "desktop" && !!platform.storage
-
-  if (isDesktop) {
-    return platform.storage?.(target.storage)?.removeItem(target.key)
-  }
-
   if (!target.storage) {
     localStorageDirect().removeItem(target.key)
     return
@@ -337,110 +331,58 @@ export function persisted<T>(
   target: string | PersistTarget,
   store: [Store<T>, SetStoreFunction<T>],
 ): PersistedWithReady<T> {
-  const platform = usePlatform()
   const config: PersistTarget = typeof target === "string" ? { key: target } : target
 
   const defaults = snapshot(store[0])
   const legacy = config.legacy ?? []
 
-  const isDesktop = platform.platform === "desktop" && !!platform.storage
-
   const currentStorage = (() => {
-    if (isDesktop) return platform.storage?.(config.storage)
     if (!config.storage) return localStorageDirect()
     return localStorageWithPrefix(config.storage)
   })()
 
   const legacyStorage = (() => {
-    if (!isDesktop) return localStorageDirect()
-    if (!config.storage) return platform.storage?.()
-    return platform.storage?.(LEGACY_STORAGE)
+    return localStorageDirect()
   })()
 
   const storage = (() => {
-    if (!isDesktop) {
-      const current = currentStorage as SyncStorage
-      const legacyStore = legacyStorage as SyncStorage
+    const current = currentStorage as SyncStorage
+    const legacyStore = legacyStorage as SyncStorage
 
-      const api: SyncStorage = {
-        getItem: (key) => {
-          const raw = current.getItem(key)
-          if (raw !== null) {
-            const next = normalize(defaults, raw, config.migrate)
-            if (next === undefined) {
-              current.removeItem(key)
-              return null
-            }
-            if (raw !== next) current.setItem(key, next)
-            return next
-          }
-
-          for (const legacyKey of legacy) {
-            const legacyRaw = legacyStore.getItem(legacyKey)
-            if (legacyRaw === null) continue
-
-            const next = normalize(defaults, legacyRaw, config.migrate)
-            if (next === undefined) {
-              legacyStore.removeItem(legacyKey)
-              continue
-            }
-            current.setItem(key, next)
-            legacyStore.removeItem(legacyKey)
-            return next
-          }
-
-          return null
-        },
-        setItem: (key, value) => {
-          current.setItem(key, value)
-        },
-        removeItem: (key) => {
-          current.removeItem(key)
-        },
-      }
-
-      return api
-    }
-
-    const current = currentStorage as AsyncStorage
-    const legacyStore = legacyStorage as AsyncStorage | undefined
-
-    const api: AsyncStorage = {
-      getItem: async (key) => {
-        const raw = await current.getItem(key)
+    const api: SyncStorage = {
+      getItem: (key) => {
+        const raw = current.getItem(key)
         if (raw !== null) {
           const next = normalize(defaults, raw, config.migrate)
           if (next === undefined) {
-            await current.removeItem(key).catch(() => undefined)
+            current.removeItem(key)
             return null
           }
-          if (raw !== next) await current.setItem(key, next)
+          if (raw !== next) current.setItem(key, next)
           return next
         }
 
-        if (!legacyStore) return null
-
         for (const legacyKey of legacy) {
-          const legacyRaw = await legacyStore.getItem(legacyKey)
+          const legacyRaw = legacyStore.getItem(legacyKey)
           if (legacyRaw === null) continue
 
           const next = normalize(defaults, legacyRaw, config.migrate)
           if (next === undefined) {
-            await legacyStore.removeItem(legacyKey).catch(() => undefined)
+            legacyStore.removeItem(legacyKey)
             continue
           }
-          await current.setItem(key, next)
-          await legacyStore.removeItem(legacyKey)
+          current.setItem(key, next)
+          legacyStore.removeItem(legacyKey)
           return next
         }
 
         return null
       },
-      setItem: async (key, value) => {
-        await current.setItem(key, value)
+      setItem: (key, value) => {
+        current.setItem(key, value)
       },
-      removeItem: async (key) => {
-        await current.removeItem(key)
+      removeItem: (key) => {
+        current.removeItem(key)
       },
     }
 

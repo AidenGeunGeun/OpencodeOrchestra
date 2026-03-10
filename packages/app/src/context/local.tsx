@@ -90,9 +90,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       })
 
       const resolveConfigured = () => {
-        if (!sync.data.config.model) return
-        const [providerID, modelID] = sync.data.config.model.split("/")
-        const key = { providerID, modelID }
+        const configured = sync.data.config.model
+        if (!configured) return
+        const key = { providerID: configured.providerID, modelID: configured.id }
         if (isModelValid(key)) return key
       }
 
@@ -188,11 +188,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           configured() {
             const a = agent.current()
             const m = current()
-            if (!a || !m) return undefined
-            return getConfiguredAgentVariant({
-              agent: { model: a.model, variant: a.variant },
-              model: { providerID: m.provider.id, modelID: m.id, variants: m.variants },
-            })
+              if (!a || !m) return undefined
+              return getConfiguredAgentVariant({
+                agent: { model: a.model, variant: (a as { variant?: string }).variant },
+                model: { providerID: m.provider.id, modelID: m.id, variants: m.variants },
+              })
           },
           selected() {
             const m = current()

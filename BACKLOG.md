@@ -26,4 +26,4 @@ Tracked items for future work. Ordered by priority.
 - [x] ~~When upstream opencode adopts `@ai-sdk/anthropic` v3.x, port their implementation and reconcile with our fork changes.~~ Done — we upgraded independently to AI SDK 6.x.
 - [x] ~~Track `ai` core package major version bumps (currently v5.x)~~ Done — upgraded to `ai@6.0.90`.
 - [ ] Monitor upstream for AI SDK 6.x adoption — reconcile when they catch up.
-- [ ] Monitor upstream for 1M context support in main `provider.ts` (currently only in `packages/console/`).
+- [ ] Monitor upstream for 1M context support in main `provider.ts`.

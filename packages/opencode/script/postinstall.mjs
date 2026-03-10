@@ -62,10 +62,24 @@ function findBinary() {
       throw new Error(`Binary not found at ${binaryPath}`)
     }
 
-    return { binaryPath, binaryName }
+    return { binaryPath, binaryName, packageDir }
   } catch (error) {
     throw new Error(`Could not find package ${packageName}: ${error.message}`)
   }
+}
+
+function dataHome() {
+  return process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+}
+
+function installFrontend(packageDir) {
+  const sourceDir = path.join(packageDir, "frontend")
+  if (!fs.existsSync(path.join(sourceDir, "index.html"))) return
+
+  const targetDir = path.join(dataHome(), "opencode", "frontend")
+  fs.mkdirSync(targetDir, { recursive: true })
+  fs.cpSync(sourceDir, targetDir, { recursive: true })
+  console.log(`Frontend assets copied to: ${targetDir}`)
 }
 
 function prepareBinDirectory(binaryName) {
@@ -108,8 +122,9 @@ async function main() {
 
     // On non-Windows platforms, just verify the binary package exists
     // Don't replace the wrapper script - it handles binary execution
-    const { binaryPath } = findBinary()
+    const { binaryPath, packageDir } = findBinary()
     console.log(`Platform binary verified at: ${binaryPath}`)
+    installFrontend(packageDir)
     console.log("Wrapper script will handle binary execution")
   } catch (error) {
      console.error("Failed to setup oco binary:", error.message)

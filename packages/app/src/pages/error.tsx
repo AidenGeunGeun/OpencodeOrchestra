@@ -218,39 +218,6 @@ interface ErrorPageProps {
 export const ErrorPage: Component<ErrorPageProps> = (props) => {
   const platform = usePlatform()
   const language = useLanguage()
-  const [store, setStore] = createStore({
-    checking: false,
-    version: undefined as string | undefined,
-    actionError: undefined as string | undefined,
-  })
-
-  async function checkForUpdates() {
-    if (!platform.checkUpdate) return
-    setStore("checking", true)
-    await platform
-      .checkUpdate()
-      .then((result) => {
-        setStore("actionError", undefined)
-        if (result.updateAvailable && result.version) setStore("version", result.version)
-      })
-      .catch((err) => {
-        setStore("actionError", formatError(err, language.t))
-      })
-      .finally(() => {
-        setStore("checking", false)
-      })
-  }
-
-  async function installUpdate() {
-    if (!platform.update || !platform.restart) return
-    await platform
-      .update()
-      .then(() => platform.restart!())
-      .then(() => setStore("actionError", undefined))
-      .catch((err) => {
-        setStore("actionError", formatError(err, language.t))
-      })
-  }
 
   return (
     <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
@@ -273,33 +240,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           <Button size="large" onClick={platform.restart}>
             {language.t("error.page.action.restart")}
           </Button>
-          <Show when={platform.checkUpdate}>
-            <Show
-              when={store.version}
-              fallback={
-                <Button size="large" variant="ghost" onClick={checkForUpdates} disabled={store.checking}>
-                  {store.checking
-                    ? language.t("error.page.action.checking")
-                    : language.t("error.page.action.checkUpdates")}
-                </Button>
-              }
-            >
-              <Button size="large" onClick={installUpdate}>
-                {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
-              </Button>
-            </Show>
-          </Show>
         </div>
-        <Show when={store.actionError}>
-          {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
-        </Show>
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">
             {language.t("error.page.report.prefix")}
             <button
               type="button"
               class="flex items-center text-text-interactive-base gap-1"
-              onClick={() => platform.openLink("https://opencode.ai/desktop-feedback")}
+              onClick={() => platform.openLink("https://opencode.ai/discord")}
             >
               <div>{language.t("error.page.report.discord")}</div>
               <Icon name="discord" class="text-text-interactive-base" />

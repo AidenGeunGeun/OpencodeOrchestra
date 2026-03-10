@@ -29,14 +29,13 @@ function projectsKey(url: string) {
 
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
-  init: (props: { defaultUrl: string; isSidecar?: boolean }) => {
+  init: (props: { defaultUrl: string }) => {
     const platform = usePlatform()
 
     const [store, setStore, _, ready] = persisted(
       Persist.global("server", ["server.v3"]),
       createStore({
         list: [] as string[],
-        currentSidecarUrl: "",
         projects: {} as Record<string, StoredProject[]>,
         lastProject: {} as Record<string, string>,
       }),
@@ -55,21 +54,10 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       const fallback = defaultUrl()
       if (!fallback) return
 
-      const previousSidecarUrl = normalizeServerUrl(store.currentSidecarUrl)
-      const list = previousSidecarUrl ? store.list.filter((url) => url !== previousSidecarUrl) : store.list
-      if (!props.isSidecar) {
-        batch(() => {
-          setStore("list", list)
-          if (store.currentSidecarUrl) setStore("currentSidecarUrl", "")
-          setState("active", fallback)
-        })
-        return
-      }
-
-      const nextList = list.includes(fallback) ? list : [...list, fallback]
       batch(() => {
-        setStore("list", nextList)
-        setStore("currentSidecarUrl", fallback)
+        if (!store.list.includes(fallback)) {
+          setStore("list", store.list.length, fallback)
+        }
         setState("active", fallback)
       })
     }

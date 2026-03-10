@@ -54,7 +54,7 @@ export async function bootstrapGlobal(input: {
       }),
     ),
     retry(() =>
-      input.globalSDK.global.config.get().then((x) => {
+      input.globalSDK.config.get().then((x) => {
         input.setGlobalStore("config", x.data!)
       }),
     ),

@@ -35,6 +35,8 @@ import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { websocket } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
+import { existsSync } from "node:fs"
+import { extname, join, normalize } from "node:path"
 import { errors } from "./error"
 import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
@@ -46,12 +48,42 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 
 export namespace Server {
   const log = Log.create({ service: "server" })
+  const frontendCsp =
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:"
 
   let _url: URL | undefined
   let _corsWhitelist: string[] = []
 
   export function url(): URL {
     return _url ?? new URL("http://localhost:4096")
+  }
+
+  export function resolveFrontendDir(): string | null {
+    const isFrontendDir = (value: string) => existsSync(value) && existsSync(join(value, "index.html"))
+
+    const explicit = process.env.OPENCODE_FRONTEND_DIR
+    if (explicit && isFrontendDir(explicit)) return explicit
+
+    const monorepoPath = join(import.meta.dirname, "../../../app/dist")
+    if (isFrontendDir(monorepoPath)) return monorepoPath
+
+    const xdgPath = join(Global.Path.data, "frontend")
+    if (isFrontendDir(xdgPath)) return xdgPath
+
+    return null
+  }
+
+  function resolveFrontendAsset(frontendDir: string, requestPath: string) {
+    const relativePath = requestPath.replace(/^\/+/, "")
+    const normalizedDir = normalize(frontendDir)
+    const candidate = normalize(join(normalizedDir, relativePath))
+    if (
+      candidate !== normalizedDir &&
+      !candidate.startsWith(normalizedDir + "/") &&
+      !candidate.startsWith(normalizedDir + "\\")
+    )
+      return
+    return candidate
   }
 
   const app = new Hono()
@@ -110,13 +142,6 @@ export namespace Server {
 
               if (input.startsWith("http://localhost:")) return input
               if (input.startsWith("http://127.0.0.1:")) return input
-              if (
-                input === "tauri://localhost" ||
-                input === "http://tauri.localhost" ||
-                input === "https://tauri.localhost"
-              )
-                return input
-
               // *.opencode.ai (https only, adjust if needed)
               if (/^https:\/\/([a-z0-9-]+\.)*opencode\.ai$/.test(input)) {
                 return input
@@ -541,6 +566,38 @@ export namespace Server {
         .all("/*", async (c) => {
           const path = c.req.path
 
+          const frontendDir = resolveFrontendDir()
+          if (frontendDir) {
+            const filePath = resolveFrontendAsset(frontendDir, path)
+            const requestLooksLikeFile = extname(path) !== ""
+            if (filePath) {
+              const file = Bun.file(filePath)
+              if (await file.exists()) {
+                return new Response(file, {
+                  headers: {
+                    ...(file.type ? { "Content-Type": file.type } : {}),
+                    ...(extname(filePath) === ".html" ? { "Content-Security-Policy": frontendCsp } : {}),
+                  },
+                })
+              }
+            }
+
+            if (!requestLooksLikeFile) {
+              const indexPath = join(frontendDir, "index.html")
+              const indexFile = Bun.file(indexPath)
+              if (await indexFile.exists()) {
+                return new Response(indexFile, {
+                  headers: {
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Content-Security-Policy": frontendCsp,
+                  },
+                })
+              }
+            }
+
+            return new Response("Not Found", { status: 404 })
+          }
+
           const response = await proxy(`https://app.opencode.ai${path}`, {
             ...c.req,
             headers: {
@@ -550,7 +607,7 @@ export namespace Server {
           })
           response.headers.set(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:",
+            frontendCsp,
           )
           return response
         }) as unknown as Hono,

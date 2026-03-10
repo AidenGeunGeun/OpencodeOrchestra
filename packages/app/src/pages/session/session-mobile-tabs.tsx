@@ -13,7 +13,7 @@ export function SessionMobileTabs(props: {
   return (
     <Show when={props.open}>
       <Tabs value={props.mobileTab} class="h-auto">
-        <Tabs.List>
+        <Tabs.List data-mobile-compact-tabs class="h-9 min-h-9">
           <Tabs.Trigger
             value="session"
             class="!w-1/2 !max-w-none"

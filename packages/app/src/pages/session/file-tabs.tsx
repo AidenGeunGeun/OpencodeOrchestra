@@ -58,7 +58,7 @@ export function FileTabContent(props: {
     const c = state()?.content
     return c?.mimeType === "image/svg+xml"
   })
-  const isBinary = createMemo(() => state()?.content?.type === "binary")
+  const isBinary = createMemo(() => state()?.content?.encoding === "base64" && !isImage() && !isSvg())
   const svgContent = createMemo(() => {
     if (!isSvg()) return
     const c = state()?.content

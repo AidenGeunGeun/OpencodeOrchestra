@@ -34,6 +34,20 @@
     &:empty::after {
       display: none;
     }
+
+    @media (max-width: 639px) {
+      &[data-mobile-compact-tabs] {
+        height: 36px;
+
+        [data-slot="tabs-trigger-wrapper"] {
+          height: 36px;
+        }
+
+        [data-slot="tabs-trigger"] {
+          padding: 8px 16px 8px 12px;
+        }
+      }
+    }
   }
 
   [data-slot="tabs-trigger-wrapper"] {

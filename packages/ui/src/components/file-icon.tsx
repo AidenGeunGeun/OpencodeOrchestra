@@ -518,8 +518,6 @@ const ICON_MAPS: IconMaps = {
     queue: "FolderQueue",
     queues: "FolderQueue",
 
-    // Desktop platforms
-    desktop: "FolderDesktop",
     windows: "FolderWindows",
     macos: "FolderMacos",
     linux: "FolderLinux",

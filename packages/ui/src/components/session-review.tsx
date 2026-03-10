@@ -368,9 +368,8 @@ export const SessionReview = (props: SessionReviewProps) => {
                   return false
                 })
 
-                const isAdded = () => diff.status === "added" || (beforeText().length === 0 && afterText().length > 0)
-                const isDeleted = () =>
-                  diff.status === "deleted" || (afterText().length === 0 && beforeText().length > 0)
+                const isAdded = () => beforeText().length === 0 && afterText().length > 0
+                const isDeleted = () => afterText().length === 0 && beforeText().length > 0
                 const isImage = () => isImageFile(diff.file)
                 const isAudio = () => isAudioFile(diff.file)
 

@@ -11,14 +11,18 @@ Guide for AI coding agents working in this repository.
 
 ## Quick Reference
 
-| Task                 | Command                                          | Where to run       |
-| -------------------- | ------------------------------------------------ | ------------------- |
-| **Build**            | `bun run build`                                  | `packages/opencode` |
-| **Build (single)**   | `bun run build --single --skip-install`          | `packages/opencode` |
-| **Typecheck**        | `tsgo --noEmit`                                  | `packages/opencode` |
-| **Test all**         | `bun test`                                       | `packages/opencode` |
-| **Test single file** | `bun test path/to/file.test.ts`                  | `packages/opencode` |
-| **SDK regen**        | `bunx @hey-api/openapi-ts`                       | `packages/sdk/js`   |
+| Task                      | Command                                          | Where to run        |
+| ------------------------- | ------------------------------------------------ | ------------------- |
+| **Build**                 | `bun run build`                                  | `packages/opencode` |
+| **Build (single)**        | `bun run build --single --skip-install`          | `packages/opencode` |
+| **Typecheck**             | `tsgo --noEmit`                                  | `packages/opencode` |
+| **Test all**              | `bun test`                                       | `packages/opencode` |
+| **Test single file**      | `bun test path/to/file.test.ts`                  | `packages/opencode` |
+| **SDK regen**             | `bunx @hey-api/openapi-ts`                       | `packages/sdk/js`   |
+| **Build web frontend**    | `bun run --cwd packages/app build`               | repo root           |
+| **Frontend dev server**   | `bun run --cwd packages/app dev`                 | repo root           |
+| **Headless server**       | `bun dev serve --port 4096`                      | `packages/opencode` |
+| **Server + browser**      | `bun dev web --port 4096`                        | `packages/opencode` |
 
 - Built Linux x64 binary path: `packages/opencode/dist/@skybluejacket/oco-linux-x64/bin/oco`
 
@@ -70,7 +74,19 @@ Guide for AI coding agents working in this repository.
 
 ## Project Structure
 
-Monorepo with `packages/*` workspaces. The core is `packages/opencode/`:
+Monorepo with `packages/*` workspaces. Seven active packages:
+
+| Package              | Description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| `packages/opencode`  | Core CLI, Bun/Hono API server, TUI, agents, tools, providers, storage |
+| `packages/app`       | SolidJS SPA web frontend served by the opencode server               |
+| `packages/ui`        | Shared UI component library and theme system used by packages/app    |
+| `packages/sdk`       | Generated JS/TS client SDK (`@opencode-ai/sdk`)                      |
+| `packages/plugin`    | Plugin system (copilot, codex, client-wrapper)                       |
+| `packages/script`    | Build and utility scripts                                            |
+| `packages/util`      | Shared runtime utilities (encode, error, path, binary, retry, …)     |
+
+The core is `packages/opencode/src/`:
 
 ```
 packages/opencode/src/
@@ -96,12 +112,45 @@ packages/opencode/src/
 
 packages/opencode/migration/  # Drizzle SQL migration files (bundled at build time)
 packages/opencode/test/       # Test files (884 pass / 29 skip / 0 fail)
-packages/sdk/                 # SDK (generated from openapi.yml)
-packages/app/                 # Desktop app (Solid.js)
-packages/web/                 # Documentation site (Astro)
+packages/sdk/js/              # JS/TS SDK (generated from openapi.yml)
+packages/app/                 # SolidJS SPA web frontend
+packages/ui/                  # Shared UI components and theme system
 ```
 
 Agent hierarchy: PM (depth 0) -> Orchestrator (depth 1) -> Subagents (depth 2+, singleShot).
+
+## Web Frontend
+
+### Architecture
+
+The web UI is a three-layer stack:
+
+- **`packages/app`** — SolidJS SPA. Contains all pages, contexts, and application logic. Built with Vite + `@tailwindcss/vite`. Entry point is `src/entry.tsx`.
+- **`packages/ui`** — Shared component library and design system. Provides Tailwind configuration, CSS custom properties (theme tokens), and all reusable components (`Button`, `Dialog`, `Tooltip`, `Code`, `Diff`, etc.).
+- **`packages/opencode`** — Bun/Hono server. Serves the built frontend and exposes the REST + SSE API consumed by the frontend via `@opencode-ai/sdk/v2`.
+
+### Local Frontend Serving
+
+`Server.resolveFrontendDir()` (`src/server/server.ts`) resolves the frontend directory in this order:
+
+1. `OPENCODE_FRONTEND_DIR` environment variable (if set and contains `index.html`)
+2. `../../app/dist` relative to the server source — the monorepo build output
+3. `~/.local/share/opencode/frontend` — XDG data dir install
+4. Falls back to proxying `https://app.opencode.ai` for every unmatched request
+
+The catch-all `/*.` route serves static assets from the resolved directory with a strict Content-Security-Policy header. Non-file paths fall through to `index.html` (SPA routing).
+
+### SDK Connection
+
+The frontend imports `@opencode-ai/sdk/v2` (`createOpencodeClient`). In production (local serve), it connects to the same origin (`window.location.origin`). During development (`vite dev`), it defaults to `http://localhost:4096`. Multi-project support is implemented via the `x-opencode-directory` request header, which binds each API call to a specific project directory on the server.
+
+### Build
+
+```sh
+bun run --cwd packages/app build   # produces packages/app/dist/
+```
+
+The server picks up `packages/app/dist/` automatically when run from the monorepo (path 2 above).
 
 ## Orchestra-Specific Code (DO NOT OVERWRITE on upstream sync)
 

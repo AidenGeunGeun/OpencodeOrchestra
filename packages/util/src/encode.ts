@@ -28,3 +28,10 @@ export function checksum(content: string): string | undefined {
   }
   return (hash >>> 0).toString(36)
 }
+
+export function sampledChecksum(content: string, maxLength = 4096): string | undefined {
+  if (content.length <= maxLength) return checksum(content)
+
+  const half = Math.max(1, Math.floor(maxLength / 2))
+  return checksum(content.slice(0, half) + content.slice(-half))
+}

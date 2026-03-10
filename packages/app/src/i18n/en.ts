@@ -425,18 +425,11 @@ export const dict = {
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
 
-  "toast.update.title": "Update available",
-  "toast.update.description": "A new version of OpenCode ({{version}}) is now available to install.",
-  "toast.update.action.installRestart": "Install and restart",
-  "toast.update.action.notYet": "Not yet",
 
   "error.page.title": "Something went wrong",
   "error.page.description": "An error occurred while loading the application.",
   "error.page.details.label": "Error Details",
   "error.page.action.restart": "Restart",
-  "error.page.action.checking": "Checking...",
-  "error.page.action.checkUpdates": "Check for updates",
-  "error.page.action.updateTo": "Update to {{version}}",
   "error.page.report.prefix": "Please report this error to the OpenCode team",
   "error.page.report.discord": "on Discord",
   "error.page.version": "Version: {{version}}",
@@ -579,21 +572,14 @@ export const dict = {
   "sidebar.project.viewAllSessions": "View all sessions",
   "sidebar.project.clearNotifications": "Clear notifications",
 
-  "app.name.desktop": "OpenCode Desktop",
 
-  "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
-  "settings.desktop.section.wsl": "WSL",
-  "settings.desktop.wsl.title": "WSL integration",
-  "settings.desktop.wsl.description": "Run the OpenCode server inside WSL on Windows.",
 
   "settings.general.section.appearance": "Appearance",
   "settings.general.section.notifications": "System notifications",
-  "settings.general.section.updates": "Updates",
   "settings.general.section.sounds": "Sound effects",
-  "settings.general.section.display": "Display",
 
   "settings.general.row.language.title": "Language",
   "settings.general.row.language.description": "Change the display language for OpenCode",
@@ -604,22 +590,10 @@ export const dict = {
   "settings.general.row.font.title": "Font",
   "settings.general.row.font.description": "Customise the mono font used in code blocks",
 
-  "settings.general.row.wayland.title": "Use native Wayland",
-  "settings.general.row.wayland.description": "Disable X11 fallback on Wayland. Requires restart.",
-  "settings.general.row.wayland.tooltip":
-    "On Linux with mixed refresh-rate monitors, native Wayland can be more stable.",
 
   "settings.general.row.releaseNotes.title": "Release notes",
   "settings.general.row.releaseNotes.description": "Show What's New popups after updates",
 
-  "settings.updates.row.startup.title": "Check for updates on startup",
-  "settings.updates.row.startup.description": "Automatically check for updates when OpenCode launches",
-  "settings.updates.row.check.title": "Check for updates",
-  "settings.updates.row.check.description": "Manually check for updates and install if available",
-  "settings.updates.action.checkNow": "Check now",
-  "settings.updates.action.checking": "Checking...",
-  "settings.updates.toast.latest.title": "You're up to date",
-  "settings.updates.toast.latest.description": "You're running the latest version of OpenCode.",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",

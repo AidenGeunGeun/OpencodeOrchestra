@@ -328,13 +328,13 @@ function createGlobalSync() {
 
   const updateConfig = async (config: Config) => {
     setGlobalStore("reload", "pending")
-    return globalSDK.client.global.config
+    return globalSDK.client.config
       .update({ config })
       .then(bootstrap)
       .then(() => {
         setGlobalStore("reload", "complete")
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         setGlobalStore("reload", undefined)
         throw error
       })

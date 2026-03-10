@@ -42,6 +42,17 @@ export const WebCommand = cmd({
     UI.println(UI.logo("  "))
     UI.empty()
 
+    const frontendDir = Server.resolveFrontendDir()
+    if (frontendDir) {
+      UI.println(UI.Style.TEXT_INFO_BOLD + "  Local frontend:    ", UI.Style.TEXT_NORMAL, `serving from ${frontendDir}`)
+    } else {
+      UI.println(
+        UI.Style.TEXT_INFO_BOLD + "  Frontend:          ",
+        UI.Style.TEXT_NORMAL,
+        "proxied from app.opencode.ai (build packages/app for local serving)",
+      )
+    }
+
     if (opts.hostname === "0.0.0.0") {
       // Show localhost for local access
       const localhostUrl = `http://localhost:${server.port}`

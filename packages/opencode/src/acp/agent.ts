@@ -1362,10 +1362,9 @@ export namespace ACP {
       .then((resp) => {
         const cfg = resp.data
         if (!cfg || !cfg.model) return undefined
-        const parsed = Provider.parseModel(cfg.model)
         return {
-          providerID: parsed.providerID,
-          modelID: parsed.modelID,
+          providerID: cfg.model.providerID,
+          modelID: cfg.model.id,
         }
       })
       .catch((error) => {

@@ -427,18 +427,11 @@ export const dict = {
 
   "toast.session.listFailed.title": "Kunne ikke laste sesjoner for {{project}}",
 
-  "toast.update.title": "Oppdatering tilgjengelig",
-  "toast.update.description": "En ny versjon av OpenCode ({{version}}) er nå tilgjengelig for installasjon.",
-  "toast.update.action.installRestart": "Installer og start på nytt",
-  "toast.update.action.notYet": "Ikke nå",
 
   "error.page.title": "Noe gikk galt",
   "error.page.description": "Det oppstod en feil under lasting av applikasjonen.",
   "error.page.details.label": "Feildetaljer",
   "error.page.action.restart": "Start på nytt",
-  "error.page.action.checking": "Sjekker...",
-  "error.page.action.checkUpdates": "Se etter oppdateringer",
-  "error.page.action.updateTo": "Oppdater til {{version}}",
   "error.page.report.prefix": "Vennligst rapporter denne feilen til OpenCode-teamet",
   "error.page.report.discord": "på Discord",
   "error.page.version": "Versjon: {{version}}",
@@ -581,21 +574,14 @@ export const dict = {
   "sidebar.project.viewAllSessions": "Vis alle sesjoner",
   "sidebar.project.clearNotifications": "Fjern varsler",
 
-  "app.name.desktop": "OpenCode Desktop",
 
-  "settings.section.desktop": "Skrivebord",
   "settings.section.server": "Server",
   "settings.tab.general": "Generelt",
   "settings.tab.shortcuts": "Snarveier",
-  "settings.desktop.section.wsl": "WSL",
-  "settings.desktop.wsl.title": "WSL-integrasjon",
-  "settings.desktop.wsl.description": "Kjør OpenCode-serveren i WSL på Windows.",
 
   "settings.general.section.appearance": "Utseende",
   "settings.general.section.notifications": "Systemvarsler",
-  "settings.general.section.updates": "Oppdateringer",
   "settings.general.section.sounds": "Lydeffekter",
-  "settings.general.section.display": "Skjerm",
 
   "settings.general.row.language.title": "Språk",
   "settings.general.row.language.description": "Endre visningsspråket for OpenCode",
@@ -606,22 +592,10 @@ export const dict = {
   "settings.general.row.font.title": "Skrift",
   "settings.general.row.font.description": "Tilpass mono-skriften som brukes i kodeblokker",
 
-  "settings.general.row.wayland.title": "Bruk innebygd Wayland",
-  "settings.general.row.wayland.description": "Deaktiver X11-fallback på Wayland. Krever omstart.",
-  "settings.general.row.wayland.tooltip":
-    "På Linux med skjermer med blandet oppdateringsfrekvens kan innebygd Wayland være mer stabilt.",
 
   "settings.general.row.releaseNotes.title": "Utgivelsesnotater",
   "settings.general.row.releaseNotes.description": 'Vis "Hva er nytt"-vinduer etter oppdateringer',
 
-  "settings.updates.row.startup.title": "Se etter oppdateringer ved oppstart",
-  "settings.updates.row.startup.description": "Se automatisk etter oppdateringer når OpenCode starter",
-  "settings.updates.row.check.title": "Se etter oppdateringer",
-  "settings.updates.row.check.description": "Se etter oppdateringer manuelt og installer hvis tilgjengelig",
-  "settings.updates.action.checkNow": "Sjekk nå",
-  "settings.updates.action.checking": "Sjekker...",
-  "settings.updates.toast.latest.title": "Du er oppdatert",
-  "settings.updates.toast.latest.description": "Du bruker den nyeste versjonen av OpenCode.",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",

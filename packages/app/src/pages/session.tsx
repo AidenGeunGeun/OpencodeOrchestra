@@ -629,7 +629,7 @@ export default function Page() {
     const out = new Map<string, "add" | "del" | "mix">()
     for (const diff of diffs()) {
       const file = normalize(diff.file)
-      const kind = diff.status === "added" ? "add" : diff.status === "deleted" ? "del" : "mix"
+      const kind = diff.before.length === 0 && diff.after.length > 0 ? "add" : diff.after.length === 0 && diff.before.length > 0 ? "del" : "mix"
 
       out.set(file, kind)
 
@@ -1590,7 +1590,7 @@ export default function Page() {
                     mobileFallback={reviewContent({
                       diffStyle: "unified",
                       classes: {
-                        root: "pb-[calc(var(--prompt-height,8rem)+32px)]",
+                        root: "pb-[calc(var(--prompt-height,6rem)+32px)] sm:pb-[calc(var(--prompt-height,8rem)+32px)]",
                         header: "px-4",
                         container: "px-4",
                       },

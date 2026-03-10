@@ -426,18 +426,11 @@ export const dict = {
 
   "toast.session.listFailed.title": "Neuspjelo učitavanje sesija za {{project}}",
 
-  "toast.update.title": "Dostupno ažuriranje",
-  "toast.update.description": "Nova verzija OpenCode-a ({{version}}) je dostupna za instalaciju.",
-  "toast.update.action.installRestart": "Instaliraj i restartuj",
-  "toast.update.action.notYet": "Ne još",
 
   "error.page.title": "Nešto je pošlo po zlu",
   "error.page.description": "Došlo je do greške prilikom učitavanja aplikacije.",
   "error.page.details.label": "Detalji greške",
   "error.page.action.restart": "Restartuj",
-  "error.page.action.checking": "Provjera...",
-  "error.page.action.checkUpdates": "Provjeri ažuriranja",
-  "error.page.action.updateTo": "Ažuriraj na {{version}}",
   "error.page.report.prefix": "Molimo prijavi ovu grešku OpenCode timu",
   "error.page.report.discord": "na Discordu",
   "error.page.version": "Verzija: {{version}}",
@@ -578,21 +571,14 @@ export const dict = {
   "sidebar.project.viewAllSessions": "Prikaži sve sesije",
   "sidebar.project.clearNotifications": "Očisti obavijesti",
 
-  "app.name.desktop": "OpenCode Desktop",
 
-  "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
   "settings.tab.general": "Opšte",
   "settings.tab.shortcuts": "Prečice",
-  "settings.desktop.section.wsl": "WSL",
-  "settings.desktop.wsl.title": "WSL integracija",
-  "settings.desktop.wsl.description": "Pokreni OpenCode server unutar WSL-a na Windowsu.",
 
   "settings.general.section.appearance": "Izgled",
   "settings.general.section.notifications": "Sistemske obavijesti",
-  "settings.general.section.updates": "Ažuriranja",
   "settings.general.section.sounds": "Zvučni efekti",
-  "settings.general.section.display": "Prikaz",
 
   "settings.general.row.language.title": "Jezik",
   "settings.general.row.language.description": "Promijeni jezik prikaza u OpenCode-u",
@@ -603,22 +589,10 @@ export const dict = {
   "settings.general.row.font.title": "Font",
   "settings.general.row.font.description": "Prilagodi monospace font koji se koristi u blokovima koda",
 
-  "settings.general.row.wayland.title": "Koristi nativni Wayland",
-  "settings.general.row.wayland.description": "Onemogući X11 fallback na Waylandu. Zahtijeva restart.",
-  "settings.general.row.wayland.tooltip":
-    "Na Linuxu sa monitorima miješanih stopa osvježavanja, nativni Wayland može biti stabilniji.",
 
   "settings.general.row.releaseNotes.title": "Bilješke o izdanju",
   "settings.general.row.releaseNotes.description": 'Prikaži iskačuće prozore "Šta je novo" nakon ažuriranja',
 
-  "settings.updates.row.startup.title": "Provjeri ažuriranja pri pokretanju",
-  "settings.updates.row.startup.description": "Automatski provjerava ažuriranja kada se OpenCode pokrene",
-  "settings.updates.row.check.title": "Provjeri ažuriranja",
-  "settings.updates.row.check.description": "Ručno provjeri ažuriranja i instaliraj ako su dostupna",
-  "settings.updates.action.checkNow": "Provjeri sada",
-  "settings.updates.action.checking": "Provjera...",
-  "settings.updates.toast.latest.title": "Sve je ažurno",
-  "settings.updates.toast.latest.description": "Koristiš najnoviju verziju OpenCode-a.",
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",
   "font.option.firaCode": "Fira Code",

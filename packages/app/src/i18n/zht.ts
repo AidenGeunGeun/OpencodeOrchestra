@@ -422,18 +422,11 @@ export const dict = {
 
   "toast.session.listFailed.title": "無法載入 {{project}} 的工作階段",
 
-  "toast.update.title": "有可用更新",
-  "toast.update.description": "OpenCode 有新版本 ({{version}}) 可安裝。",
-  "toast.update.action.installRestart": "安裝並重新啟動",
-  "toast.update.action.notYet": "稍後",
 
   "error.page.title": "出了點問題",
   "error.page.description": "載入應用程式時發生錯誤。",
   "error.page.details.label": "錯誤詳情",
   "error.page.action.restart": "重新啟動",
-  "error.page.action.checking": "檢查中...",
-  "error.page.action.checkUpdates": "檢查更新",
-  "error.page.action.updateTo": "更新到 {{version}}",
   "error.page.report.prefix": "請將此錯誤回報給 OpenCode 團隊",
   "error.page.report.discord": "在 Discord 上",
   "error.page.version": "版本: {{version}}",
@@ -569,20 +562,13 @@ export const dict = {
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
 
-  "app.name.desktop": "OpenCode Desktop",
-  "settings.section.desktop": "桌面",
   "settings.section.server": "伺服器",
   "settings.tab.general": "一般",
   "settings.tab.shortcuts": "快速鍵",
-  "settings.desktop.section.wsl": "WSL",
-  "settings.desktop.wsl.title": "WSL integration",
-  "settings.desktop.wsl.description": "Run the OpenCode server inside WSL on Windows.",
 
   "settings.general.section.appearance": "外觀",
   "settings.general.section.notifications": "系統通知",
-  "settings.general.section.updates": "更新",
   "settings.general.section.sounds": "音效",
-  "settings.general.section.display": "顯示",
 
   "settings.general.row.language.title": "語言",
   "settings.general.row.language.description": "變更 OpenCode 的顯示語言",
@@ -593,21 +579,10 @@ export const dict = {
   "settings.general.row.font.title": "字型",
   "settings.general.row.font.description": "自訂程式碼區塊使用的等寬字型",
 
-  "settings.general.row.wayland.title": "使用原生 Wayland",
-  "settings.general.row.wayland.description": "在 Wayland 上停用 X11 後備模式。需要重新啟動。",
-  "settings.general.row.wayland.tooltip": "在混合更新率螢幕的 Linux 系統上，原生 Wayland 可能更穩定。",
 
   "settings.general.row.releaseNotes.title": "發行說明",
   "settings.general.row.releaseNotes.description": "更新後顯示「新功能」彈出視窗",
 
-  "settings.updates.row.startup.title": "啟動時檢查更新",
-  "settings.updates.row.startup.description": "在 OpenCode 啟動時自動檢查更新",
-  "settings.updates.row.check.title": "檢查更新",
-  "settings.updates.row.check.description": "手動檢查更新並在有更新時安裝",
-  "settings.updates.action.checkNow": "立即檢查",
-  "settings.updates.action.checking": "檢查中...",
-  "settings.updates.toast.latest.title": "已是最新版本",
-  "settings.updates.toast.latest.description": "你正在使用最新版本的 OpenCode。",
 
   "font.option.ibmPlexMono": "IBM Plex Mono",
   "font.option.cascadiaCode": "Cascadia Code",

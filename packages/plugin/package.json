@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsgo --noEmit",
+    "test": "true",
     "build": "tsc"
   },
   "exports": {
