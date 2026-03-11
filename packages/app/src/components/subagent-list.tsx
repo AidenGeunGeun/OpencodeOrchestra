@@ -194,13 +194,13 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       const assistant = lastAssistant(messages)
       const context = getSessionContextMetrics(messages, sync.data.provider?.all ?? []).context
       const syncStatus = sync.data.session_status[session.id]?.type
-      const latestTime = latest?.time.completed ?? latest?.time.created ?? 0
+      const latestTime = (latest?.time as { completed?: number })?.completed ?? latest?.time.created ?? 0
       const failedAt = failedSessions().get(session.id) ?? 0
       const failed = (latest?.role === "assistant" && !!latest.error) || (failedAt > 0 && sync.data.message[session.id] === undefined) || failedAt > latestTime
       const running = syncStatus === "busy" || syncStatus === "retry"
       const completed = latest?.role === "assistant" && !latest.error && (!!latest.finish || !!latest.time.completed)
       const inProgress = sync.data.message[session.id] === undefined || latest?.role !== "assistant" || (!failed && !completed)
-      const status = failed ? "failed" : completed ? "completed" : running || inProgress ? "running" : "running"
+      const status: "failed" | "completed" | "running" = failed ? "failed" : completed ? "completed" : "running"
       return {
         session,
         status,

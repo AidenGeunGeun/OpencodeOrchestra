@@ -64,6 +64,11 @@ export namespace Server {
     const explicit = process.env.OPENCODE_FRONTEND_DIR
     if (explicit && isFrontendDir(explicit)) return explicit
 
+    // Compiled binary: frontend is at ../frontend relative to the bin/ directory
+    const binaryRelative = join(import.meta.dirname, "../frontend")
+    if (isFrontendDir(binaryRelative)) return binaryRelative
+
+    // Development: monorepo-relative path from source
     const monorepoPath = join(import.meta.dirname, "../../../app/dist")
     if (isFrontendDir(monorepoPath)) return monorepoPath
 
