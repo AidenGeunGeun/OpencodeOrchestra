@@ -265,6 +265,11 @@ export default function Page() {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
+  const navigateToSession = (sessionID: string) => {
+    if (!params.dir) return
+    navigate(`/${params.dir}/session/${sessionID}`)
+  }
+
   const openTab = (value: string) => {
     const next = normalizeTab(value)
     tabs().open(next)
@@ -371,6 +376,153 @@ export default function Page() {
     if (!context) return undefined
     return { current: context.total, limit: context.limit, usage: context.usage }
   })
+  const [childSessions, setChildSessions] = createSignal<Session[]>([])
+  const [removedChildSessions, setRemovedChildSessions] = createSignal<Map<string, number>>(new Map())
+
+  const upsertSessions = (sessions: Session[]) => {
+    if (sessions.length === 0) return
+    sync.set(
+      "session",
+      (current) => {
+        const next = [...current]
+        for (const session of sessions) {
+          const index = next.findIndex((item) => item.id === session.id)
+          if (index === -1) {
+            next.push(session)
+            continue
+          }
+          const currentTime = next[index].time.updated ?? next[index].time.created ?? 0
+          const sessionTime = session.time.updated ?? session.time.created ?? 0
+          next[index] = currentTime > sessionTime ? next[index] : session
+        }
+        return next.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      },
+    )
+  }
+
+  const mergeChildSessions = (current: Session[], fetched: Session[], removed: Map<string, number>) => {
+    const next = new Map(current.map((session) => [session.id, session]))
+    for (const session of fetched) {
+      const removedAt = removed.get(session.id)
+      const existing = next.get(session.id)
+      const existingTime = existing?.time.updated ?? existing?.time.created ?? 0
+      const sessionTime = session.time.updated ?? session.time.created ?? 0
+      if (removedAt !== undefined && removedAt >= sessionTime) continue
+      next.set(session.id, existingTime > sessionTime ? existing! : session)
+    }
+    return Array.from(next.values())
+      .filter((session) => {
+        const removedAt = removed.get(session.id)
+        const sessionTime = session.time.updated ?? session.time.created ?? 0
+        return !session.time.archived && (removedAt === undefined || removedAt < sessionTime)
+      })
+      .sort((a, b) => {
+        const aTime = a.time.updated ?? a.time.created ?? 0
+        const bTime = b.time.updated ?? b.time.created ?? 0
+        return bTime - aTime
+      })
+  }
+
+  createEffect(() => {
+    const sessionID = params.id
+    if (!sessionID) {
+      setChildSessions([])
+      setRemovedChildSessions(new Map())
+      return
+    }
+
+    let cancelled = false
+    setChildSessions([])
+    setRemovedChildSessions(new Map())
+
+    void sdk.client.session.children({ sessionID }).then((response) => {
+      if (cancelled) return
+      const next = (response.data ?? [])
+        .filter((session): session is Session => !!session && !session.time.archived)
+        .sort((a, b) => {
+          const aTime = a.time.updated ?? a.time.created ?? 0
+          const bTime = b.time.updated ?? b.time.created ?? 0
+          return bTime - aTime
+        })
+      setChildSessions((current) => mergeChildSessions(current, next, removedChildSessions()))
+      upsertSessions(next)
+    })
+
+    onCleanup(() => {
+      cancelled = true
+    })
+  })
+
+  createEffect(() => {
+    const sessionID = params.id
+    if (!sessionID) return
+
+    const upsertChild = (next: Session) => {
+      const sessionTime = next.time.updated ?? next.time.created ?? 0
+      const removedAt = removedChildSessions().get(next.id)
+      if (removedAt !== undefined && removedAt >= sessionTime) return
+      setRemovedChildSessions((current) => {
+        if (!current.has(next.id)) return current
+        const value = new Map(current)
+        value.delete(next.id)
+        return value
+      })
+      setChildSessions((current) => {
+        const filtered = current.filter((item) => item.id !== next.id)
+        if (next.parentID !== sessionID || next.time.archived) return filtered
+        return [next, ...filtered].sort((a, b) => {
+          const aTime = a.time.updated ?? a.time.created ?? 0
+          const bTime = b.time.updated ?? b.time.created ?? 0
+          return bTime - aTime
+        })
+      })
+    }
+
+    const removeChild = (childID: string, removedAt: number) => {
+      setRemovedChildSessions((current) => new Map(current).set(childID, removedAt))
+      setChildSessions((current) => current.filter((item) => item.id !== childID))
+    }
+
+    const created = sdk.event.on("session.created", (event) => {
+      const session = event.properties.info
+      if (session.parentID !== sessionID) return
+      upsertChild(session)
+      upsertSessions([session])
+    })
+
+    const updated = sdk.event.on("session.updated", (event) => {
+      const session = event.properties.info
+      const removedAt = session.time.updated ?? session.time.created ?? Date.now()
+      if (session.parentID !== sessionID || session.time.archived) {
+        setRemovedChildSessions((current) => {
+          const existing = current.get(session.id) ?? 0
+          if (existing >= removedAt) return current
+          return new Map(current).set(session.id, removedAt)
+        })
+      }
+      const tracked = childSessions().some((item) => item.id === session.id)
+      if (!tracked && session.parentID !== sessionID) return
+      if (session.parentID !== sessionID || session.time.archived) {
+        removeChild(session.id, removedAt)
+        return
+      }
+      upsertChild(session)
+      upsertSessions([session])
+    })
+
+    const deleted = sdk.event.on("session.deleted", (event) => {
+      const session = event.properties.info
+      removeChild(session.id, session.time.updated ?? session.time.created ?? Date.now())
+    })
+
+    onCleanup(() => {
+      created()
+      updated()
+      deleted()
+    })
+  })
+
+  const childCount = createMemo(() => childSessions().length)
 
 
   const historyLoading = createMemo(() => {
@@ -933,10 +1085,11 @@ export default function Page() {
   }
 
   const contextOpen = createMemo(() => tabs().active() === "context" || tabs().all().includes("context"))
+  const subagentsOpen = createMemo(() => tabs().active() === "subagents" || tabs().all().includes("subagents"))
   const openedTabs = createMemo(() =>
     tabs()
       .all()
-      .filter((tab) => tab !== "context" && tab !== "review"),
+      .filter((tab) => tab !== "context" && tab !== "review" && tab !== "subagents"),
   )
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
@@ -1222,11 +1375,13 @@ export default function Page() {
   const activeTab = createMemo(() => {
     const active = tabs().active()
     if (active === "context") return "context"
+    if (active === "subagents") return "subagents"
     if (active === "review" && reviewTab()) return "review"
     if (active && file.pathFromTab(active)) return normalizeTab(active)
 
     const first = openedTabs()[0]
     if (first) return first
+    if (subagentsOpen()) return "subagents"
     if (contextOpen()) return "context"
     if (reviewTab() && hasReview()) return "review"
     return "empty"
@@ -1280,6 +1435,11 @@ export default function Page() {
     const first = openedTabs()[0]
     if (first) {
       tabs().setActive(first)
+      return
+    }
+
+    if (subagentsOpen()) {
+      tabs().setActive("subagents")
       return
     }
 
@@ -1787,7 +1947,10 @@ export default function Page() {
           comments={comments}
           hasReview={hasReview()}
           reviewCount={reviewCount()}
+          childCount={childCount()}
           reviewTab={reviewTab()}
+          sessionID={params.id}
+          onNavigateSession={navigateToSession}
           contextOpen={contextOpen}
           openedTabs={openedTabs}
           activeTab={activeTab}

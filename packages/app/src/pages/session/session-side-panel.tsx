@@ -5,6 +5,7 @@ import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
 import FileTree from "@/components/file-tree"
+import SubagentList from "@/components/subagent-list"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { DialogSelectFile } from "@/components/dialog-select-file"
@@ -41,7 +42,10 @@ export function SessionSidePanel(props: {
   comments: ReturnType<typeof useComments>
   hasReview: boolean
   reviewCount: number
+  childCount: number
   reviewTab: boolean
+  sessionID?: string
+  onNavigateSession: (sessionID: string) => void
   contextOpen: () => boolean
   openedTabs: () => string[]
   activeTab: () => string
@@ -119,6 +123,16 @@ export function SessionSidePanel(props: {
                             </div>
                           </Tabs.Trigger>
                         </Show>
+                        <Show when={props.sessionID}>
+                          <Tabs.Trigger value="subagents">
+                            <div class="flex items-center gap-1.5">
+                              <div>Subagents</div>
+                              <div class="text-12-medium text-text-strong h-4 px-2 flex flex-col items-center justify-center rounded-full bg-surface-base">
+                                {props.childCount}
+                              </div>
+                            </div>
+                          </Tabs.Trigger>
+                        </Show>
                         <Show when={props.contextOpen()}>
                           <Tabs.Trigger
                             value="context"
@@ -187,6 +201,16 @@ export function SessionSidePanel(props: {
                         </div>
                       </Show>
                     </Tabs.Content>
+
+                    <Show when={props.sessionID} keyed>
+                      {(sessionID) => (
+                        <Tabs.Content value="subagents" class="flex flex-col h-full overflow-hidden contain-strict">
+                          <Show when={props.activeTab() === "subagents"}>
+                            <SubagentList sessionID={sessionID} onNavigateSession={props.onNavigateSession} />
+                          </Show>
+                        </Tabs.Content>
+                      )}
+                    </Show>
 
                     <Show when={props.contextOpen()}>
                       <Tabs.Content value="context" class="flex flex-col h-full overflow-hidden contain-strict">
