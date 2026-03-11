@@ -3,11 +3,13 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { ContextHealth } from "@opencode-ai/ui/context-health"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { SessionBreadcrumb } from "@/pages/session/session-breadcrumb"
 
 const boundaryTarget = (root: HTMLElement, target: EventTarget | null) => {
   const current = target instanceof Element ? target : undefined
@@ -57,6 +59,8 @@ export function MessageTimeline(props: {
   centered: boolean
   title?: string
   parentID?: string
+  breadcrumbs: { id: string; title: string; current?: number; limit?: number; usage?: number | null }[]
+  currentContextHealth?: { current: number; limit?: number; usage: number | null }
   openTitleEditor: () => void
   closeTitleEditor: () => void
   saveTitleEditor: () => void | Promise<void>
@@ -72,6 +76,7 @@ export function MessageTimeline(props: {
   onTitleMenuOpen: (open: boolean) => void
   onTitlePendingRename: (value: boolean) => void
   onNavigateParent: () => void
+  onNavigateSession: (sessionID: string) => void
   sessionID: string
   onArchiveSession: (sessionID: string) => void
   onDeleteSession: (sessionID: string) => void
@@ -170,8 +175,8 @@ export function MessageTimeline(props: {
                 "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
               }}
             >
-              <div class="h-10 w-full flex items-center justify-between gap-2">
-                <div class="flex items-center gap-1 min-w-0 flex-1">
+              <div class="min-h-10 w-full flex items-center justify-between gap-3 py-2.5">
+                <div class="flex items-center gap-2 min-w-0 flex-1">
                   <Show when={props.parentID}>
                     <IconButton
                       tabIndex={-1}
@@ -181,41 +186,54 @@ export function MessageTimeline(props: {
                       aria-label={props.t("common.goBack")}
                     />
                   </Show>
-                  <Show when={props.title || props.titleState.editing}>
-                    <Show
-                      when={props.titleState.editing}
-                      fallback={
-                        <h1 class="text-16-medium text-text-strong truncate min-w-0" onDblClick={props.openTitleEditor}>
-                          {props.title}
-                        </h1>
-                      }
-                    >
-                      <InlineInput
-                        ref={props.titleRef}
-                        value={props.titleState.draft}
-                        disabled={props.titleState.saving}
-                        class="text-16-medium text-text-strong grow-1 min-w-0"
-                        onInput={(event) => props.onTitleDraft(event.currentTarget.value)}
-                        onKeyDown={(event) => {
-                          event.stopPropagation()
-                          if (event.key === "Enter") {
-                            event.preventDefault()
-                            void props.saveTitleEditor()
-                            return
-                          }
-                          if (event.key === "Escape") {
-                            event.preventDefault()
-                            props.closeTitleEditor()
-                          }
-                        }}
-                        onBlur={props.closeTitleEditor}
-                      />
+                  <div class="min-w-0 flex-1">
+                    <SessionBreadcrumb items={props.breadcrumbs} onNavigate={props.onNavigateSession} />
+                    <Show when={props.title || props.titleState.editing}>
+                      <Show
+                        when={props.titleState.editing}
+                        fallback={
+                          <h1 class="text-16-medium text-text-strong truncate min-w-0" onDblClick={props.openTitleEditor}>
+                            {props.title}
+                          </h1>
+                        }
+                      >
+                        <InlineInput
+                          ref={props.titleRef}
+                          value={props.titleState.draft}
+                          disabled={props.titleState.saving}
+                          class="text-16-medium text-text-strong grow-1 min-w-0"
+                          onInput={(event) => props.onTitleDraft(event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            event.stopPropagation()
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              void props.saveTitleEditor()
+                              return
+                            }
+                            if (event.key === "Escape") {
+                              event.preventDefault()
+                              props.closeTitleEditor()
+                            }
+                          }}
+                          onBlur={props.closeTitleEditor}
+                        />
+                      </Show>
                     </Show>
-                  </Show>
+                  </div>
                 </div>
                 <Show when={props.sessionID}>
                   {(id) => (
                     <div class="shrink-0 flex items-center">
+                      <Show when={props.currentContextHealth}>
+                        {(health) => (
+                          <ContextHealth
+                            current={health().current}
+                            limit={health().limit}
+                            usage={health().usage}
+                            class="mr-2 hidden md:inline-flex"
+                          />
+                        )}
+                      </Show>
                       <DropdownMenu open={props.titleState.menuOpen} onOpenChange={props.onTitleMenuOpen}>
                         <Tooltip value={props.t("common.moreOptions")} placement="top">
                           <DropdownMenu.Trigger
@@ -316,7 +334,7 @@ export function MessageTimeline(props: {
                       sessionID={props.sessionID}
                       messageID={message.id}
                       lastUserMessageID={props.lastUserMessageID}
-                      stepsExpanded={props.expanded[message.id] ?? false}
+                      stepsExpanded={props.expanded[message.id] ?? true}
                       onStepsExpandedToggle={() => props.onToggleExpanded(message.id)}
                       classes={{
                         root: "min-w-0 w-full relative",

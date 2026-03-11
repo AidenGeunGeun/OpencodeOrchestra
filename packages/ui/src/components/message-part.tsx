@@ -37,6 +37,7 @@ import { BasicTool } from "./basic-tool"
 import { GenericTool } from "./basic-tool"
 import { Button } from "./button"
 import { Card } from "./card"
+import { ContextHealth } from "./context-health"
 import { Icon } from "./icon"
 import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
@@ -171,6 +172,23 @@ export function getSessionToolParts(store: ReturnType<typeof useData>["store"], 
     }
   }
   return parts
+}
+
+function getSessionContextHealth(store: ReturnType<typeof useData>["store"], sessionId: string) {
+  const messages = store.message[sessionId] ?? []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (!msg || msg.role !== "assistant") continue
+    const total = msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+    if (total <= 0) continue
+    const provider = store.provider?.all.find((item) => item.id === msg.providerID)
+    const limit = provider?.models[msg.modelID]?.limit.context
+    return {
+      current: total,
+      limit,
+      usage: limit ? Math.round((total / limit) * 100) : null,
+    }
+  }
 }
 
 import type { IconProps } from "./icon"
@@ -921,6 +939,47 @@ ToolRegistry.register({
       }, 50)
     }
 
+    const handleTriggerClick = (event: MouseEvent) => {
+      const sessionId = childSessionId()
+      const url = href()
+      if (!sessionId || !url) return
+
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        if (typeof window === "undefined") return
+        window.open(url, "_blank", "noopener,noreferrer")
+        return
+      }
+
+      handleLinkClick(event)
+    }
+
+    const childSessionStatus = createMemo(() => {
+      const sessionId = childSessionId()
+      if (!sessionId) return undefined
+      return data.store.session_status?.[sessionId]
+    })
+
+    const status = createMemo(() => {
+      const childState = childSessionStatus()?.type
+      if (childState === "busy" || childState === "retry") return "running"
+      switch (props.status) {
+        case "running":
+          return "running"
+        case "completed":
+          return "completed"
+        case "error":
+          return "failed"
+        default:
+          return props.status
+      }
+    })
+
+    const LoadingFallback = () => (
+      <div data-slot="task-tool-item">
+        <span data-slot="task-tool-title">{i18n.t("ui.list.loading")}</span>
+      </div>
+    )
+
     const trigger = () => (
       <div data-slot="basic-tool-tool-info-structured">
         <div data-slot="basic-tool-tool-info-main">
@@ -941,6 +1000,17 @@ ToolRegistry.register({
               </Match>
             </Switch>
           </Show>
+          <Show when={status()}>
+            {(value) => <span data-slot="basic-tool-tool-arg">{value()}</span>}
+          </Show>
+        </div>
+        <div data-slot="tool-action" class="flex items-center gap-2 text-icon-weak">
+          <Show when={childContextHealth()}>
+            {(health) => (
+              <ContextHealth current={health().current} limit={health().limit} usage={health().usage} class="hidden sm:inline-flex" />
+            )}
+          </Show>
+          <Icon name="chevron-right" size="small" />
         </div>
       </div>
     )
@@ -961,6 +1031,19 @@ ToolRegistry.register({
       if (!sessionId) return undefined
       const permissions = data.store.permission?.[sessionId] ?? []
       return permissions[0]
+    })
+
+    const childContextHealth = createMemo(() => {
+      const sessionId = childSessionId()
+      if (!sessionId) return undefined
+      if (data.store.message[sessionId] === undefined) return undefined
+      return getSessionContextHealth(data.store, sessionId)
+    })
+
+    const childHydrating = createMemo(() => {
+      const sessionId = childSessionId()
+      if (!sessionId) return false
+      return data.store.message[sessionId] === undefined
     })
 
     const childToolPart = createMemo(() => {
@@ -1007,8 +1090,8 @@ ToolRegistry.register({
           tool={part.tool}
           metadata={metadata}
           // @ts-expect-error
-          output={part.state.output}
-          status={part.state.status}
+          output={part.state?.output}
+          status={part.state?.status}
           defaultOpen={true}
         />
       )
@@ -1018,8 +1101,13 @@ ToolRegistry.register({
       <div data-component="tool-part-wrapper" data-permission={!!childPermission()}>
         <Switch>
           <Match when={childPermission()}>
-            <>
-              <Show when={childToolPart()} fallback={<BasicTool icon="task" defaultOpen={true} trigger={trigger()} />}>
+            <BasicTool
+              icon="task"
+              defaultOpen={true}
+              trigger={trigger()}
+              onTriggerClick={href() ? handleTriggerClick : undefined}
+            >
+              <Show when={childToolPart()} fallback={childHydrating() ? <LoadingFallback /> : undefined}>
                 {renderChildToolPart()}
               </Show>
               <div data-component="permission-prompt">
@@ -1035,37 +1123,45 @@ ToolRegistry.register({
                   </Button>
                 </div>
               </div>
-            </>
+            </BasicTool>
           </Match>
           <Match when={true}>
-            <BasicTool icon="task" defaultOpen={true} trigger={trigger()}>
-              <div
-                ref={autoScroll.scrollRef}
+              <BasicTool
+                icon="task"
+                defaultOpen={true}
+                trigger={trigger()}
+                onTriggerClick={href() ? handleTriggerClick : undefined}
+              >
+                <div
+                  ref={autoScroll.scrollRef}
                 onScroll={autoScroll.handleScroll}
                 data-component="tool-output"
                 data-scrollable
               >
                 <div ref={autoScroll.contentRef} data-component="task-tools">
-                  <For each={childToolParts()}>
-                    {(item) => {
-                      const info = createMemo(() => getToolInfo(item.tool, item.state.input))
-                      const subtitle = createMemo(() => {
-                        if (info().subtitle) return info().subtitle
-                        if (item.state.status === "completed" || item.state.status === "running") {
-                          return item.state.title
-                        }
-                      })
-                      return (
-                        <div data-slot="task-tool-item">
-                          <Icon name={info().icon} size="small" />
-                          <span data-slot="task-tool-title">{info().title}</span>
-                          <Show when={subtitle()}>
-                            <span data-slot="task-tool-subtitle">{subtitle()}</span>
-                          </Show>
-                        </div>
-                      )
-                    }}
-                  </For>
+                  <Show when={!childHydrating()} fallback={<LoadingFallback />}>
+                    <For each={childToolParts()}>
+                      {(item) => {
+                        const info = createMemo(() => getToolInfo(item.tool, item.state?.input ?? {}))
+                        const subtitle = createMemo(() => {
+                          if (info().subtitle) return info().subtitle
+                          const itemStatus = item.state?.status
+                          if (itemStatus === "completed" || itemStatus === "running") {
+                            return item.state?.title
+                          }
+                        })
+                        return (
+                          <div data-slot="task-tool-item">
+                            <Icon name={info().icon} size="small" />
+                            <span data-slot="task-tool-title">{info().title}</span>
+                            <Show when={subtitle()}>
+                              <span data-slot="task-tool-subtitle">{subtitle()}</span>
+                            </Show>
+                          </div>
+                        )
+                      }}
+                    </For>
+                  </Show>
                 </div>
               </div>
             </BasicTool>

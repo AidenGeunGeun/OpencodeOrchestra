@@ -1,4 +1,4 @@
-import { For, onCleanup, Show, Match, Switch, createMemo, createEffect, on } from "solid-js"
+import { For, onCleanup, Show, Match, Switch, createMemo, createEffect, createSignal, on } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Dynamic } from "solid-js/web"
@@ -30,7 +30,7 @@ import FileTree from "@/components/file-tree"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useNavigate, useParams } from "@solidjs/router"
-import { UserMessage } from "@opencode-ai/sdk/v2"
+import { UserMessage, type Session } from "@opencode-ai/sdk/v2"
 import { useSDK } from "@/context/sdk"
 import { usePrompt } from "@/context/prompt"
 import { useComments } from "@/context/comments"
@@ -58,6 +58,7 @@ import { SessionPromptDock } from "@/pages/session/session-prompt-dock"
 import { SessionMobileTabs } from "@/pages/session/session-mobile-tabs"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 
 type HandoffSession = {
   prompt: string
@@ -302,6 +303,54 @@ export default function Page() {
   })
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const [breadcrumbChain, setBreadcrumbChain] = createSignal<Session[]>([])
+
+  createEffect(() => {
+    const sessionID = params.id
+    if (!sessionID) return
+    setBreadcrumbChain([])
+
+    void (async () => {
+      const chain: Session[] = []
+      const visited = new Set<string>()
+      let currentID: string | undefined = sessionID
+
+      while (currentID && !visited.has(currentID)) {
+        visited.add(currentID)
+        let session = sync.session.get(currentID)
+        if (!session || !("parentID" in session)) {
+          try {
+            const resp: { data?: Session } = await sdk.client.session.get({ sessionID: currentID })
+            session = resp.data ?? undefined
+          } catch {
+            break
+          }
+        }
+        if (!session) break
+        chain.unshift(session)
+        currentID = session.parentID
+      }
+
+      if (chain.length > 1) {
+        setBreadcrumbChain(chain)
+      }
+    })()
+  })
+
+  const sessionBreadcrumbs = createMemo(() => {
+    const chain = breadcrumbChain()
+    if (chain.length <= 1) return []
+    return chain.map((session) => {
+      const context = getSessionContextMetrics(sync.data.message[session.id] ?? [], sync.data.provider?.all ?? []).context
+      return {
+        id: session.id,
+        title: session.title || session.id,
+        current: context?.total,
+        limit: context?.limit,
+        usage: context?.usage,
+      }
+    })
+  })
   const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
   const reviewCount = createMemo(() => Math.max(info()?.summary?.files ?? 0, diffs().length))
   const hasReview = createMemo(() => reviewCount() > 0)
@@ -317,6 +366,13 @@ export default function Page() {
     if (!id) return false
     return sync.session.history.more(id)
   })
+  const currentContextHealth = createMemo(() => {
+    const context = getSessionContextMetrics(messages(), sync.data.provider?.all ?? []).context
+    if (!context) return undefined
+    return { current: context.total, limit: context.limit, usage: context.usage }
+  })
+
+
   const historyLoading = createMemo(() => {
     const id = params.id
     if (!id) return false
@@ -1611,6 +1667,8 @@ export default function Page() {
                     centered={centered()}
                     title={info()?.title}
                     parentID={info()?.parentID}
+                    breadcrumbs={sessionBreadcrumbs()}
+                    currentContextHealth={currentContextHealth()}
                     openTitleEditor={openTitleEditor}
                     closeTitleEditor={closeTitleEditor}
                     saveTitleEditor={saveTitleEditor}
@@ -1623,6 +1681,9 @@ export default function Page() {
                     onTitlePendingRename={(value) => setTitle("pendingRename", value)}
                     onNavigateParent={() => {
                       navigate(`/${params.dir}/session/${info()?.parentID}`)
+                    }}
+                    onNavigateSession={(sessionID) => {
+                      navigate(`/${params.dir}/session/${sessionID}`)
                     }}
                     sessionID={params.id!}
                     onArchiveSession={(sessionID) => void archiveSession(sessionID)}

@@ -27,6 +27,7 @@ export interface BasicToolProps {
   forceOpen?: boolean
   locked?: boolean
   onSubtitleClick?: () => void
+  onTriggerClick?: (event: MouseEvent) => void
 }
 
 export function BasicTool(props: BasicToolProps) {
@@ -47,7 +48,16 @@ export function BasicTool(props: BasicToolProps) {
         <div data-component="tool-trigger">
           <div data-slot="basic-tool-tool-trigger-content">
             <Icon name={props.icon} size="small" />
-            <div data-slot="basic-tool-tool-info">
+            <div
+              data-slot="basic-tool-tool-info"
+              classList={{ clickable: !!props.onTriggerClick }}
+              onClick={(event) => {
+                if (!props.onTriggerClick) return
+                event.preventDefault()
+                event.stopPropagation()
+                props.onTriggerClick(event)
+              }}
+            >
               <Switch>
                 <Match when={isTriggerTitle(props.trigger) && props.trigger}>
                   {(trigger) => (

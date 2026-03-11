@@ -7,6 +7,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   QuestionAnswer,
+  ProviderListResponse,
 } from "@opencode-ai/sdk/v2"
 import { createSimpleContext } from "./helper"
 import { PreloadMultiFileDiffResult } from "@pierre/diffs/ssr"
@@ -28,6 +29,7 @@ type Data = {
   question?: {
     [sessionID: string]: QuestionRequest[]
   }
+  provider?: ProviderListResponse
   message: {
     [sessionID: string]: Message[]
   }
