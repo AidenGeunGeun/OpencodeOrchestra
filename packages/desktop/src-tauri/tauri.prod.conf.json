@@ -3,7 +3,7 @@
   "productName": "OpenCode Orchestra",
   "identifier": "ai.opencode.orchestra",
   "bundle": {
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/prod/32x32.png",
       "icons/prod/128x128.png",
