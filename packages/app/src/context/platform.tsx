@@ -64,6 +64,12 @@ export type Platform = {
   /** Set the default server URL to use on app startup (platform-specific) */
   setDefaultServer?(url: ServerConnection.Key | null): Promise<void> | void
 
+  /** Get whether the local sidecar should be skipped on startup (platform-specific) */
+  getSkipLocalServer?(): Promise<boolean>
+
+  /** Set whether the local sidecar should be skipped on startup (platform-specific) */
+  setSkipLocalServer?(skip: boolean): Promise<void> | void
+
   /** Get the configured WSL integration (desktop only) */
   getWslEnabled?(): Promise<boolean>
 

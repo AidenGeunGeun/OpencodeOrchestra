@@ -353,8 +353,14 @@ const createPlatform = (): Platform => {
       return ServerConnection.Key.make(url)
     },
 
-    setDefaultServer: async (url: string | null) => {
+    setDefaultServer: async (url: ServerConnection.Key | null) => {
       await commands.setDefaultServerUrl(url)
+    },
+
+    getSkipLocalServer: () => commands.getSkipLocalServer(),
+
+    setSkipLocalServer: async (skip) => {
+      await commands.setSkipLocalServer(skip)
     },
 
     getDisplayBackend: async () => {
@@ -412,8 +418,7 @@ void listenForDeepLinks()
 render(() => {
   const platform = createPlatform()
 
-  // Fetch sidecar credentials from Rust (available immediately, before health check)
-  const [sidecar] = createResource(() => commands.awaitInitialization(new Channel<InitStep>() as any))
+  const [skipLocal] = createResource(() => commands.getSkipLocalServer().catch(() => false))
 
   const [defaultServer] = createResource(() =>
     platform.getDefaultServer?.().then((url) => {
@@ -421,10 +426,27 @@ render(() => {
     }),
   )
 
+  const shouldSkipLocal = () => !!skipLocal() && !!defaultServer.latest
+
+  const [sidecar] = createResource<Awaited<ReturnType<typeof commands.awaitInitialization>>, boolean>(
+    () => skipLocal() !== undefined && !defaultServer.loading,
+    (): Promise<Awaited<ReturnType<typeof commands.awaitInitialization>>> => {
+      if (shouldSkipLocal()) {
+        return Promise.resolve({
+          url: "",
+          username: null,
+          password: null,
+        })
+      }
+      return commands.awaitInitialization(new Channel<InitStep>() as any)
+    },
+  )
+
   // Build the sidecar server connection once credentials arrive
   const servers = () => {
+    if (shouldSkipLocal()) return []
     const data = sidecar()
-    if (!data) return []
+    if (!data || !data.url) return []
     const http = {
       url: data.url,
       username: data.username ?? undefined,
@@ -463,7 +485,7 @@ render(() => {
   return (
     <PlatformProvider value={platform}>
       <AppBaseProviders>
-        <Show when={!defaultServer.loading && !sidecar.loading}>
+        <Show when={!defaultServer.loading && !sidecar.loading && skipLocal() !== undefined}>
           {(_) => {
             return (
               <AppInterface

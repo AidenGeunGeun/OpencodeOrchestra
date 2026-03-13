@@ -43,6 +43,20 @@ function showRequestError(language: ReturnType<typeof useLanguage>, err: unknown
   })
 }
 
+function isRemoteDefaultServer(key: ServerConnection.Key | null) {
+  if (key === null || key === "sidecar" || key.startsWith("wsl:")) return false
+
+  const normalized = normalizeServerUrl(key)
+  if (!normalized) return false
+
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase()
+    return hostname !== "localhost" && hostname !== "::1" && hostname !== "[::1]" && !hostname.startsWith("127.")
+  } catch {
+    return false
+  }
+}
+
 function useDefaultServer() {
   const language = useLanguage()
   const platform = usePlatform()
@@ -64,6 +78,8 @@ function useDefaultServer() {
   const setDefault = async (key: ServerConnection.Key | null) => {
     try {
       await platform.setDefaultServer?.(key)
+      const isRemote = isRemoteDefaultServer(key)
+      await platform.setSkipLocalServer?.(isRemote)
       defaultUrlActions.mutate(key)
     } catch (err) {
       showRequestError(language, err)
@@ -501,7 +517,7 @@ export function DialogSelectServer() {
   async function handleRemove(url: ServerConnection.Key) {
     server.remove(url)
     if ((await platform.getDefaultServer?.()) === url) {
-      platform.setDefaultServer?.(null)
+      await setDefault(null)
     }
   }
 
@@ -570,7 +586,7 @@ export function DialogSelectServer() {
                       <Icon name="check" class="h-6" />
                     </Show>
 
-                    <Show when={i.type === "http"}>
+                    <Show when={i.type === "http" || i.type === "sidecar"}>
                       <DropdownMenu>
                         <DropdownMenu.Trigger
                           as={IconButton}
@@ -582,14 +598,16 @@ export function DialogSelectServer() {
                         />
                         <DropdownMenu.Portal>
                           <DropdownMenu.Content class="mt-1">
-                            <DropdownMenu.Item
-                              onSelect={() => {
-                                if (i.type !== "http") return
-                                startEdit(i)
-                              }}
-                            >
-                              <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.edit")}</DropdownMenu.ItemLabel>
-                            </DropdownMenu.Item>
+                            <Show when={i.type === "http"}>
+                              <DropdownMenu.Item
+                                onSelect={() => {
+                                  if (i.type !== "http") return
+                                  startEdit(i)
+                                }}
+                              >
+                                <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.edit")}</DropdownMenu.ItemLabel>
+                              </DropdownMenu.Item>
+                            </Show>
                             <Show when={canDefault() && defaultKey() !== key}>
                               <DropdownMenu.Item onSelect={() => setDefault(key)}>
                                 <DropdownMenu.ItemLabel>
@@ -604,13 +622,15 @@ export function DialogSelectServer() {
                                 </DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
                             </Show>
-                            <DropdownMenu.Separator />
-                            <DropdownMenu.Item
-                              onSelect={() => handleRemove(ServerConnection.key(i))}
-                              class="text-text-on-critical-base hover:bg-surface-critical-weak"
-                            >
-                              <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.delete")}</DropdownMenu.ItemLabel>
-                            </DropdownMenu.Item>
+                            <Show when={i.type === "http"}>
+                              <DropdownMenu.Separator />
+                              <DropdownMenu.Item
+                                onSelect={() => handleRemove(ServerConnection.key(i))}
+                                class="text-text-on-critical-base hover:bg-surface-critical-weak"
+                              >
+                                <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.delete")}</DropdownMenu.ItemLabel>
+                              </DropdownMenu.Item>
+                            </Show>
                           </DropdownMenu.Content>
                         </DropdownMenu.Portal>
                       </DropdownMenu>

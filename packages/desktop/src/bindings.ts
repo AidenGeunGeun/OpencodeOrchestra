@@ -10,6 +10,8 @@ export const commands = {
 	awaitInitialization: (events: Channel) => __TAURI_INVOKE<ServerReadyData>("await_initialization", { events }),
 	getDefaultServerUrl: () => __TAURI_INVOKE<string | null>("get_default_server_url"),
 	setDefaultServerUrl: (url: string | null) => __TAURI_INVOKE<null>("set_default_server_url", { url }),
+	getSkipLocalServer: () => __TAURI_INVOKE<boolean>("get_skip_local_server"),
+	setSkipLocalServer: (skip: boolean) => __TAURI_INVOKE<null>("set_skip_local_server", { skip }),
 	getWslConfig: () => __TAURI_INVOKE<WslConfig>("get_wsl_config"),
 	setWslConfig: (config: WslConfig) => __TAURI_INVOKE<null>("set_wsl_config", { config }),
 	getDisplayBackend: () => __TAURI_INVOKE<"wayland" | "auto" | null>("get_display_backend"),
@@ -64,4 +66,3 @@ function makeEvent<T>(name: string) {
 
     return Object.assign(fn, base);
 }
-

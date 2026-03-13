@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 use crate::{
     cli,
     cli::CommandChild,
-    constants::{DEFAULT_SERVER_URL_KEY, SETTINGS_STORE, WSL_ENABLED_KEY},
+    constants::{DEFAULT_SERVER_URL_KEY, SETTINGS_STORE, SKIP_LOCAL_SERVER_KEY, WSL_ENABLED_KEY},
 };
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, specta::Type, Debug, Default)]
@@ -44,6 +44,33 @@ pub async fn set_default_server_url(app: AppHandle, url: Option<String>) -> Resu
             store.delete(DEFAULT_SERVER_URL_KEY);
         }
     }
+
+    store
+        .save()
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_skip_local_server(app: AppHandle) -> Result<bool, String> {
+    let store = app
+        .store(SETTINGS_STORE)
+        .map_err(|e| format!("Failed to open settings store: {}", e))?;
+
+    let value = store.get(SKIP_LOCAL_SERVER_KEY);
+    Ok(value.and_then(|v| v.as_bool()).unwrap_or(false))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn set_skip_local_server(app: AppHandle, skip: bool) -> Result<(), String> {
+    let store = app
+        .store(SETTINGS_STORE)
+        .map_err(|e| format!("Failed to open settings store: {}", e))?;
+
+    store.set(SKIP_LOCAL_SERVER_KEY, serde_json::Value::Bool(skip));
 
     store
         .save()
@@ -135,15 +162,12 @@ async fn check_health(url: &str, password: Option<&str>) -> bool {
 
     let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(7));
 
-    if url
-        .host_str()
-        .is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        })
-    {
+    if url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    }) {
         // Some environments set proxy variables (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY) without
         // excluding loopback. reqwest respects these by default, which can prevent the desktop
         // app from reaching its own local sidecar server.

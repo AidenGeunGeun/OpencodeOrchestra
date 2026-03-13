@@ -154,7 +154,7 @@ describe("plugin.codex", () => {
               interleaved: false,
             },
             cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-            limit: { context: 272000, input: 272000, output: 128000 },
+            limit: { context: 1050000, input: 922000, output: 128000 },
             status: "active",
             options: { serviceTier: "priority" },
             headers: {},

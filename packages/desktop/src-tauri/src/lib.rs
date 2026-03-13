@@ -25,6 +25,7 @@ use std::{
 use tauri::{AppHandle, Listener, Manager, RunEvent, State, ipc::Channel};
 #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_store::StoreExt;
 use tauri_specta::Event;
 use tokio::{
     sync::{oneshot, watch},
@@ -379,6 +380,8 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             await_initialization,
             server::get_default_server_url,
             server::set_default_server_url,
+            server::get_skip_local_server,
+            server::set_skip_local_server,
             server::get_wsl_config,
             server::set_wsl_config,
             get_display_backend,
@@ -422,6 +425,43 @@ async fn initialize(app: AppHandle) {
 
     setup_app(&app, init_rx);
     spawn_cli_sync_task(app.clone());
+
+    let skip_local = {
+        let store = app.store(SETTINGS_STORE).ok();
+        let has_default = store
+            .as_ref()
+            .and_then(|store| store.get(DEFAULT_SERVER_URL_KEY))
+            .and_then(|value| value.as_str().map(|url| !url.is_empty()))
+            .unwrap_or(false);
+        let skip_flag = store
+            .as_ref()
+            .and_then(|store| store.get(SKIP_LOCAL_SERVER_KEY))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+
+        has_default && skip_flag
+    };
+
+    if skip_local {
+        tracing::info!("Skipping local server (remote default configured)");
+
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let _ = ready_tx.send(ServerReadyData {
+            url: String::new(),
+            username: None,
+            password: None,
+        });
+        app.manage(SidecarReady(ready_rx.shared()));
+        app.manage(ServerState {
+            child: Arc::new(Mutex::new(None)),
+        });
+
+        MainWindow::create(&app).expect("Failed to create main window");
+
+        tracing::info!("Loading done, completing initialisation");
+        let _ = init_tx.send(InitStep::Done);
+        return;
+    }
 
     // Spawn sidecar immediately - credentials are known before health check
     let port = get_sidecar_port();
@@ -546,7 +586,6 @@ fn spawn_cli_sync_task(app: AppHandle) {
         }
     });
 }
-
 
 fn get_sidecar_port() -> u32 {
     option_env!("OPENCODE_PORT")
