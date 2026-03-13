@@ -3,32 +3,32 @@ import { $ } from "bun"
 export const SIDECAR_BINARIES: Array<{ rustTarget: string; ocBinary: string; assetExt: string }> = [
   {
     rustTarget: "aarch64-apple-darwin",
-    ocBinary: "opencode-darwin-arm64",
+    ocBinary: "@skybluejacket/oco-darwin-arm64",
     assetExt: "zip",
   },
   {
     rustTarget: "x86_64-apple-darwin",
-    ocBinary: "opencode-darwin-x64-baseline",
+    ocBinary: "@skybluejacket/oco-darwin-x64-baseline",
     assetExt: "zip",
   },
   {
     rustTarget: "aarch64-pc-windows-msvc",
-    ocBinary: "opencode-windows-arm64",
+    ocBinary: "@skybluejacket/oco-windows-arm64",
     assetExt: "zip",
   },
   {
     rustTarget: "x86_64-pc-windows-msvc",
-    ocBinary: "opencode-windows-x64-baseline",
+    ocBinary: "@skybluejacket/oco-windows-x64-baseline",
     assetExt: "zip",
   },
   {
     rustTarget: "x86_64-unknown-linux-gnu",
-    ocBinary: "opencode-linux-x64-baseline",
+    ocBinary: "@skybluejacket/oco-linux-x64-baseline",
     assetExt: "tar.gz",
   },
   {
     rustTarget: "aarch64-unknown-linux-gnu",
-    ocBinary: "opencode-linux-arm64",
+    ocBinary: "@skybluejacket/oco-linux-arm64",
     assetExt: "tar.gz",
   },
 ]
