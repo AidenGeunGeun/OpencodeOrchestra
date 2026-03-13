@@ -41,40 +41,109 @@ Guide for AI coding agents working in this repository.
 ## Release Workflow
 
 - GitHub repo: `AidenGeunGeun/OpenCodeOrchestra`
-- Current release tag pattern is `oco-v<version>` for 1.x releases (example: `oco-v1.0.5`). Older `v0.x.y` tags exist from before the rename.
-- Version source of truth for CLI releases is `packages/opencode/package.json`.
-- Local `oco` launcher path is `packages/opencode/bin/oco`; it resolves built binaries from `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`.
-- Patch release workflow:
-  1. Bump `packages/opencode/package.json` patch version.
-  2. For prompt-bundling releases, treat `~/.config/opencode/opencode.jsonc` as the source of truth for which user prompt overrides are currently in use, then sync only those prompt files from `~/.config/opencode/prompts/` into `packages/opencode/src/agent/prompt/`.
-     - Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `researcher.txt`, `investigator.txt`, `auditor.txt`, `compaction.txt`, `docs.txt`
-     - Do not update bundled prompts without active user overrides for this release path: `cleanup.txt`, `explore.txt`, `summary.txt`, `title.txt`, `pm-plan.txt`
-     - Verify synced prompts with exact `diff -u ~/.config/opencode/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` checks before building.
-  3. Run `bun run build` in `packages/opencode`.
-  4. Create release archives from each built package directory under `packages/opencode/dist/@skybluejacket/`:
-     - Linux targets: both `.tar.gz` and `.zip`
-     - Darwin/Windows targets: `.zip`
-  5. Generate `SHA256SUMS.txt` covering all release archives.
-  6. Commit the version bump, code/docs changes, and build-generated files included in the release.
-  7. Create and push tag `oco-v<version>`.
-  8. Publish GitHub release with `gh release create` on `AidenGeunGeun/OpenCodeOrchestra`, attaching all archives plus `SHA256SUMS.txt` and using a manual highlights/body matching recent release style.
-- Recent release asset set for 1.x includes:
-  - `oco-darwin-arm64.zip`
-  - `oco-darwin-x64.zip`
-  - `oco-darwin-x64-baseline.zip`
-  - `oco-linux-arm64.tar.gz`, `oco-linux-arm64.zip`
-  - `oco-linux-arm64-musl.tar.gz`, `oco-linux-arm64-musl.zip`
-  - `oco-linux-x64.tar.gz`, `oco-linux-x64.zip`
-  - `oco-linux-x64-musl.tar.gz`, `oco-linux-x64-musl.zip`
-  - `oco-linux-x64-baseline.tar.gz`, `oco-linux-x64-baseline.zip`
-  - `oco-linux-x64-baseline-musl.tar.gz`, `oco-linux-x64-baseline-musl.zip`
-  - `oco-windows-x64.zip`
-  - `oco-windows-x64-baseline.zip`
-  - `SHA256SUMS.txt`
+- Tag pattern: `oco-v<version>` (example: `oco-v1.0.11`)
+- Version source of truth: `packages/opencode/package.json` (release script bumps all 8 packages)
+- Local `oco` launcher: `packages/opencode/bin/oco` → resolves `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`
+
+### Release Steps
+
+1. Run `bun run release [patch|minor|major|X.Y.Z]` from repo root.
+   - Bumps all `package.json` files, runs `bun install`, typecheck, builds CLI binary + frontend, deploys frontend to XDG, commits, tags.
+2. Push commits and **only the new tag**:
+   ```sh
+   git push && git push origin oco-v<version>
+   ```
+   **IMPORTANT**: Never use `git push --tags`. The repo has hundreds of inherited upstream tags that will fail to push and flood the output. Always push the specific tag by name.
+3. GitHub Actions triggers:
+   - `test` workflow runs typecheck + tests on the push to `main`.
+   - `desktop-build` workflow builds macOS + Linux desktop apps and attaches them to a GitHub Release.
+4. Desktop app artifacts appear on `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>` within ~10–15 minutes.
+
+### Prompt Bundling (optional)
+
+For prompt-bundling releases, treat `~/.config/opencode/opencode.jsonc` as the source of truth for which user prompt overrides are currently in use, then sync those from `~/.config/opencode/prompts/` into `packages/opencode/src/agent/prompt/`.
+- Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `researcher.txt`, `investigator.txt`, `auditor.txt`, `compaction.txt`, `docs.txt`
+- Do not update bundled prompts without active user overrides: `cleanup.txt`, `explore.txt`, `summary.txt`, `title.txt`, `pm-plan.txt`
+- Verify synced prompts with `diff -u ~/.config/opencode/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` before building.
+
+## CI / CD
+
+### Workflows (`.github/workflows/`)
+
+| Workflow | File | Trigger | What it does |
+|----------|------|---------|-------------|
+| `test` | `test.yml` | Push to `main`, manual | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest` |
+| `desktop-build` | `desktop-build.yml` | Tag push `oco-v*`, manual | Builds Tauri desktop app on macOS + Linux, uploads to GitHub Release |
+
+### Setup Action
+
+`.github/actions/setup-bun/action.yml` — composite action that installs Bun (version from `package.json`), caches `~/.bun`, and runs `bun install`.
+
+### Desktop Build Matrix
+
+| Name | Runner | Rust Target | Output |
+|------|--------|-------------|--------|
+| macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin` | `.dmg`, `.app.tar.gz` |
+| Linux (x86_64) | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+
+The build steps: checkout → setup Bun → setup Rust → install Linux deps (if Linux) → build sidecar binary → copy sidecar to Tauri sidecars dir → `bunx tauri build --config src-tauri/tauri.prod.conf.json` → upload to GitHub Release.
+
+Release artifact upload only runs on tag pushes (not manual `workflow_dispatch` runs).
+
+## Desktop App
+
+### Architecture
+
+`packages/desktop/` is a **Tauri v2** app (Rust backend + SolidJS frontend). It wraps the same `packages/app` SPA in a native window and bundles the `oco` CLI binary as a sidecar.
+
+- **Entry**: `packages/desktop/src/index.tsx` — creates `Platform` with Tauri APIs (clipboard, file dialogs, notifications, deep links, updater)
+- **Sidecar**: The `oco` CLI binary bundled at `src-tauri/sidecars/opencode-cli-<rust-target>`, launched at startup to provide the API server
+- **Dev config**: `src-tauri/tauri.conf.json` (product name "OpenCode Dev")
+- **Prod config**: `src-tauri/tauri.prod.conf.json` (product name "OpenCode Orchestra", identifier `ai.opencode.orchestra`)
+
+### Server Connection Model
+
+The desktop app supports three connection types via `AppInterface`:
+
+- `ServerConnection.Sidecar` — bundled local server (default)
+- `ServerConnection.Http` — remote HTTP server with optional Basic auth
+- `ServerConnection.Ssh` — SSH tunnel to remote server
+
+Server management UI: settings → Server → add/edit HTTP connections, health check, set default.
+
+### Skip-Local-Server Feature
+
+When a remote (non-loopback) HTTP server is set as default, the desktop app automatically sets `skipLocalServer: true`. On next launch, the sidecar server is NOT spawned — the app connects directly to the remote server, saving RAM on lightweight devices.
+
+- Loopback addresses (`localhost`, `127.0.0.1`, `[::1]`) are NOT treated as remote.
+- Setting sidecar/WSL/loopback as default or removing default resets `skipLocalServer` to `false`.
+- Rust implementation: `packages/desktop/src-tauri/src/server.rs` (get/set commands), `lib.rs` (pre-spawn check)
+- TypeScript: `packages/desktop/src/bindings.ts`, `packages/desktop/src/index.tsx`, `packages/app/src/context/platform.tsx`
+
+### Sidecar Binary Naming
+
+`packages/desktop/scripts/utils.ts` maps Rust target triples to build output names:
+
+| Rust Target | Build Output (`ocBinary`) |
+|-------------|--------------------------|
+| `aarch64-apple-darwin` | `@skybluejacket/oco-darwin-arm64` |
+| `x86_64-apple-darwin` | `@skybluejacket/oco-darwin-x64-baseline` |
+| `x86_64-unknown-linux-gnu` | `@skybluejacket/oco-linux-x64-baseline` |
+| `aarch64-unknown-linux-gnu` | `@skybluejacket/oco-linux-arm64` |
+
+### User Setup (MacBook via Tailscale)
+
+The intended workflow: `oco serve` runs on the gaming laptop (Arch Linux), MacBook connects via Tailscale using the desktop app.
+
+1. Download `.dmg` from GitHub Releases → drag to Applications
+2. First launch: macOS may block unsigned app → System Settings → Privacy & Security → "Open Anyway"
+3. In the app: settings or Cmd+K → Server → Add HTTP connection → URL `http://omarchy:4096` (Tailscale MagicDNS) or `http://100.86.127.34:4096` → Set as default
+4. App auto-enables skip-local-server for the remote connection
+5. Restart app — it connects directly to the home server without spawning a local sidecar
 
 ## Project Structure
 
-Monorepo with `packages/*` workspaces. Seven active packages:
+Monorepo with `packages/*` workspaces. Eight active packages:
 
 | Package              | Description                                                          |
 | -------------------- | -------------------------------------------------------------------- |
@@ -83,6 +152,7 @@ Monorepo with `packages/*` workspaces. Seven active packages:
 | `packages/ui`        | Shared UI component library and theme system used by packages/app    |
 | `packages/sdk`       | Generated JS/TS client SDK (`@opencode-ai/sdk`)                      |
 | `packages/plugin`    | Plugin system (copilot, codex, client-wrapper)                       |
+| `packages/desktop`   | Tauri v2 native desktop app wrapping the SolidJS frontend            |
 | `packages/script`    | Build and utility scripts                                            |
 | `packages/util`      | Shared runtime utilities (encode, error, path, binary, retry, …)     |
 
@@ -104,6 +174,7 @@ packages/opencode/src/
   project/        # Project/instance/VCS management
   control/        # Control account/token management
   skill/          # Skill loading system (file + URL discovery)
+  control-plane/  # Workspace feature (workspace.ts, adaptors, routes, middleware)
   share/          # Session sharing (legacy + DB-backed)
   snapshot/       # File diff/snapshot management
   worktree/       # Git worktree management
@@ -111,7 +182,7 @@ packages/opencode/src/
   bus/            # Event bus system
 
 packages/opencode/migration/  # Drizzle SQL migration files (bundled at build time)
-packages/opencode/test/       # Test files (884 pass / 29 skip / 0 fail)
+packages/opencode/test/       # Test files (run via `bun turbo test`)
 packages/sdk/js/              # JS/TS SDK (generated from openapi.yml)
 packages/app/                 # SolidJS SPA web frontend
 packages/ui/                  # Shared UI components and theme system
@@ -134,9 +205,12 @@ The web UI is a three-layer stack:
 `Server.resolveFrontendDir()` (`src/server/server.ts`) resolves the frontend directory in this order:
 
 1. `OPENCODE_FRONTEND_DIR` environment variable (if set and contains `index.html`)
-2. `../../app/dist` relative to the server source — the monorepo build output
-3. `~/.local/share/opencode/frontend` — XDG data dir install
-4. Falls back to proxying `https://app.opencode.ai` for every unmatched request
+2. `../frontend` relative to binary — works in compiled `oco` binary (build copies frontend to `dist/<name>/frontend/`)
+3. `../../../app/dist` relative to server source — monorepo build output (works with `bun dev serve`)
+4. `~/.local/share/opencode/frontend` — XDG data dir install (set by `bun run release`)
+5. Falls back to proxying `https://app.opencode.ai` for every unmatched request
+
+**During development, use `bun dev serve`** (not `oco serve`). The compiled `oco` binary resolves `import.meta.dirname` to its install directory, so the monorepo-relative path (step 3) fails. `bun dev serve` runs from source where monorepo paths resolve correctly.
 
 The catch-all `/*.` route serves static assets from the resolved directory with a strict Content-Security-Policy header. Non-file paths fall through to `index.html` (SPA routing).
 
@@ -160,6 +234,20 @@ The server picks up `packages/app/dist/` automatically when run from the monorep
 - Avoid animating layout properties (`width`, `height`, `top`, `left`, etc.) unless the interaction truly depends on runtime-measured layout animation.
 - Respect `prefers-reduced-motion`; token-driven motion should collapse automatically, and JS-coordinated presence timing must follow that behavior.
 - When JS timers are required for overlap, deferred mount, or unmount timing, keep them aligned with the CSS motion token durations that own the visible transition.
+
+## Orchestra Frontend Features
+
+These are fork-only additions to the upstream WebUI, built for multi-agent orchestration visibility:
+
+| Feature | Files | Description |
+|---------|-------|-------------|
+| **Breadcrumbs** | `packages/app/src/pages/session/session-breadcrumb.tsx`, `session.tsx` | Shows `PM › Orchestrator › Investigator` ancestry path. Clickable to navigate up. Uses direct SDK fetch to hydrate parent sessions. |
+| **Permission Overlay** | `packages/app/src/components/permission-overlay.tsx`, `layout.tsx` | Floating badge + drawer showing ALL pending permissions across the session tree. Approve/deny from any depth. |
+| **Context Health** | `packages/ui/src/components/context-health.tsx` | Per-session token usage vs model max. Color-coded (green/yellow/red). Shown in breadcrumbs, task cards, subagent list. |
+| **Subagent Sidebar** | `packages/app/src/components/subagent-list.tsx`, `session-side-panel.tsx` | Right panel tab listing child sessions with title, agent type badge, status, context health. SSE real-time updates. |
+| **Clickable Task Cards** | `packages/ui/src/components/message-part.tsx`, `basic-tool.tsx` | Task tool calls render as cards with context health + click-to-navigate into the subagent session. |
+
+These files are additive (new files or surgical edits) and should be re-applied after any upstream frontend sync.
 
 ## Orchestra-Specific Code (DO NOT OVERWRITE on upstream sync)
 
