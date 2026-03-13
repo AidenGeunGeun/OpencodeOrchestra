@@ -1,4 +1,4 @@
-import { createMemo, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, Show, type Accessor, type JSX } from "solid-js"
 import {
   DragDropProvider,
   DragDropSensors,
@@ -11,6 +11,7 @@ import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { type LocalProject } from "@/context/layout"
+import { MOTION_DURATION_NORMAL_TOKEN, getMotionDuration, prefersReducedMotion } from "@/utils/motion"
 import { sidebarExpanded } from "./sidebar-shell-helpers"
 
 export const SidebarContent = (props: {
@@ -35,6 +36,39 @@ export const SidebarContent = (props: {
 }): JSX.Element => {
   const expanded = createMemo(() => sidebarExpanded(props.mobile, props.opened()))
   const placement = () => (props.mobile ? "bottom" : "right")
+  const [panelVisible, setPanelVisible] = createSignal(expanded())
+  const enterDelay = () => getMotionDuration(MOTION_DURATION_NORMAL_TOKEN, 260)
+
+  createEffect(
+    on(
+      expanded,
+      (isExpanded) => {
+        if (typeof window === "undefined") {
+          setPanelVisible(isExpanded)
+          return
+        }
+
+        if (!isExpanded) {
+          setPanelVisible(false)
+          return
+        }
+
+        const delay = enterDelay()
+        if (prefersReducedMotion() || delay === 0) {
+          setPanelVisible(true)
+          return
+        }
+
+        setPanelVisible(false)
+        const timeout = window.setTimeout(() => {
+          setPanelVisible(true)
+        }, delay)
+
+        return () => window.clearTimeout(timeout)
+      },
+      { defer: true },
+    ),
+  )
 
   return (
     <div class="flex h-full w-full overflow-hidden">
@@ -100,7 +134,17 @@ export const SidebarContent = (props: {
         </div>
       </div>
 
-      <Show when={expanded()}>{props.renderPanel()}</Show>
+      <div
+        class="motion-shell-left"
+        classList={{ "motion-shell-left-hidden": !panelVisible() }}
+        style={{
+          "--motion-shell-x": "12px",
+          "pointer-events": panelVisible() ? "auto" : "none",
+          overflow: "hidden",
+        }}
+      >
+        {props.renderPanel()}
+      </div>
     </div>
   )
 }

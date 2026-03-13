@@ -1,0 +1,34 @@
+:root {
+  /* === Easing Curves === */
+  /* Enter: elements appearing — quick start, smooth landing (decelerate) */
+  --motion-ease-enter: cubic-bezier(0.0, 0.0, 0.15, 1);
+  /* Exit: elements leaving — gentle departure (accelerate) */
+  --motion-ease-exit: cubic-bezier(0.35, 0.0, 0.8, 1);
+  /* Layout: elements moving/resizing — balanced standard curve */
+  --motion-ease-layout: cubic-bezier(0.25, 0.0, 0.15, 1);
+  /* Bounce: playful emphasis, Hyprland-style overshoot */
+  --motion-ease-bounce: cubic-bezier(0.05, 0.7, 0.1, 1.08);
+  /* Micro: snappy interactions — buttons, toggles, color changes */
+  --motion-ease-micro: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* === Duration Tiers === */
+  /* Fast: micro-interactions, color/opacity changes, icon swaps, small exits */
+  --motion-duration-fast: 150ms;
+  /* Normal: panels, cards, collapsibles, most UI enter/exit */
+  --motion-duration-normal: 260ms;
+  /* Slow: large layout shifts, route transitions, session navigation */
+  --motion-duration-slow: 380ms;
+
+  /* === Prefers Reduced Motion === */
+  /* All motion tokens collapse to instant when user prefers reduced motion */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-normal: 0ms;
+    --motion-duration-slow: 0ms;
+  }
+}
+
+/* Transition classes are in motion-transitions.css (utilities layer) */

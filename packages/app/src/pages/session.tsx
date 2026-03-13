@@ -10,7 +10,6 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Button } from "@opencode-ai/ui/button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Select } from "@opencode-ai/ui/select"
 import { useCodeComponent } from "@opencode-ai/ui/context/code"
@@ -52,7 +51,7 @@ import {
 } from "@/pages/session/review-tab"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { terminalTabLabel } from "@/pages/session/terminal-label"
-import { MessageTimeline } from "@/pages/session/message-timeline"
+import { MessageTimeline, type SessionNavigationDirection } from "@/pages/session/message-timeline"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { SessionPromptDock } from "@/pages/session/session-prompt-dock"
 import { SessionMobileTabs } from "@/pages/session/session-mobile-tabs"
@@ -237,12 +236,7 @@ export default function Page() {
   const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
-  const sessionPanelWidth = createMemo(() => {
-    if (!desktopSidePanelOpen()) return "100%"
-    if (desktopReviewOpen()) return `${layout.session.width()}px`
-    return `calc(100% - ${layout.fileTree.width()}px)`
-  })
-  const centered = createMemo(() => isDesktop() && !desktopSidePanelOpen())
+  const centered = createMemo(() => isDesktop())
 
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
@@ -265,8 +259,27 @@ export default function Page() {
     if (!view().reviewPanel.opened()) view().reviewPanel.open()
   }
 
+  const inferNavigationDirection = (targetSessionID?: string): SessionNavigationDirection => {
+    if (!targetSessionID) return "lateral"
+
+    const currentSessionID = params.id
+    if (!currentSessionID || targetSessionID === currentSessionID) return "lateral"
+
+    const chain = breadcrumbChain()
+    if (chain.some((session) => session.id === targetSessionID)) return "shallower"
+
+    const targetSession = sync.session.get(targetSessionID)
+    if (targetSession?.parentID === currentSessionID) return "deeper"
+
+    const currentParentID = info()?.parentID
+    if (targetSessionID === currentParentID) return "shallower"
+
+    return "lateral"
+  }
+
   const navigateToSession = (sessionID: string) => {
     if (!params.dir) return
+    setNavigationDirection(inferNavigationDirection(sessionID))
     navigate(`/${params.dir}/session/${sessionID}`)
   }
 
@@ -309,6 +322,34 @@ export default function Page() {
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const [breadcrumbChain, setBreadcrumbChain] = createSignal<Session[]>([])
+  const [navigationDirection, setNavigationDirection] = createSignal<SessionNavigationDirection>("lateral")
+  const [sessionDepths, setSessionDepths] = createSignal<Map<string, number>>(new Map())
+
+  const getSessionDepth = (sessionID?: string) => {
+    if (!sessionID) return undefined
+
+    const cachedDepth = sessionDepths().get(sessionID)
+    if (cachedDepth !== undefined) return cachedDepth
+
+    const chain = breadcrumbChain()
+    if (chain.length > 0 && chain[chain.length - 1]?.id === sessionID) {
+      return chain.length
+    }
+
+    const visited = new Set<string>()
+    let currentID: string | undefined = sessionID
+    let depth = 0
+
+    while (currentID && !visited.has(currentID)) {
+      visited.add(currentID)
+      const session = sync.session.get(currentID)
+      if (!session) return undefined
+      depth += 1
+      currentID = session.parentID
+    }
+
+    return depth > 0 ? depth : undefined
+  }
 
   createEffect(() => {
     const sessionID = params.id
@@ -334,6 +375,16 @@ export default function Page() {
         if (!session) break
         chain.unshift(session)
         currentID = session.parentID
+      }
+
+      if (chain.length > 0) {
+        setSessionDepths((current) => {
+          const next = new Map(current)
+          chain.forEach((session, index) => {
+            next.set(session.id, index + 1)
+          })
+          return next
+        })
       }
 
       if (chain.length > 1) {
@@ -1769,7 +1820,7 @@ export default function Page() {
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
       <div
-        class="flex-1 min-h-0 flex"
+        class="relative flex-1 min-h-0 flex"
         classList={{
           "flex-col": !isDesktop(),
           "flex-row": isDesktop(),
@@ -1790,10 +1841,8 @@ export default function Page() {
           classList={{
             "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger": true,
             "flex-1 pt-2 md:pt-3": true,
-            "md:flex-none": desktopSidePanelOpen(),
           }}
           style={{
-            width: sessionPanelWidth(),
             "--prompt-height": store.promptHeight ? `${store.promptHeight}px` : undefined,
           }}
         >
@@ -1828,6 +1877,7 @@ export default function Page() {
                     title={info()?.title}
                     parentID={info()?.parentID}
                     breadcrumbs={sessionBreadcrumbs()}
+                    navigationDirection={navigationDirection()}
                     currentContextHealth={currentContextHealth()}
                     openTitleEditor={openTitleEditor}
                     closeTitleEditor={closeTitleEditor}
@@ -1840,10 +1890,12 @@ export default function Page() {
                     onTitleMenuOpen={(open) => setTitle("menuOpen", open)}
                     onTitlePendingRename={(value) => setTitle("pendingRename", value)}
                     onNavigateParent={() => {
-                      navigate(`/${params.dir}/session/${info()?.parentID}`)
+                      const parentID = info()?.parentID
+                      if (!parentID) return
+                      navigateToSession(parentID)
                     }}
                     onNavigateSession={(sessionID) => {
-                      navigate(`/${params.dir}/session/${sessionID}`)
+                      navigateToSession(sessionID)
                     }}
                     sessionID={params.id!}
                     onArchiveSession={(sessionID) => void archiveSession(sessionID)}
@@ -1924,19 +1976,10 @@ export default function Page() {
             }}
             setPromptDockRef={(el) => (promptDock = el)}
           />
-
-          <Show when={desktopReviewOpen()}>
-            <ResizeHandle
-              direction="horizontal"
-              size={layout.session.width()}
-              min={450}
-              max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
-              onResize={layout.session.resize}
-            />
-          </Show>
         </div>
 
         <SessionSidePanel
+          desktop={isDesktop()}
           open={desktopSidePanelOpen()}
           reviewOpen={desktopReviewOpen()}
           language={language}

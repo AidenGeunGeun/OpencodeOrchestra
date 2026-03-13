@@ -136,10 +136,10 @@
 }
 
 [data-component="dialog"][data-transition] [data-slot="dialog-content"] {
-  animation: contentHide 100ms ease-in forwards;
+  animation: contentHide var(--motion-duration-fast) var(--motion-ease-exit) forwards;
 
   &[data-expanded] {
-    animation: contentShow 150ms ease-out;
+    animation: contentShow var(--motion-duration-normal) var(--motion-ease-bounce);
   }
 }
 

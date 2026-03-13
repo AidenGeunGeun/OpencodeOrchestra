@@ -441,17 +441,45 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
               placement="top"
               gutter={8}
             >
-              <IconButton
-                icon={copied() ? "check" : "copy"}
-                size="small"
-                variant="secondary"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  handleCopy()
-                }}
-                aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              />
+              <div style={{ position: "relative", display: "inline-flex" }}>
+                <IconButton
+                  icon="copy"
+                  size="small"
+                  variant="secondary"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleCopy()
+                  }}
+                  aria-label={i18n.t("ui.message.copy")}
+                  style={{
+                    opacity: copied() ? "0" : "1",
+                    transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                  }}
+                />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: "0",
+                    display: "flex",
+                    "align-items": "center",
+                    "justify-content": "center",
+                    "pointer-events": "none",
+                    opacity: copied() ? "1" : "0",
+                    transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                  }}
+                >
+                  <IconButton
+                    icon="check"
+                    size="small"
+                    variant="secondary"
+                    tabIndex={-1}
+                    style={{ "pointer-events": "none" }}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
             </Tooltip>
           </div>
         </div>
@@ -711,14 +739,42 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               placement="top"
               gutter={8}
             >
-              <IconButton
-                icon={copied() ? "check" : "copy"}
-                size="small"
-                variant="secondary"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleCopy}
-                aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-              />
+              <div style={{ position: "relative", display: "inline-flex" }}>
+                <IconButton
+                  icon="copy"
+                  size="small"
+                  variant="secondary"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleCopy}
+                  aria-label={i18n.t("ui.message.copy")}
+                  style={{
+                    opacity: copied() ? "0" : "1",
+                    transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                  }}
+                />
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: "0",
+                    display: "flex",
+                    "align-items": "center",
+                    "justify-content": "center",
+                    "pointer-events": "none",
+                    opacity: copied() ? "1" : "0",
+                    transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                  }}
+                >
+                  <IconButton
+                    icon="check"
+                    size="small"
+                    variant="secondary"
+                    tabIndex={-1}
+                    style={{ "pointer-events": "none" }}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
             </Tooltip>
           </div>
         </div>

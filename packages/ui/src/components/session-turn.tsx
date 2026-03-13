@@ -429,6 +429,13 @@ export function SessionTurn(
 
   const status = createMemo(() => data.store.session_status[props.sessionID] ?? idle)
   const working = createMemo(() => status().type !== "idle" && isLastUserMessage())
+
+  // Track whether this turn was ever actively streaming — used to only animate
+  // the summary section entrance for NEW messages, not historical ones on page load.
+  const [wasStreaming, setWasStreaming] = createSignal(false)
+  createEffect(() => {
+    if (working()) setWasStreaming(true)
+  })
   const retry = createMemo(() => {
     // session_status is session-scoped; only show retry on the active (last) turn
     if (!isLastUserMessage()) return
@@ -771,7 +778,7 @@ export function SessionTurn(
                       {!working() && response() ? response() : ""}
                     </div>
                     <Show when={!working() && response()}>
-                      <div data-slot="session-turn-summary-section">
+                      <div data-slot="session-turn-summary-section" data-animate={wasStreaming() || undefined}>
                         <div data-slot="session-turn-summary-header">
                           <div data-slot="session-turn-summary-title-row">
                             <h2 data-slot="session-turn-summary-title">{i18n.t("ui.sessionTurn.summary.response")}</h2>
@@ -782,17 +789,45 @@ export function SessionTurn(
                                   placement="top"
                                   gutter={8}
                                 >
-                                  <IconButton
-                                    icon={copied() ? "check" : "copy"}
-                                    size="small"
-                                    variant="secondary"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      handleCopy()
-                                    }}
-                                    aria-label={copied() ? i18n.t("ui.message.copied") : i18n.t("ui.message.copy")}
-                                  />
+                                  <div style={{ position: "relative", display: "inline-flex" }}>
+                                    <IconButton
+                                      icon="copy"
+                                      size="small"
+                                      variant="secondary"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        handleCopy()
+                                      }}
+                                      aria-label={i18n.t("ui.message.copy")}
+                                      style={{
+                                        opacity: copied() ? "0" : "1",
+                                        transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                                      }}
+                                    />
+                                    <div
+                                      aria-hidden="true"
+                                      style={{
+                                        position: "absolute",
+                                        inset: "0",
+                                        display: "flex",
+                                        "align-items": "center",
+                                        "justify-content": "center",
+                                        "pointer-events": "none",
+                                        opacity: copied() ? "1" : "0",
+                                        transition: "opacity var(--motion-duration-fast) var(--motion-ease-micro)",
+                                      }}
+                                    >
+                                      <IconButton
+                                        icon="check"
+                                        size="small"
+                                        variant="secondary"
+                                        tabIndex={-1}
+                                        style={{ "pointer-events": "none" }}
+                                        aria-hidden="true"
+                                      />
+                                    </div>
+                                  </div>
                                 </Tooltip>
                               </div>
                             </Show>

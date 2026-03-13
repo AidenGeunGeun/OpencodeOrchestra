@@ -57,6 +57,7 @@ import { DialogEditProject } from "@/components/dialog-edit-project"
 import { PermissionOverlay } from "@/components/permission-overlay"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
+import { Transition } from "solid-transition-group"
 import { useLanguage, type Locale } from "@/context/language"
 import {
   childMapByParent,
@@ -1879,6 +1880,7 @@ export default function Layout(props: ParentProps) {
             "hidden xl:block": true,
             "relative shrink-0": true,
           }}
+          class="motion-layout-width"
           style={{ width: layout.sidebar.opened() ? `${Math.max(layout.sidebar.width(), 244)}px` : "64px" }}
           ref={(el) => {
             setState("nav", el)
@@ -1925,13 +1927,15 @@ export default function Layout(props: ParentProps) {
               renderPanel={() => <SidebarPanel project={currentProject()} />}
             />
           </div>
-          <Show when={!layout.sidebar.opened() ? hoverProjectData()?.worktree : undefined} keyed>
-            {(worktree) => (
-              <div class="absolute inset-y-0 left-16 z-50 flex" onMouseEnter={aim.reset}>
-                <SidebarPanel project={hoverProjectData()} />
-              </div>
-            )}
-          </Show>
+          <Transition name="motion-slide-left">
+            <Show when={!layout.sidebar.opened() ? hoverProjectData()?.worktree : undefined} keyed>
+              {(worktree) => (
+                <div class="absolute inset-y-0 left-16 z-50 flex" onMouseEnter={aim.reset}>
+                  <SidebarPanel project={hoverProjectData()} />
+                </div>
+              )}
+            </Show>
+          </Transition>
           <Show when={layout.sidebar.opened()}>
             <ResizeHandle
               direction="horizontal"
@@ -1947,10 +1951,11 @@ export default function Layout(props: ParentProps) {
         <div class="xl:hidden">
           <div
             classList={{
-              "fixed inset-x-0 top-8 sm:top-10 bottom-0 z-40 transition-opacity duration-200": true,
+              "fixed inset-x-0 top-8 sm:top-10 bottom-0 z-40": true,
               "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
               "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
             }}
+            class="motion-layout-opacity"
             onClick={(e) => {
               if (e.target === e.currentTarget) layout.mobileSidebar.hide()
             }}
@@ -1959,10 +1964,11 @@ export default function Layout(props: ParentProps) {
             aria-label={language.t("sidebar.nav.projectsAndSessions")}
             data-component="sidebar-nav-mobile"
             classList={{
-              "@container fixed top-8 sm:top-10 bottom-0 left-0 z-50 w-72 bg-background-base transition-transform duration-200 ease-out": true,
+              "@container fixed top-8 sm:top-10 bottom-0 left-0 z-50 w-72 bg-background-base": true,
               "translate-x-0": layout.mobileSidebar.opened(),
               "-translate-x-full": !layout.mobileSidebar.opened(),
             }}
+            class="motion-layout-transform"
             onClick={(e) => e.stopPropagation()}
           >
             <SidebarContent

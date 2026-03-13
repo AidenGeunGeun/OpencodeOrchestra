@@ -170,7 +170,11 @@ When updating favicon assets, update the source files in `packages/ui/src/assets
 
 - Always prefer `createStore` over multiple `createSignal` calls.
 - Use `createMemo` for derived values; avoid recomputing in render functions.
-- Prefer Tailwind utility classes; avoid inline `style` attributes.
+- Prefer Tailwind utility classes and shared CSS classes for static styling and standard motion.
+- Inline `style` attributes are acceptable only when values are runtime-measured or dynamic, such as live panel widths, measured terminal heights, or motion state driven by runtime dimensions.
+- For static animations, use shared motion tokens from `packages/ui/src/styles/motion.css` and reusable classes from `packages/ui/src/styles/motion-transitions.css` instead of repeating inline transition strings.
+- Prefer `transform` + `opacity` for visible motion; treat width/height animation as a narrow measured-motion exception when the interaction truly depends on it.
+- When JS timers coordinate mount overlap or unmount timing, keep them aligned with the motion token durations used by the CSS classes.
 - Use CSS custom properties from `@opencode-ai/ui` theme (e.g., `var(--background-surface)`, `var(--text-primary)`) when a value has no Tailwind class equivalent.
 - Follow the root `AGENTS.md` style guide: `const` over `let`, avoid `else`, namespace exports.
 - Component files use `kebab-case.tsx`.

@@ -4,7 +4,7 @@
   flex-direction: column;
   background-color: var(--surface-inset-base);
   border: 1px solid var(--border-weaker-base);
-  transition: background-color 0.15s ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-micro);
   border-radius: var(--radius-md);
   overflow: clip;
 
@@ -50,11 +50,11 @@
 
   [data-slot="collapsible-content"] {
     overflow: hidden;
-    /* animation: slideUp 250ms ease-out; */
+    animation: slideUp var(--motion-duration-normal) var(--motion-ease-exit) forwards;
 
-    /* &[data-expanded] { */
-    /*   animation: slideDown 250ms ease-out; */
-    /* } */
+    &[data-expanded] {
+      animation: slideDown var(--motion-duration-normal) var(--motion-ease-enter);
+    }
   }
 
   &[data-variant="ghost"] {

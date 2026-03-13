@@ -34,7 +34,7 @@
     overflow: hidden;
     background: var(--surface-weak);
     border: 1px solid var(--border-weak-base);
-    transition: border-color 0.15s ease;
+    transition: border-color var(--motion-duration-fast) var(--motion-ease-micro);
 
     &:hover {
       border-color: var(--border-strong-base);
@@ -94,7 +94,7 @@
       top: 7px;
       right: 7px;
       opacity: 0;
-      transition: opacity 0.15s ease;
+      transition: opacity var(--motion-duration-fast) var(--motion-ease-micro);
     }
 
     &:hover [data-slot="user-message-copy-wrapper"] {
@@ -124,7 +124,7 @@
     top: -28px;
     right: 8px;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--motion-duration-fast) var(--motion-ease-micro);
     z-index: 1;
   }
 
@@ -570,8 +570,8 @@
       border: none;
       cursor: pointer;
       transition:
-        color 0.15s,
-        background-color 0.15s;
+        color var(--motion-duration-fast) var(--motion-ease-micro),
+        background-color var(--motion-duration-fast) var(--motion-ease-micro);
 
       &:hover {
         background-color: var(--surface-base-hover);
@@ -617,8 +617,8 @@
       text-align: left;
       width: 100%;
       transition:
-        background-color 0.15s,
-        border-color 0.15s;
+        background-color var(--motion-duration-fast) var(--motion-ease-micro),
+        border-color var(--motion-duration-fast) var(--motion-ease-micro);
       position: relative;
 
       &:hover {
@@ -824,5 +824,11 @@
   [data-component="icon"] {
     flex-shrink: 0;
     color: var(--icon-weak);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="tool-part-wrapper"][data-permission="true"]::before {
+    animation: none;
   }
 }

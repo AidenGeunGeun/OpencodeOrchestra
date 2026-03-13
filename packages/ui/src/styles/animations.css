@@ -25,7 +25,7 @@
 @keyframes fadeUp {
   from {
     opacity: 0;
-    transform: translateY(5px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -34,7 +34,7 @@
 }
 
 .fade-up-text {
-  animation: fadeUp 0.4s ease-out forwards;
+  animation: fadeUp var(--motion-duration-slow) var(--motion-ease-enter) forwards;
   opacity: 0;
 
   &:nth-child(1) {
@@ -126,5 +126,15 @@
   }
   &:nth-child(30) {
     animation-delay: 3s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --animate-pulse: none;
+  }
+
+  .fade-up-text {
+    animation-delay: 0ms !important;
   }
 }

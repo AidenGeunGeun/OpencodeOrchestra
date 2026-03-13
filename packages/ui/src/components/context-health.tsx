@@ -30,8 +30,8 @@ export function ContextHealth(props: { current?: number; limit?: number; usage?:
             : "border border-border-base bg-background-base px-2 py-0.5 gap-1.5 text-text-weak"
         } ${props.class ?? ""}`}
       >
-        <span class={`size-1.5 rounded-full ${tone()}`} />
-        <span class="whitespace-nowrap">{formatCompact(props.current!)}</span>
+        <span class={`size-1.5 rounded-full ${tone()}`} style={{ transition: "background-color var(--motion-duration-fast) var(--motion-ease-micro)" }} />
+        <span class="whitespace-nowrap" style={{ transition: "color var(--motion-duration-fast) var(--motion-ease-micro)" }}>{formatCompact(props.current!)}</span>
         <span>/</span>
         <span class="whitespace-nowrap">{formatCompact(props.limit!)}</span>
       </div>

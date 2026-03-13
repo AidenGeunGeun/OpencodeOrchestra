@@ -152,6 +152,15 @@ bun run --cwd packages/app build   # produces packages/app/dist/
 
 The server picks up `packages/app/dist/` automatically when run from the monorepo (path 2 above).
 
+### Frontend Motion
+
+- Use shared motion tokens from `packages/ui/src/styles/motion.css` as the duration/easing source of truth.
+- Use reusable motion utilities from `packages/ui/src/styles/motion-transitions.css` for standard enter/exit patterns before adding per-component transition strings.
+- Prefer visible motion built from `transform` + `opacity`.
+- Avoid animating layout properties (`width`, `height`, `top`, `left`, etc.) unless the interaction truly depends on runtime-measured layout animation.
+- Respect `prefers-reduced-motion`; token-driven motion should collapse automatically, and JS-coordinated presence timing must follow that behavior.
+- When JS timers are required for overlap, deferred mount, or unmount timing, keep them aligned with the CSS motion token durations that own the visible transition.
+
 ## Orchestra-Specific Code (DO NOT OVERWRITE on upstream sync)
 
 These files contain fork-only logic. During upstream syncs, merge carefully:

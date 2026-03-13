@@ -1,0 +1,191 @@
+/* ============================================
+   Reusable transition classes for solid-transition-group
+   Used with <Transition name="motion-*"> and <TransitionGroup name="motion-*">
+
+   IMPORTANT: These classes MUST live in the `utilities` layer (highest priority)
+   so they override component styles when solid-transition-group applies them.
+   ============================================ */
+
+/* Fade + scale bounce in (badges, floating buttons) */
+.motion-badge-enter { opacity: 0; transform: scale(0.9); }
+.motion-badge-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-bounce), transform var(--motion-duration-normal) var(--motion-ease-bounce); }
+.motion-badge-enter-to { opacity: 1; transform: scale(1); }
+.motion-badge-exit { opacity: 1; transform: scale(1); }
+.motion-badge-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-badge-exit-to { opacity: 0; transform: scale(0.95); }
+
+/* Fade + translate up (list items, cards appearing from below) */
+.motion-fade-up-enter { opacity: 0; transform: translateY(8px); }
+.motion-fade-up-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-enter), transform var(--motion-duration-normal) var(--motion-ease-enter); }
+.motion-fade-up-enter-to { opacity: 1; transform: translateY(0); }
+.motion-fade-up-exit { opacity: 1; transform: translateY(0); }
+.motion-fade-up-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-fade-up-exit-to { opacity: 0; transform: translateY(8px); }
+
+/* Fade + translate down (elements appearing from above) */
+.motion-fade-down-enter { opacity: 0; transform: translateY(-8px); }
+.motion-fade-down-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-enter), transform var(--motion-duration-normal) var(--motion-ease-enter); }
+.motion-fade-down-enter-to { opacity: 1; transform: translateY(0); }
+.motion-fade-down-exit { opacity: 1; transform: translateY(0); }
+.motion-fade-down-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-fade-down-exit-to { opacity: 0; transform: translateY(-8px); }
+
+/* Slide from right (drawers, panels opening from right edge) */
+.motion-slide-right-enter { opacity: 0; transform: translateX(16px); }
+.motion-slide-right-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-enter), transform var(--motion-duration-normal) var(--motion-ease-enter); }
+.motion-slide-right-enter-to { opacity: 1; transform: translateX(0); }
+.motion-slide-right-exit { opacity: 1; transform: translateX(0); }
+.motion-slide-right-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-slide-right-exit-to { opacity: 0; transform: translateX(16px); }
+
+/* Slide from left (flyout panels, side content) */
+.motion-slide-left-enter { opacity: 0; transform: translateX(-8px); }
+.motion-slide-left-enter-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-enter), transform var(--motion-duration-fast) var(--motion-ease-enter); }
+.motion-slide-left-enter-to { opacity: 1; transform: translateX(0); }
+.motion-slide-left-exit { opacity: 1; transform: translateX(0); }
+.motion-slide-left-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-slide-left-exit-to { opacity: 0; transform: translateX(-8px); }
+
+/* Scroll-to-bottom button: fade + translateY + slight scale bounce */
+.motion-scroll-btn-enter { opacity: 0; transform: translateY(8px) scale(0.95); }
+.motion-scroll-btn-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-bounce), transform var(--motion-duration-normal) var(--motion-ease-bounce); }
+.motion-scroll-btn-enter-to { opacity: 1; transform: translateY(0) scale(1); }
+.motion-scroll-btn-exit { opacity: 1; transform: translateY(0) scale(1); }
+.motion-scroll-btn-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-scroll-btn-exit-to { opacity: 0; transform: translateY(8px); }
+
+/* Simple fade (generic show/hide) */
+.motion-fade-enter { opacity: 0; }
+.motion-fade-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-enter); }
+.motion-fade-enter-to { opacity: 1; }
+.motion-fade-exit { opacity: 1; }
+.motion-fade-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-fade-exit-to { opacity: 0; }
+
+/* Shared app-shell visibility states for runtime-sized panels */
+.motion-shell-left,
+.motion-shell-right,
+.motion-shell-up,
+.motion-shell-fade {
+  opacity: 1;
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-enter),
+              transform var(--motion-duration-normal) var(--motion-ease-enter);
+}
+
+.motion-shell-left,
+.motion-shell-right,
+.motion-shell-up {
+  transform: translate3d(0, 0, 0);
+}
+
+.motion-shell-fade {
+  transform: none;
+}
+
+.motion-shell-left-hidden {
+  opacity: 0;
+  transform: translate3d(calc(-1 * var(--motion-shell-x, 12px)), 0, 0);
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-exit),
+              transform var(--motion-duration-normal) var(--motion-ease-exit);
+}
+
+.motion-shell-right-hidden {
+  opacity: 0;
+  transform: translate3d(var(--motion-shell-x, 20px), 0, 0);
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-exit),
+              transform var(--motion-duration-normal) var(--motion-ease-exit);
+}
+
+.motion-shell-up-hidden {
+  opacity: 0;
+  transform: translate3d(0, var(--motion-shell-y, 12px), 0);
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-exit),
+              transform var(--motion-duration-normal) var(--motion-ease-exit);
+}
+
+.motion-shell-fade-hidden {
+  opacity: 0;
+  transform: none;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-exit);
+}
+
+.motion-layout-width {
+  transition: width var(--motion-duration-normal) var(--motion-ease-layout);
+}
+
+.motion-layout-opacity {
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-layout);
+}
+
+.motion-layout-transform {
+  transition: transform var(--motion-duration-normal) var(--motion-ease-layout);
+}
+
+.motion-measured-shell {
+  overflow: hidden;
+  transition: height var(--motion-duration-normal) var(--motion-ease-enter),
+              opacity var(--motion-duration-fast) var(--motion-ease-enter);
+}
+
+.motion-measured-shell-hidden {
+  transition: height var(--motion-duration-normal) var(--motion-ease-exit),
+              opacity var(--motion-duration-normal) var(--motion-ease-exit);
+}
+
+/* Session-to-session crossfade for timeline content */
+.motion-crossfade {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-enter),
+              transform var(--motion-duration-normal) var(--motion-ease-enter);
+}
+
+.motion-crossfade-out {
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-exit),
+              transform var(--motion-duration-fast) var(--motion-ease-exit);
+}
+
+.motion-session-rest {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-enter),
+              transform var(--motion-duration-slow) var(--motion-ease-enter);
+}
+
+.motion-session-enter-deeper {
+  opacity: 0;
+  transform: translateX(24px);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-enter),
+              transform var(--motion-duration-slow) var(--motion-ease-enter);
+}
+
+.motion-session-enter-shallower {
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-enter),
+              transform var(--motion-duration-slow) var(--motion-ease-enter);
+}
+
+.motion-session-exit-deeper {
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-exit),
+              transform var(--motion-duration-slow) var(--motion-ease-exit);
+}
+
+.motion-session-exit-shallower {
+  opacity: 0;
+  transform: translateX(24px);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-exit),
+              transform var(--motion-duration-slow) var(--motion-ease-exit);
+}
+
+/* Slide up from bottom (terminal panel) */
+.motion-slide-up-enter { opacity: 0; transform: translateY(12px); }
+.motion-slide-up-enter-active { transition: opacity var(--motion-duration-normal) var(--motion-ease-enter), transform var(--motion-duration-normal) var(--motion-ease-enter); }
+.motion-slide-up-enter-to { opacity: 1; transform: translateY(0); }
+.motion-slide-up-exit { opacity: 1; transform: translateY(0); }
+.motion-slide-up-exit-active { transition: opacity var(--motion-duration-fast) var(--motion-ease-exit), transform var(--motion-duration-fast) var(--motion-ease-exit); }
+.motion-slide-up-exit-to { opacity: 0; transform: translateY(12px); }

@@ -157,9 +157,13 @@ Key export paths (from `package.json`):
 ## Conventions
 
 - Use `@layer components { ... }` for all new component CSS.
+- Use `@layer utilities { ... }` for reusable motion utility classes that need to override component styles during state changes.
 - Reference `--background-*`, `--text-*`, `--border-*`, `--icon-*` variables instead of hardcoding color values.
 - Add `data-component="component-name"` on the host element; style with attribute selectors.
-- Do not use inline `style` attributes on components.
+- Avoid inline `style` attributes on UI package components in normal cases.
+- Put new shared motion patterns in `src/styles/motion-transitions.css`; do not scatter reusable transition definitions across feature files.
+- Measured-motion exceptions are acceptable only when runtime dimensions or coordinates are required, such as dynamic width/height animation that cannot be expressed safely as a static class.
+- Even for measured-motion exceptions, keep duration/easing aligned with shared motion tokens from `src/styles/motion.css`.
 - Do not import Tauri or any native/desktop APIs.
 - Follow the root `AGENTS.md` style guide: `const` over `let`, avoid `else`, namespace exports, `kebab-case` files.
 - When adding a new component: create `src/components/foo.tsx` + `src/components/foo.css`, add the CSS `@import` to `src/styles/index.css`, and add the export entry to `package.json`.
