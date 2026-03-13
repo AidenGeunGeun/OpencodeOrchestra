@@ -3,6 +3,7 @@ import { Bus } from "@/bus"
 import z from "zod"
 import { Database, asc, eq } from "../storage/db"
 import { TodoTable } from "./session.sql"
+import { Session } from "."
 
 export namespace Todo {
   export const Info = z
@@ -44,7 +45,8 @@ export namespace Todo {
     Bus.publish(Event.Updated, input)
   }
 
-  export function get(sessionID: string) {
+  export async function get(sessionID: string) {
+    await Session.get(sessionID)
     const rows = Database.use((db) =>
       db.select().from(TodoTable).where(eq(TodoTable.session_id, sessionID)).orderBy(asc(TodoTable.position)).all(),
     )

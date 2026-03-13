@@ -1,5 +1,4 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js"
-import { Transition } from "solid-transition-group"
 import { produce } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
@@ -131,34 +130,27 @@ export function PermissionOverlay(props: { dir: string; directory: string }) {
 
   return (
     <>
-      <Transition name="motion-badge">
-        <Show when={pendingCount() > 0}>
-          <button
-            type="button"
-            class="fixed top-11 right-3 z-[85] flex items-center gap-2 rounded-full border border-border-base bg-background-base px-3 py-1.5 shadow-sm transition-colors hover:bg-background-stronger"
-            onClick={() => setOpen(true)}
-            aria-label={language.t("notification.permission.title")}
-          >
-            <Icon name="checklist" size="small" />
-            <span class="text-12-medium text-text-strong">{pendingCount()}</span>
-          </button>
-        </Show>
-      </Transition>
+      <Show when={pendingCount() > 0}>
+        <button
+          type="button"
+          class="fixed top-11 right-3 z-[85] flex items-center gap-2 rounded-full border border-border-base bg-background-base px-3 py-1.5 shadow-sm transition-colors hover:bg-background-stronger"
+          onClick={() => setOpen(true)}
+          aria-label={language.t("notification.permission.title")}
+        >
+          <Icon name="checklist" size="small" />
+          <span class="text-12-medium text-text-strong">{pendingCount()}</span>
+        </button>
+      </Show>
 
-      <Transition name="motion-fade">
-        <Show when={open()}>
+      <Show when={open()}>
+        <div class="fixed inset-0 z-[95]">
           <button
             type="button"
-            class="fixed inset-0 z-[95] bg-background-overlay/50"
+            class="absolute inset-0 bg-background-overlay/50"
             onClick={() => setOpen(false)}
             aria-label={language.t("common.dismiss")}
           />
-        </Show>
-      </Transition>
-
-      <Transition name="motion-slide-right">
-        <Show when={open()}>
-          <div class="fixed top-8 right-0 bottom-0 z-[96] w-full max-w-md border-l border-border-base bg-background-base shadow-2xl">
+          <div class="absolute top-8 right-0 bottom-0 w-full max-w-md border-l border-border-base bg-background-base shadow-2xl">
             <div class="flex items-center justify-between gap-3 border-b border-border-base px-4 py-3">
               <div class="min-w-0">
                 <div class="text-14-medium text-text-strong">{language.t("notification.permission.title")}</div>
@@ -232,8 +224,8 @@ export function PermissionOverlay(props: { dir: string; directory: string }) {
               </div>
             </div>
           </div>
-        </Show>
-      </Transition>
+        </div>
+      </Show>
     </>
   )
 }

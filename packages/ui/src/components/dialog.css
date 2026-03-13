@@ -54,7 +54,7 @@
 
       [data-slot="dialog-header"] {
         display: flex;
-        padding: 20px;
+        padding: 16px 20px;
         justify-content: space-between;
         align-items: center;
         flex-shrink: 0;
@@ -136,10 +136,10 @@
 }
 
 [data-component="dialog"][data-transition] [data-slot="dialog-content"] {
-  animation: contentHide var(--motion-duration-fast) var(--motion-ease-exit) forwards;
+  animation: contentHide 100ms ease-in forwards;
 
   &[data-expanded] {
-    animation: contentShow var(--motion-duration-normal) var(--motion-ease-bounce);
+    animation: contentShow 150ms ease-out;
   }
 }
 

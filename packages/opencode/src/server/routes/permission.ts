@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { PermissionNext } from "@/permission/next"
+import { Session } from "@/session"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
@@ -35,6 +36,9 @@ export const PermissionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
+        const request = (await PermissionNext.list()).find((item) => item.id === params.requestID)
+        if (!request) return c.json(true)
+        await Session.get(request.sessionID)
         await PermissionNext.reply({
           requestID: params.requestID,
           reply: json.reply,
@@ -62,7 +66,17 @@ export const PermissionRoutes = lazy(() =>
       }),
       async (c) => {
         const permissions = await PermissionNext.list()
-        return c.json(permissions)
+        const visible = await Promise.all(
+          permissions.map(async (item) => {
+            try {
+              await Session.get(item.sessionID)
+              return item
+            } catch {
+              return undefined
+            }
+          }),
+        )
+        return c.json(visible.filter((item): item is (typeof permissions)[number] => !!item))
       },
     ),
 )

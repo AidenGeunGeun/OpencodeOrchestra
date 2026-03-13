@@ -3,6 +3,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
+import { usePlatform } from "@/context/platform"
 import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
@@ -10,6 +11,7 @@ import { SettingsModels } from "./settings-models"
 
 export const DialogSettings: Component = () => {
   const language = useLanguage()
+  const platform = usePlatform()
 
   return (
     <Dialog size="x-large" transition>
@@ -19,7 +21,7 @@ export const DialogSettings: Component = () => {
             <div class="flex flex-col gap-3 w-full pt-3">
               <div class="flex flex-col gap-3">
                 <div class="flex flex-col gap-1.5">
-                  <Tabs.SectionTitle>App</Tabs.SectionTitle>
+                  <Tabs.SectionTitle>{language.t("settings.section.desktop")}</Tabs.SectionTitle>
                   <div class="flex flex-col gap-1.5 w-full">
                     <Tabs.Trigger value="general">
                       <Icon name="sliders" />
@@ -48,7 +50,8 @@ export const DialogSettings: Component = () => {
               </div>
             </div>
             <div class="flex flex-col gap-1 pl-1 py-1 text-12-medium text-text-weak">
-              <span>OpenCode</span>
+              <span>{language.t("app.name.desktop")}</span>
+              <span class="text-11-regular">v{platform.version}</span>
             </div>
           </div>
         </Tabs.List>

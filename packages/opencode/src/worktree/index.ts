@@ -283,6 +283,38 @@ export namespace Worktree {
     throw new NameGenerationFailedError({ message: "Failed to generate a unique worktree name" })
   }
 
+  export async function makeWorktreeInfo(name?: string) {
+    const root = path.join(Global.Path.data, "worktree", Instance.project.id)
+    await fs.mkdir(root, { recursive: true })
+    const base = name ? slug(name) : ""
+    return candidate(root, base || undefined)
+  }
+
+  export async function createFromInfo(input: Info) {
+    return async () => {
+      const created = await $`git worktree add --no-checkout -b ${input.branch} ${input.directory}`
+        .quiet()
+        .nothrow()
+        .cwd(Instance.worktree)
+      if (created.exitCode !== 0) {
+        throw new CreateFailedError({ message: errorText(created) || "Failed to create git worktree" })
+      }
+
+      await Project.addSandbox(Instance.project.id, input.directory).catch(() => undefined)
+
+      const populated = await $`git reset --hard`.quiet().nothrow().cwd(input.directory)
+      if (populated.exitCode !== 0) {
+        throw new CreateFailedError({ message: errorText(populated) || "Failed to populate worktree" })
+      }
+
+      await Instance.provide({
+        directory: input.directory,
+        init: InstanceBootstrap,
+        fn: () => undefined,
+      })
+    }
+  }
+
   async function runStartCommand(directory: string, cmd: string) {
     if (process.platform === "win32") {
       return $`cmd /c ${cmd}`.nothrow().cwd(directory)

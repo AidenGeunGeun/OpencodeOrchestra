@@ -3,8 +3,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { type Session } from "@opencode-ai/sdk/v2"
 import { type AssistantMessage, type Message } from "@opencode-ai/sdk/v2/client"
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { TransitionGroup } from "solid-transition-group"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -99,6 +98,19 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     }
   }
 
+  createEffect(
+    on(
+      () => props.sessionID,
+      () => {
+        setChildren([])
+        setFailedSessions(new Map())
+        setRemovedSessions(new Map())
+        void refreshChildren()
+      },
+      { defer: true },
+    ),
+  )
+
   onMount(() => {
     void refreshChildren()
 
@@ -188,22 +200,38 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     })
   })
 
-  const itemData = (session: Session) => {
-    const messages = sync.data.message[session.id] ?? []
-    const latest = messages.at(-1)
-    const context = getSessionContextMetrics(messages, sync.data.provider?.all ?? []).context
-    const syncStatus = sync.data.session_status[session.id]?.type
-    const latestTime = (latest?.time as { completed?: number })?.completed ?? latest?.time.created ?? 0
-    const failedAt = failedSessions().get(session.id) ?? 0
-    const failed = (latest?.role === "assistant" && !!latest.error) || (failedAt > 0 && sync.data.message[session.id] === undefined) || failedAt > latestTime
-    const completed = latest?.role === "assistant" && !latest.error && (!!latest.finish || !!latest.time.completed)
-    const status: "failed" | "completed" | "running" = failed ? "failed" : completed ? "completed" : "running"
-    return {
-      status,
-      context,
-      hydrating: sync.data.message[session.id] === undefined,
-    }
-  }
+  const items = createMemo(() =>
+    children().map((session) => {
+      const messages = sync.data.message[session.id] ?? []
+      const latest = messages.at(-1)
+      const context = getSessionContextMetrics(messages, sync.data.provider?.all ?? []).context
+      const syncStatus = sync.data.session_status[session.id]?.type
+      const latestCompleted = latest && "completed" in latest.time ? latest.time.completed : undefined
+      const latestTime = latestCompleted ?? latest?.time.created ?? 0
+      const failedAt = failedSessions().get(session.id) ?? 0
+      const failed =
+        (latest?.role === "assistant" && !!latest.error) ||
+        (failedAt > 0 && sync.data.message[session.id] === undefined) ||
+        failedAt > latestTime
+      const running = syncStatus === "busy" || syncStatus === "retry"
+      const completed = latest?.role === "assistant" && !latest.error && (!!latest.finish || !!latestCompleted)
+      const inProgress = sync.data.message[session.id] === undefined || latest?.role !== "assistant" || (!failed && !completed)
+      const status: "running" | "completed" | "failed" = failed
+        ? "failed"
+        : completed
+          ? "completed"
+          : running || inProgress
+            ? "running"
+            : "running"
+      return {
+        session,
+        status,
+        context,
+        hydrating: sync.data.message[session.id] === undefined,
+        agentID: (session as Session & { agentID?: string }).agentID,
+      }
+    }),
+  )
 
   const statusIcon = (status: "running" | "completed" | "failed") => {
     if (status === "running") {
@@ -225,7 +253,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     <div class="relative pt-2 flex-1 min-h-0 overflow-hidden bg-background-stronger">
       <Show when={ready()} fallback={<div class="px-6 py-4 text-12-regular text-text-weak">Loading subagents...</div>}>
         <Show
-          when={children().length > 0}
+          when={items().length > 0}
           fallback={
             <div class="h-full px-6 pb-16 flex flex-col items-center justify-center text-center gap-3">
               <div class="text-14-medium text-text-strong">No subagents yet</div>
@@ -235,59 +263,44 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
         >
           <div class="h-full overflow-y-auto px-3 pb-4">
             <div class="flex flex-col gap-2">
-              <TransitionGroup
-                name="motion-fade-up"
-                onBeforeEnter={(el) => {
-                  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-                  const parent = el.parentElement
-                  if (!parent) return
-                  const index = Array.from(parent.children).indexOf(el)
-                  if (index > 0) (el as HTMLElement).style.transitionDelay = `${index * 50}ms`
-                }}
-                onAfterEnter={(el) => {
-                  (el as HTMLElement).style.transitionDelay = ""
-                }}
-              >
-                <For each={children()}>
-                  {(session) => {
-                    const item = createMemo(() => itemData(session))
-                    return (
-                      <button
-                        type="button"
-                        class="w-full rounded-lg border border-border-weak-base bg-background-base px-3 py-3 text-left transition-colors hover:bg-background-stronger"
-                        onClick={() => props.onNavigateSession(session.id)}
-                      >
-                        <div class="flex items-start gap-3">
-                          <div class="mt-0.5 shrink-0">{statusIcon(item().status)}</div>
-                          <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2 min-w-0">
-                              <div class="truncate text-13-medium text-text-strong">{session.title || session.id}</div>
-                              <div class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-dimmer capitalize">
-                                {session.agentID}
-                              </div>
+              <For each={items()}>
+                {(item) => (
+                  <button
+                    type="button"
+                    class="w-full rounded-lg border border-border-weak-base bg-background-base px-3 py-3 text-left transition-colors hover:bg-background-stronger"
+                    onClick={() => props.onNavigateSession(item.session.id)}
+                  >
+                    <div class="flex items-start gap-3">
+                      <div class="mt-0.5 shrink-0">{statusIcon(item.status)}</div>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <div class="truncate text-13-medium text-text-strong">{item.session.title || item.session.id}</div>
+                          <Show when={item.agentID}>
+                            <div class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-dimmer capitalize">
+                              {item.agentID}
                             </div>
-                            <div class="mt-1 flex items-center gap-2 text-11-regular text-text-weak">
-                              <span>{statusLabel(item().status)}</span>
-                              <Show when={item().hydrating && !item().context}>
-                                <span>Syncing context...</span>
-                              </Show>
-                            </div>
-                          </div>
-                          <div class="shrink-0 flex items-center gap-2 text-icon-weak">
-                            <ContextHealth
-                              current={item().context?.total}
-                              limit={item().context?.limit}
-                              usage={item().context?.usage}
-                              class="hidden sm:inline-flex"
-                            />
-                            <Icon name="chevron-right" size="small" />
-                          </div>
+                          </Show>
                         </div>
-                      </button>
-                    )
-                  }}
-                </For>
-              </TransitionGroup>
+                        <div class="mt-1 flex items-center gap-2 text-11-regular text-text-weak">
+                          <span>{statusLabel(item.status)}</span>
+                          <Show when={item.hydrating && !item.context}>
+                            <span>Syncing context...</span>
+                          </Show>
+                        </div>
+                      </div>
+                      <div class="shrink-0 flex items-center gap-2 text-icon-weak">
+                        <ContextHealth
+                          current={item.context?.total}
+                          limit={item.context?.limit}
+                          usage={item.context?.usage}
+                          class="hidden sm:inline-flex"
+                        />
+                        <Icon name="chevron-right" size="small" />
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </For>
             </div>
           </div>
         </Show>

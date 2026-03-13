@@ -85,7 +85,13 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const result = SessionStatus.list()
+        const visible = new Set<string>()
+        for await (const session of Session.list()) {
+          visible.add(session.id)
+        }
+        const result = Object.fromEntries(
+          Object.entries(SessionStatus.list()).filter(([sessionID]) => visible.has(sessionID)),
+        )
         return c.json(result)
       },
     )
@@ -443,6 +449,7 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const query = c.req.valid("query")
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const result = await SessionSummary.diff({
           sessionID: params.sessionID,
           messageID: query.messageID,
@@ -611,6 +618,7 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        await Session.get(params.sessionID)
         const message = await MessageV2.get({
           sessionID: params.sessionID,
           messageID: params.messageID,

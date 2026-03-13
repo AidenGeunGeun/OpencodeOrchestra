@@ -24,6 +24,7 @@ import { Snapshot } from "@/snapshot"
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
 import { Global } from "@/global"
+import { WorkspaceContext } from "@/control-plane/workspace-context"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -59,6 +60,20 @@ export namespace Session {
     await Storage.remove(sessionAgentKey(sessionID)).catch(() => {})
   }
 
+  function scopedConditions() {
+    const conditions = [eq(SessionTable.project_id, Instance.project.id)]
+    if (WorkspaceContext.workspaceID) {
+      conditions.push(eq(SessionTable.workspace_id, WorkspaceContext.workspaceID))
+    } else {
+      conditions.push(isNull(SessionTable.workspace_id))
+    }
+    return conditions
+  }
+
+  function scopedID(id: string) {
+    return and(eq(SessionTable.id, id), ...scopedConditions())
+  }
+
   export function fromRow(row: SessionRow): Info {
     const summary =
       row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
@@ -76,6 +91,7 @@ export namespace Session {
       id: row.id,
       slug: row.slug,
       projectID: row.project_id,
+      workspaceID: row.workspace_id ?? undefined,
       directory: row.directory,
       parentID: row.parent_id ?? undefined,
       title: row.title,
@@ -97,6 +113,7 @@ export namespace Session {
     return {
       id: info.id,
       project_id: info.projectID,
+      workspace_id: info.workspaceID,
       parent_id: info.parentID,
       slug: info.slug,
       directory: info.directory,
@@ -121,6 +138,7 @@ export namespace Session {
       id: Identifier.schema("session"),
       slug: z.string(),
       projectID: z.string(),
+      workspaceID: z.string().optional(),
       directory: z.string(),
       parentID: Identifier.schema("session").optional(),
       // OpenCodeOrchestra: Store agent type for subagent sessions
@@ -283,6 +301,7 @@ export namespace Session {
       slug: Slug.create(),
       version: Installation.VERSION,
       projectID: Instance.project.id,
+      workspaceID: WorkspaceContext.workspaceID,
       directory: input.directory,
       parentID: input.parentID,
       agentID: input.agentID, // OpenCodeOrchestra: Store agent type
@@ -322,7 +341,7 @@ export namespace Session {
   }
 
   export const get = fn(Identifier.schema("session"), async (id) => {
-    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+    const row = Database.use((db) => db.select().from(SessionTable).where(scopedID(id)).get())
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
     const info = fromRow(row)
     info.agentID = await getAgentID(id)
@@ -341,7 +360,7 @@ export namespace Session {
     const { ShareNext } = await import("@/share/share-next")
     const share = await ShareNext.create(id)
     Database.use((db) => {
-      const row = db.update(SessionTable).set({ share_url: share.url }).where(eq(SessionTable.id, id)).returning().get()
+      const row = db.update(SessionTable).set({ share_url: share.url }).where(scopedID(id)).returning().get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
       const info = fromRow(row)
       Database.effect(async () => {
@@ -357,7 +376,7 @@ export namespace Session {
     const { ShareNext } = await import("@/share/share-next")
     await ShareNext.remove(id)
     Database.use((db) => {
-      const row = db.update(SessionTable).set({ share_url: null }).where(eq(SessionTable.id, id)).returning().get()
+      const row = db.update(SessionTable).set({ share_url: null }).where(scopedID(id)).returning().get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
       const info = fromRow(row)
       Database.effect(async () => {
@@ -370,7 +389,7 @@ export namespace Session {
   export async function update(id: string, editor: (session: Info) => void, options?: { touch?: boolean }) {
     const existingAgentID = await getAgentID(id)
     const result = Database.use((db) => {
-      const existing = db.select().from(SessionTable).where(eq(SessionTable.id, id)).get()
+      const existing = db.select().from(SessionTable).where(scopedID(id)).get()
       if (!existing) throw new NotFoundError({ message: `Session not found: ${id}` })
 
       const draft = fromRow(existing)
@@ -380,7 +399,7 @@ export namespace Session {
         draft.time.updated = Date.now()
       }
 
-      const row = db.update(SessionTable).set(toRow(draft)).where(eq(SessionTable.id, id)).returning().get()
+      const row = db.update(SessionTable).set(toRow(draft)).where(scopedID(id)).returning().get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
       const info = fromRow(row)
       Database.effect(async () => {
@@ -479,6 +498,7 @@ export namespace Session {
       limit: z.number().optional(),
     }),
     async (input) => {
+      await get(input.sessionID)
       const result = [] as MessageV2.WithParts[]
       for await (const msg of MessageV2.stream(input.sessionID)) {
         if (input.limit && result.length >= input.limit) break
@@ -491,13 +511,13 @@ export namespace Session {
 
   export async function* list(input?: {
     directory?: string
+    workspaceID?: string
     roots?: boolean
     start?: number
     search?: string
     limit?: number
   }) {
-    const project = Instance.project
-    const conditions = [eq(SessionTable.project_id, project.id)]
+    const conditions = scopedConditions()
 
     if (input?.directory) {
       conditions.push(eq(SessionTable.directory, input.directory))
@@ -532,12 +552,12 @@ export namespace Session {
   }
 
   export const children = fn(Identifier.schema("session"), async (parentID) => {
-    const project = Instance.project
+    const conditions = [...scopedConditions(), eq(SessionTable.parent_id, parentID)]
     const rows = Database.use((db) =>
       db
         .select()
         .from(SessionTable)
-        .where(and(eq(SessionTable.project_id, project.id), eq(SessionTable.parent_id, parentID)))
+        .where(and(...conditions))
         .all(),
     )
     const result = [] as Session.Info[]
@@ -557,7 +577,7 @@ export namespace Session {
       }
       await unshare(sessionID).catch(() => {})
       Database.use((db) => {
-        db.delete(SessionTable).where(eq(SessionTable.id, sessionID)).run()
+        db.delete(SessionTable).where(scopedID(sessionID)).run()
         Database.effect(() =>
           Bus.publish(Event.Deleted, {
             info: session,

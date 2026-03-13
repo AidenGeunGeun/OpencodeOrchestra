@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, validator } from "hono-openapi"
 import { resolver } from "hono-openapi"
 import { Question } from "../../question"
+import { Session } from "@/session"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
@@ -27,7 +28,17 @@ export const QuestionRoutes = lazy(() =>
       }),
       async (c) => {
         const questions = await Question.list()
-        return c.json(questions)
+        const visible = await Promise.all(
+          questions.map(async (item) => {
+            try {
+              await Session.get(item.sessionID)
+              return item
+            } catch {
+              return undefined
+            }
+          }),
+        )
+        return c.json(visible.filter((item): item is (typeof questions)[number] => !!item))
       },
     )
     .post(
@@ -58,6 +69,9 @@ export const QuestionRoutes = lazy(() =>
       async (c) => {
         const params = c.req.valid("param")
         const json = c.req.valid("json")
+        const request = (await Question.list()).find((item) => item.id === params.requestID)
+        if (!request) return c.json(true)
+        await Session.get(request.sessionID)
         await Question.reply({
           requestID: params.requestID,
           answers: json.answers,
@@ -91,6 +105,9 @@ export const QuestionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
+        const request = (await Question.list()).find((item) => item.id === params.requestID)
+        if (!request) return c.json(true)
+        await Session.get(request.sessionID)
         await Question.reject(params.requestID)
         return c.json(true)
       },

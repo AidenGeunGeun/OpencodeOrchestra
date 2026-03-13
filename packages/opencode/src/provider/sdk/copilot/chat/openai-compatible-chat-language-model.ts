@@ -57,7 +57,7 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV2 {
 
   readonly modelId: OpenAICompatibleChatModelId
   private readonly config: OpenAICompatibleChatConfig
-  private readonly failedResponseHandler: ResponseHandler<APICallError>
+  private readonly failedResponseHandler: ResponseHandler<any>
   private readonly chunkSchema // type inferred via constructor
 
   constructor(modelId: OpenAICompatibleChatModelId, config: OpenAICompatibleChatConfig) {
@@ -67,7 +67,7 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV2 {
     // initialize error handling:
     const errorStructure = config.errorStructure ?? defaultOpenAICompatibleErrorStructure
     this.chunkSchema = createOpenAICompatibleChatChunkSchema(errorStructure.errorSchema)
-    this.failedResponseHandler = createJsonErrorResponseHandler(errorStructure)
+    this.failedResponseHandler = createJsonErrorResponseHandler(errorStructure) as ResponseHandler<any>
 
     this.supportsStructuredOutputs = config.supportsStructuredOutputs ?? false
   }
@@ -198,20 +198,22 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV2 {
 
     const {
       responseHeaders,
-      value: responseBody,
+      value: responseBodyRaw,
       rawValue: rawResponse,
-    } = await postJsonToApi({
+    } = await (postJsonToApi as any)({
       url: this.config.url({
         path: "/chat/completions",
         modelId: this.modelId,
       }),
       headers: combineHeaders(this.config.headers(), options.headers),
       body: args,
-      failedResponseHandler: this.failedResponseHandler,
-      successfulResponseHandler: createJsonResponseHandler(OpenAICompatibleChatResponseSchema),
+      failedResponseHandler: this.failedResponseHandler as ResponseHandler<APICallError>,
+      successfulResponseHandler: createJsonResponseHandler(OpenAICompatibleChatResponseSchema) as any,
       abortSignal: options.abortSignal,
       fetch: this.config.fetch,
     })
+
+    const responseBody = responseBodyRaw as z.infer<typeof OpenAICompatibleChatResponseSchema>
 
     const choice = responseBody.choices[0]
     const content: Array<LanguageModelV2Content> = []
@@ -309,18 +311,20 @@ export class OpenAICompatibleChatLanguageModel implements LanguageModelV2 {
 
     const metadataExtractor = this.config.metadataExtractor?.createStreamExtractor()
 
-    const { responseHeaders, value: response } = await postJsonToApi({
+    const { responseHeaders, value: responseRaw } = await (postJsonToApi as any)({
       url: this.config.url({
         path: "/chat/completions",
         modelId: this.modelId,
       }),
       headers: combineHeaders(this.config.headers(), options.headers),
       body,
-      failedResponseHandler: this.failedResponseHandler,
-      successfulResponseHandler: createEventSourceResponseHandler(this.chunkSchema),
+      failedResponseHandler: this.failedResponseHandler as ResponseHandler<APICallError>,
+      successfulResponseHandler: createEventSourceResponseHandler(this.chunkSchema) as any,
       abortSignal: options.abortSignal,
       fetch: this.config.fetch,
     })
+
+    const response = responseRaw as ReadableStream<ParseResult<z.infer<typeof this.chunkSchema>>>
 
     const toolCalls: Array<{
       id: string

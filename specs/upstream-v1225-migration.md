@@ -1,39 +1,39 @@
-# Upstream v1.2.25 Migration — Execution Spec
+# Upstream v1.2.24 Migration — Execution Spec
 
 ## Intent
 
-Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with upstream v1.2.25 versions wholesale. Restore `packages/desktop` (Tauri app). Port workspace feature into `packages/opencode`. Re-apply Orchestra-specific frontend features on top. Discard all custom animation work (upstream has it polished now).
+Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with upstream v1.2.24 versions wholesale. Restore `packages/desktop` (Tauri app). Port workspace feature into `packages/opencode`. Re-apply Orchestra-specific frontend features on top. Discard all custom animation work (upstream has it polished now).
 
 ## Context
 
-- Fork base: upstream opencode v1.2.5 (941 commits behind v1.2.25)
-- Upstream tag: `v1.2.25` (stable, 2026-03-12)
-- Our custom animation system, convention pass, and duration tuning are all being replaced by upstream's "Animation Smorgasbord" and follow-up fixes
+- Fork base: upstream opencode v1.2.5
+- Upstream tag: `v1.2.24` (stable, 2026-03-09) — chosen over v1.2.25 which has reported breakage
+- v1.2.24 contains all animation polish: Animation Smorgasbord, sidebar reveal, all panels transition, review panel transition, dock animation delay
+- Our custom animation system, convention pass, and duration tuning are all being replaced by upstream's work
 - Upstream frontend now uses `workspace` extensively (125+ references in app) — requires server-side workspace support
 - Desktop app (Tauri) supports remote HTTP server connections out of the box — ideal for Tailscale `oco serve` workflow
 
 ## Scope
 
-### Part 1: Commit & Clean Slate
+### Part 1: Clean Slate
 
-**Goal**: Commit all uncommitted work, then discard custom frontend packages.
+**Goal**: Discard custom frontend packages. (Checkpoint commit already done at `808f46b49`.)
 
-1. **Commit** all current uncommitted changes (animation convention + duration tuning work) with message: `chore: checkpoint animation work before upstream migration`
-2. **Delete** directories:
+1. **Delete** directories:
    - `packages/app/` (will be replaced wholesale)
    - `packages/ui/` (will be replaced wholesale)
    - `packages/sdk/` (will be replaced wholesale)
 
 ### Part 2: Restore Frontend Packages from Upstream
 
-**Goal**: Copy `app`, `ui`, `sdk`, `desktop` from v1.2.25.
+**Goal**: Copy `app`, `ui`, `sdk`, `desktop` from v1.2.24.
 
-1. **Extract from v1.2.25**:
+1. **Extract from v1.2.24**:
    - `packages/app/` — full directory
    - `packages/ui/` — full directory
    - `packages/sdk/` — full directory
    - `packages/desktop/` — full directory (new)
-2. **Method**: `git checkout v1.2.25 -- packages/app packages/ui packages/sdk packages/desktop`
+2. **Method**: `git checkout v1.2.24 -- packages/app packages/ui packages/sdk packages/desktop`
 3. **Do NOT extract**: console, containers, desktop-electron, docs, enterprise, extensions, function, identity, slack, storybook, web — none of these are needed
 4. **Version alignment**: Update `version` field in `packages/app/package.json`, `packages/ui/package.json`, `packages/sdk/js/package.json`, `packages/desktop/package.json` to match `packages/opencode/package.json` version (currently `1.0.9`; will become `1.0.10` at release)
 
@@ -41,50 +41,49 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 
 **Goal**: Add workspace support to `packages/opencode` so the upstream frontend's workspace UI works.
 
-1. **Copy control-plane directory** from v1.2.25:
+1. **Copy control-plane directory** from v1.2.24:
    ```
-   git checkout v1.2.25 -- packages/opencode/src/control-plane/
+   git checkout v1.2.24 -- packages/opencode/src/control-plane/
    ```
-   Files (11):
+   Files (10 — no `schema.ts` in v1.2.24):
    - `adaptors/index.ts`, `adaptors/worktree.ts`
-   - `schema.ts`, `types.ts`, `sse.ts`
+   - `types.ts`, `sse.ts`
    - `workspace-context.ts`, `workspace-router-middleware.ts`
    - `workspace-server/routes.ts`, `workspace-server/server.ts`
    - `workspace.sql.ts`, `workspace.ts`
 
 2. **Copy workspace route**:
    ```
-   git checkout v1.2.25 -- packages/opencode/src/server/routes/workspace.ts
+   git checkout v1.2.24 -- packages/opencode/src/server/routes/workspace.ts
    ```
 
-3. **Copy 5 new DB migrations**:
+3. **Copy 3 new DB migrations** (v1.2.24 has 3, not 5 — no account tables):
    ```
-   git checkout v1.2.25 -- \
+   git checkout v1.2.24 -- \
      packages/opencode/migration/20260225215848_workspace \
      packages/opencode/migration/20260227213759_add_session_workspace_id \
-     packages/opencode/migration/20260228203230_blue_harpoon \
-     packages/opencode/migration/20260303231226_add_workspace_fields \
-     packages/opencode/migration/20260309230000_move_org_to_state
+     packages/opencode/migration/20260303231226_add_workspace_fields
    ```
 
-4. **Wire workspace into server.ts** — apply the upstream changes to `packages/opencode/src/server/server.ts`:
+4. **Wire workspace into server.ts** — apply the upstream v1.2.24 changes to `packages/opencode/src/server/server.ts`:
 
-   a. Add 3 imports (after existing imports, before `globalThis.AI_SDK_LOG_WARNINGS`):
+   a. Add 2 imports (after existing imports, before `globalThis.AI_SDK_LOG_WARNINGS`):
    ```typescript
    import { WorkspaceContext } from "../control-plane/workspace-context"
-   import { WorkspaceID } from "../control-plane/schema"
    import { WorkspaceRouterMiddleware } from "../control-plane/workspace-router-middleware"
    ```
+   Note: v1.2.24 does NOT use branded `WorkspaceID` — workspaceID is a plain string.
 
-   b. In the Instance middleware (currently line ~225-242), add `Filesystem` import and modify to:
+   b. Add `Filesystem` import:
    ```typescript
    import { Filesystem } from "@/util/filesystem"
    ```
-   Then wrap `Instance.provide()` inside `WorkspaceContext.provide()`:
+
+   c. Replace the Instance middleware (currently lines ~225-242) with workspace-wrapped version:
    ```typescript
    .use(async (c, next) => {
      if (c.req.path === "/log") return next()
-     const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
+     const workspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
      const raw = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
      const directory = Filesystem.resolve(
        (() => {
@@ -96,7 +95,7 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
        })(),
      )
      return WorkspaceContext.provide({
-       workspaceID: rawWorkspaceID ? WorkspaceID.make(rawWorkspaceID) : undefined,
+       workspaceID,
        async fn() {
          return Instance.provide({
            directory,
@@ -110,17 +109,17 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
    })
    ```
 
-   c. Add `WorkspaceRouterMiddleware` after the Instance middleware:
+   d. Add `WorkspaceRouterMiddleware` after the Instance middleware:
    ```typescript
    .use(WorkspaceRouterMiddleware)
    ```
 
-   d. Add `workspace` to query validator alongside `directory`:
+   e. Add `workspace` to query validator alongside `directory`:
    ```typescript
    .use(validator("query", z.object({ directory: z.string().optional(), workspace: z.string().optional() })))
    ```
 
-5. **Check for Filesystem import**: Upstream uses `Filesystem.resolve()` for directory. Our current code uses inline `decodeURIComponent`. Check if `@/util/filesystem` exists in our codebase — if not, it needs to be compared with upstream's version and copied if missing.
+5. **Check for Filesystem import**: Upstream uses `Filesystem.resolve()` for directory. Our current code uses inline `decodeURIComponent`. Check if `@/util/filesystem` exists in our codebase and has `resolve()` — if not, copy it from upstream v1.2.24.
 
 ### Part 4: Root Configuration
 
@@ -128,7 +127,7 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 
 1. **Root `package.json`**:
    - Keep existing `workspaces.packages` as `["packages/*", "packages/sdk/js"]` (desktop is already under `packages/*`)
-   - Compare `catalog` entries with upstream v1.2.25 — add any new entries needed by desktop/app/ui (Tauri plugins, new deps)
+   - Compare `catalog` entries with upstream v1.2.24 — add any new entries needed by desktop/app/ui (Tauri plugins, new deps)
    - Ensure `devDependencies` includes anything new desktop needs
 
 2. **`turbo.json`**:
@@ -148,7 +147,7 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 3. `packages/app/src/components/subagent-list.tsx`
 4. `packages/ui/src/components/context-health.tsx`
 
-**Surgical edits to upstream files** — these must be adapted to the v1.2.25 code since the base files have changed significantly:
+**Surgical edits to upstream files** — these must be adapted to the v1.2.24 code since the base files have changed significantly:
 
 5. `packages/app/src/pages/layout.tsx` — mount `<PermissionOverlay />` at layout level
 6. `packages/app/src/pages/session.tsx` — add breadcrumb ancestry tracking, `navigateToSession()` with `inferNavigationDirection()`, `sessionBreadcrumbs` memo, context health per session, child session data for subagent sidebar
@@ -158,7 +157,7 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 10. `packages/ui/src/components/basic-tool.tsx` — expose navigation trigger on task tool render
 11. `packages/ui/src/context/data.tsx` — expose `provider` data for context health token calculations
 
-**Important**: The upstream v1.2.25 files have changed substantially from v1.2.5. The Orchestra edits MUST be adapted to the new file structure — do NOT blindly apply old diffs. The investigator/orchestrator must read the v1.2.25 versions of each target file, understand the current structure, and integrate Orchestra features at the correct locations.
+**Important**: The upstream v1.2.24 files have changed substantially from v1.2.5. The Orchestra edits MUST be adapted to the new file structure — do NOT blindly apply old diffs. The investigator/orchestrator must read the v1.2.24 versions of each target file, understand the current structure, and integrate Orchestra features at the correct locations.
 
 ### Part 6: Build & Verify
 
@@ -166,7 +165,7 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 2. `bun turbo typecheck` — all packages must pass
 3. `bun run --cwd packages/app build` — frontend must build
 4. `bun dev serve --port 4096 --hostname 0.0.0.0` — server must start and serve frontend
-5. Tests: `bun turbo test` (opencode package tests) — 894+ pass expected
+5. Tests: `bun test` in `packages/opencode` directory — 894+ pass expected
 6. Check: no references to deleted animation files (`motion.ts`, `motion.css`, `motion-transitions.css`) in the restored packages (they shouldn't exist since we restored clean upstream)
 
 ## Out of Scope
@@ -181,9 +180,9 @@ Replace our divergent `packages/app`, `packages/ui`, and `packages/sdk` with ups
 
 ## Risks
 
-1. **Workspace server-side dependencies**: `control-plane/` may import modules that changed between v1.2.5 and v1.2.25 (e.g., `@/util/filesystem`, `@/storage/db`). The orchestrator must check imports and copy any missing dependencies.
-2. **SDK regeneration**: Upstream SDK at v1.2.25 has new types (`Workspace`, `Session2`, `Config2`). Our opencode server's OpenAPI spec needs to match. May need to regenerate SDK after workspace routes are added.
-3. **Orchestra feature adaptation**: The 4 new files and ~7 surgical edits were written against v1.2.5 base files. The v1.2.25 files have different component structures, new props, and rearranged code. Each edit needs careful adaptation.
+1. **Workspace server-side dependencies**: `control-plane/` may import modules that changed between v1.2.5 and v1.2.24 (e.g., `@/util/filesystem`, `@/storage/db`). The orchestrator must check imports and copy any missing dependencies.
+2. **SDK regeneration**: Upstream SDK at v1.2.24 has new types (`Workspace`, `Session2`, `Config2`). Our opencode server's OpenAPI spec needs to match. May need to regenerate SDK after workspace routes are added.
+3. **Orchestra feature adaptation**: The 4 new files and ~7 surgical edits were written against v1.2.5 base files. The v1.2.24 files have different component structures, new props, and rearranged code. Each edit needs careful adaptation.
 4. **Catalog alignment**: Desktop's Tauri plugin dependencies need corresponding catalog entries in root `package.json`.
 
 ## Acceptance Criteria

@@ -1,5 +1,5 @@
 import { realpathSync } from "fs"
-import { dirname, join, relative } from "path"
+import { dirname, join, relative, resolve as pathResolve } from "path"
 
 export namespace Filesystem {
   export const exists = (p: string) =>
@@ -25,6 +25,19 @@ export namespace Filesystem {
     } catch {
       return p
     }
+  }
+
+  export function resolve(p: string): string {
+    return normalizePath(pathResolve(windowsPath(p)))
+  }
+
+  export function windowsPath(p: string): string {
+    if (process.platform !== "win32") return p
+    return p
+      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
   }
   export function overlaps(a: string, b: string) {
     const relA = relative(a, b)

@@ -9,9 +9,11 @@ import { MCP } from "../../mcp"
 import { zodToJsonSchema } from "zod-to-json-schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { WorkspaceRoutes } from "./workspace"
 
 export const ExperimentalRoutes = lazy(() =>
   new Hono()
+    .route("/workspace", WorkspaceRoutes())
     .get(
       "/tool/ids",
       describeRoute({
