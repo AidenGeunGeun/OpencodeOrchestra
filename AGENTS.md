@@ -261,14 +261,6 @@ Also: `ProviderTransform.providerOptions()` (line 818) added for gateway-aware p
 - `session/prompt.ts`: `LoopInput` changed to `z.union([Identifier, { sessionID, resume_existing }])`
   for more flexible invocation; `Session.setPermission` calls replaced with `Session.update()` draft pattern.
 
-### Feature — 1M Context Support (`provider/provider.ts`)
-
-Line 99: `context-1m-2025-08-07` added to Anthropic beta headers string:
-```
-"claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07"
-```
-Upstream does not include this header; without it Anthropic caps context at default limits.
-
 ### Feature — Codex OAuth FAST Alias Handling (`plugin/codex.ts`)
 
 For OpenAI OAuth / ChatGPT Codex sessions, FAST is not a standalone upstream model slug.

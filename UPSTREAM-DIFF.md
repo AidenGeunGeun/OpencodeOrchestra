@@ -484,16 +484,6 @@ The `?? start(sessionID)` ensures a fresh start if resume fails.
 
 ## Category 4: Features
 
-### `provider/provider.ts` — 1M Context beta header
-
-**Line 99:** `context-1m-2025-08-07` appended to `anthropic-beta` header:
-```
-"claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-1m-2025-08-07"
-```
-Enables Anthropic's 1M token context window for supported models.
-
----
-
 ### `cli/cmd/tui/routes/session/header.tsx` — Cache token display
 
 **Lines 52–62:** Displays cache tokens inline with context count:

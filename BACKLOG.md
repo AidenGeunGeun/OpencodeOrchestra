@@ -17,7 +17,6 @@ Tracked items for future work. Ordered by priority.
 - `finishReason` and `usage` normalization for SDK 6 object formats
 - Claude 4.6 adaptive thinking variants (`isClaude46()`, `claude46Variants()`)
 - `toModelMessages` became async, `wrapLanguageModel` middleware removed
-- 1M context beta support (`context-1m-2025-08-07` header)
 
 ---
 
@@ -26,4 +25,4 @@ Tracked items for future work. Ordered by priority.
 - [x] ~~When upstream opencode adopts `@ai-sdk/anthropic` v3.x, port their implementation and reconcile with our fork changes.~~ Done — we upgraded independently to AI SDK 6.x.
 - [x] ~~Track `ai` core package major version bumps (currently v5.x)~~ Done — upgraded to `ai@6.0.90`.
 - [ ] Monitor upstream for AI SDK 6.x adoption — reconcile when they catch up.
-- [ ] Monitor upstream for 1M context support in main `provider.ts`.
+- [x] ~~Monitor upstream for 1M context support in main `provider.ts`.~~ Done — 1M context is GA as of March 2026; no beta header needed, models.dev already reflects 1M limits for Opus 4.6 and Sonnet 4.6.
