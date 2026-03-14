@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenCode Orchestra",
+  "productName": "OpenCodeOrchestra",
   "identifier": "ai.opencode.orchestra",
   "bundle": {
     "createUpdaterArtifacts": false,

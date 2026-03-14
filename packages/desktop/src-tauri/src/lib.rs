@@ -522,7 +522,9 @@ async fn initialize(app: AppHandle) {
     let loading_task = tokio::spawn({
         async move {
             if let Some(sqlite_done_rx) = sqlite_done {
-                let _ = sqlite_done_rx.await;
+                // Timeout after 10s — the sidecar may not emit migration events
+                // but the DB will be created by the time the health check passes.
+                let _ = timeout(Duration::from_secs(10), sqlite_done_rx).await;
             }
 
             // Wait for sidecar to become healthy (for loading window progress)
