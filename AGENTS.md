@@ -41,7 +41,7 @@ Guide for AI coding agents working in this repository.
 ## Release Workflow
 
 - GitHub repo: `AidenGeunGeun/OpenCodeOrchestra`
-- Tag pattern: `oco-v<version>` (example: `oco-v1.0.11`)
+- Tag pattern: `oco-v<version>` (example: `oco-v1.0.12`)
 - Version source of truth: `packages/opencode/package.json` (release script bumps all 8 packages)
 - Local `oco` launcher: `packages/opencode/bin/oco` → resolves `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`
 
@@ -135,11 +135,21 @@ When a remote (non-loopback) HTTP server is set as default, the desktop app auto
 
 The intended workflow: `oco serve` runs on the gaming laptop (Arch Linux), MacBook connects via Tailscale using the desktop app.
 
-1. Download `.dmg` from GitHub Releases → drag to Applications
-2. First launch: macOS may block unsigned app → System Settings → Privacy & Security → "Open Anyway"
-3. In the app: settings or Cmd+K → Server → Add HTTP connection → URL `http://omarchy:4096` (Tailscale MagicDNS) or `http://100.86.127.34:4096` → Set as default
-4. App auto-enables skip-local-server for the remote connection
-5. Restart app — it connects directly to the home server without spawning a local sidecar
+1. Download the `.dmg` from GitHub Releases (under the `oco-vX.Y.Z` tag).
+2. Open the `.dmg` and drag `OpenCodeOrchestra.app` to `/Applications`.
+3. Before the first launch, run this command in Terminal:
+   ```sh
+   xattr -cr /Applications/OpenCodeOrchestra.app
+   ```
+   This is required because the app is unsigned — macOS Gatekeeper will block it otherwise. The command strips the quarantine attribute and clears any extended attributes that trigger the block.
+4. Launch the app — it will show "Local Server" in the server selector initially.
+5. Click the server selector → Add Server → enter `http://omarchy:4096` (Tailscale MagicDNS hostname) or the explicit Tailscale IP `http://100.86.127.34:4096`.
+6. Leave the username and password fields empty (no authentication is needed over Tailscale).
+7. Set the new server as default — the app automatically enables `skipLocalServer` for any non-loopback HTTP server, so the MacBook will not waste RAM spawning a local sidecar on the next launch.
+8. On the gaming laptop, ensure the server is running:
+   ```sh
+   oco serve --port 4096 --hostname 0.0.0.0
+   ```
 
 ## Project Structure
 
@@ -401,6 +411,12 @@ leaves an orphan worker process holding the TCP port.
 |------|--------|
 | `opencode.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
 | `~/.config/opencode/prompts/compaction.txt` | Expanded ~71 → ~100 lines; adds self-review pass and proactive enrichment rules. |
+
+## Backlog
+
+| ID | Feature | Description | Priority |
+|----|---------|-------------|----------|
+| B1 | Live server switching | Allow toggling between Local Server and remote (Tailscale) server without restarting the desktop app. Currently requires remove default → relaunch → re-add default cycle. Sidecar lifecycle should be managed dynamically from the server selector UI. | low |
 
 ## Formatting
 

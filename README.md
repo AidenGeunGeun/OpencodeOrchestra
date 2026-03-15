@@ -4,31 +4,61 @@
 
 OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) (v1.2.5) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
 
-**v1.0.0** — AI SDK 6.x, Claude 4.6 adaptive thinking, 1M context beta support.
+**v1.0.12** — AI SDK 6.x, Claude 4.6 adaptive thinking, 1M context beta, desktop app, WebUI.
 
 ---
 
 ## Installation
 
-Build from source:
+### Desktop App (recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases):
+
+- **macOS**: `.dmg` (Apple Silicon)
+- **Linux**: `.deb` or `.rpm`
+
+#### macOS first launch
+
+The app is unsigned. macOS Gatekeeper will block it unless you run this **before the first launch**:
+
+```bash
+xattr -cr /Applications/OpenCodeOrchestra.app
+```
+
+### CLI (build from source)
 
 ```bash
 git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
 cd OpenCodeOrchestra
 bun install
-cd packages/opencode
-bun run build --single --skip-install
+bun run release patch   # builds binary + frontend, tags release
 ```
 
-Copy the binary to your PATH:
+Or build the binary only:
 ```bash
+cd packages/opencode
+bun run build --single --skip-install
 cp dist/@skybluejacket/oco-linux-x64/bin/oco ~/.local/bin/oco
 ```
 
-Then run:
+### Usage
+
 ```bash
-oco
+oco                # TUI (terminal UI)
+oco serve          # headless server (for remote access)
+oco web            # server + opens browser
 ```
+
+### Remote Access (Tailscale)
+
+Run the server on one machine, access from anywhere:
+
+```bash
+# On the server machine
+oco serve --port 4096 --hostname 0.0.0.0
+```
+
+Then connect the desktop app or browser from any device on your Tailscale network.
 
 ---
 
