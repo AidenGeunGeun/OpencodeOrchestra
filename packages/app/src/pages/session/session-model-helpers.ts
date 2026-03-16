@@ -34,9 +34,9 @@ export const resetSessionModel = (local: Local) => {
   })
 }
 
-export const syncSessionModel = (local: Local, msg: UserMessage) => {
+export const syncSessionModel = (local: Local, msg: UserMessage, opts?: { lockedAgent?: string }) => {
   batch(() => {
-    local.agent.set(msg.agent)
+    if (!opts?.lockedAgent) local.agent.set(msg.agent)
     local.model.set(msg.model)
   })
 

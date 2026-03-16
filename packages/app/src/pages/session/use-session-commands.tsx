@@ -367,14 +367,20 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         description: language.t("command.agent.cycle.description"),
         keybind: "mod+.",
         slash: "agent",
-        onSelect: () => local.agent.move(1),
+        onSelect: () => {
+          if (info()?.agentID) return
+          local.agent.move(1)
+        },
       }),
       agentCommand({
         id: "agent.cycle.reverse",
         title: language.t("command.agent.cycle.reverse"),
         description: language.t("command.agent.cycle.reverse.description"),
         keybind: "shift+mod+.",
-        onSelect: () => local.agent.move(-1),
+        onSelect: () => {
+          if (info()?.agentID) return
+          local.agent.move(-1)
+        },
       }),
       modelCommand({
         id: "model.variant.cycle",

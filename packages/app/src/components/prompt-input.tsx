@@ -232,6 +232,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return paths
   })
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const lockedAgent = createMemo(() => info()?.agentID)
   const status = createMemo(
     () =>
       sync.data.session_status[params.id ?? ""] ?? {
@@ -1444,9 +1445,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 >
                   <Select
                     size="normal"
-                    options={agentNames()}
-                    current={local.agent.current()?.name ?? ""}
-                    onSelect={local.agent.set}
+                    options={lockedAgent() ? [lockedAgent()!] : agentNames()}
+                    current={lockedAgent() ?? local.agent.current()?.name ?? ""}
+                    onSelect={lockedAgent() ? undefined : local.agent.set}
+                    disabled={!!lockedAgent()}
                     class="capitalize max-w-[160px]"
                     valueClass="truncate text-13-regular"
                     triggerStyle={control()}

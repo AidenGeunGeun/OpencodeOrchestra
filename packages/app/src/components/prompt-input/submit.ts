@@ -165,7 +165,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 }
 
 type PromptSubmitInput = {
-  info: Accessor<{ id: string } | undefined>
+  info: Accessor<{ id: string; agentID?: string } | undefined>
   imageAttachments: Accessor<ImageAttachmentPart[]>
   commentCount: Accessor<number>
   autoAccept: Accessor<boolean>
@@ -369,7 +369,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
     }
-    const agent = currentAgent.name
+    const agent = session?.agentID ?? currentAgent.name
     const variant = local.model.variant.current()
     const context = prompt.context.items().slice()
     const draft: FollowupDraft = {
@@ -455,7 +455,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             // Refresh session data after command completes — plugins may
             // inject messages server-side (e.g. /compress manage) that the
             // Desktop cache won't see until explicitly synced.
-            void sync.session.sync(session.id)
+            void sync.session.sync(session.id, { force: true })
           })
           .catch((err) => {
             showToast({

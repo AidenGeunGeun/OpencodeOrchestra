@@ -578,7 +578,7 @@ export default function Page() {
       () => {
         const msg = lastUserMessage()
         if (!msg) return
-        syncSessionModel(local, msg)
+        syncSessionModel(local, msg, { lockedAgent: info()?.agentID })
       },
     ),
   )
