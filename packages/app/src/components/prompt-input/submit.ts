@@ -451,6 +451,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
               filename: attachment.filename,
             })),
           })
+          .then(() => {
+            // Refresh session data after command completes — plugins may
+            // inject messages server-side (e.g. /compress manage) that the
+            // Desktop cache won't see until explicitly synced.
+            void sync.session.sync(session.id)
+          })
           .catch((err) => {
             showToast({
               title: language.t("prompt.toast.commandSendFailed.title"),
