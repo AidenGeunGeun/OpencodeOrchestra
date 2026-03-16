@@ -144,6 +144,41 @@ log.error("failed", { error })
 - **Storage**: SQLite via drizzle-orm (`Database.use()` / `Database.transaction()`); legacy JSON sidecar for `agentID`
 - **AI SDK**: v6.x ecosystem (`ai@6.0.90`, `@ai-sdk/anthropic@3.0.45`); Claude 4.6 uses adaptive thinking
 
+## SSE Heartbeat
+
+The SSE event stream (`src/server/routes/global.ts`) sends heartbeats at a fixed interval. The Desktop client (`packages/app/src/context/global-sdk.tsx`) has a **15-second** timeout — if no events arrive within 15s, it aborts and reconnects.
+
+**The server heartbeat MUST be less than 15 seconds** (currently 10s). If it's >= 15s, the Desktop enters a perpetual reconnect loop and misses events during disconnected windows. This manifests as messages from TUI not appearing in Desktop until the user navigates away and back.
+
+## Plugin System
+
+### Command Sentinel Pattern
+
+Plugins can handle slash commands by throwing sentinel errors ending with `_HANDLED__` (e.g., `throw new Error("__COMPRESS_MANAGE_HANDLED__")`). In `session/prompt.ts`, `SessionPrompt.command()` catches these — if the error message matches the `_HANDLED__` suffix, it returns `undefined` instead of re-throwing. The server route in `server/routes/session.ts` returns HTTP 204 for null command results.
+
+### Plugin Loader (`src/plugin/index.ts`)
+
+Supports three specifier formats in the config `plugin` array:
+
+1. **`file://` paths** — e.g., `file:///path/to/dist/index.js` (local dev)
+2. **npm packages** — e.g., `opencode-context-compress@1.0.0` (uses `BunProc.install()`)
+3. **GitHub repos** — e.g., `github:owner/repo#tag` (uses `BunProc.installGit()`)
+
+GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The plugin's `dist/` directory must be committed to the repo. Package name resolution after `bun add github:...` uses exact match → prefix match → diff on cache package.json.
+
+## Bus → SSE Event Flow
+
+```
+Bus.publish(event, properties)
+  → local subscribers (Bus.subscribe / Bus.subscribeAll)
+  → GlobalBus.emit("event", { directory: Instance.directory, payload })
+  → SSE handler in global.ts: GlobalBus.on("event", handler)
+  → stream.writeSSE({ data: JSON.stringify(event) })
+  → Desktop receives, queues, flushes, calls applyDirectoryEvent()
+```
+
+All `Bus.publish()` calls emit to ALL connected SSE clients, regardless of which client initiated the action. This is how cross-client sync works (TUI messages appear in Desktop and vice versa).
+
 ## Tests
 
 Tests live in `test/`. Run with `bun test`. Current baseline: 884 pass / 29 skip / 0 fail. Always run `bun test` before committing changes to this package.

@@ -412,6 +412,69 @@ leaves an orphan worker process holding the TCP port.
 | `opencode.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
 | `~/.config/opencode/prompts/compaction.txt` | Expanded ~71 → ~100 lines; adds self-review pass and proactive enrichment rules. |
 
+## Conventions & Lessons Learned
+
+### Always Update AGENTS.md
+
+When you discover non-obvious behavior, fix a subtle bug, or establish a convention during work in this repo, write it down in the most relevant AGENTS.md file. The root AGENTS.md covers cross-cutting concerns; nested AGENTS.md files cover package-specific knowledge. Future sessions should not have to re-discover what was already learned.
+
+### Version Sync
+
+**All packages MUST share the same version number.** When bumping the version, update ALL of these:
+
+| File | Field |
+|------|-------|
+| `packages/opencode/package.json` | `version` |
+| `packages/desktop/package.json` | `version` |
+| `packages/app/package.json` | `version` |
+| `packages/sdk/js/package.json` | `version` |
+| `packages/ui/package.json` | `version` |
+| `packages/plugin/package.json` | `version` |
+| `packages/util/package.json` | `version` |
+| `sdks/vscode/package.json` | `version` |
+| `packages/desktop/src-tauri/Cargo.toml` | `version` |
+
+The `bun run release` script handles this automatically. If bumping manually, check every file. Tauri reads its version from `packages/desktop/package.json` (via `"version": "../package.json"` in `tauri.conf.json`).
+
+### SSE Event System (Server ↔ Desktop)
+
+The server emits real-time events to all connected clients via Server-Sent Events (SSE):
+
+```
+Bus.publish() → GlobalBus.emit("event", {...}) → SSE stream → Desktop event-reducer → reactive store → UI
+```
+
+**Critical timing constraint**: The Desktop client (`packages/app/src/context/global-sdk.tsx`) has a heartbeat timeout of **15 seconds** (`HEARTBEAT_TIMEOUT_MS`). If no events arrive within 15s, the Desktop aborts and reconnects. The server heartbeat interval (`packages/opencode/src/server/routes/global.ts`) **MUST be less than 15 seconds** (currently 10s). If it exceeds 15s, the Desktop enters a perpetual connect/disconnect loop and misses events during disconnected windows.
+
+**Symptom of broken SSE**: Messages sent from TUI don't appear in Desktop (and vice versa) until the user navigates away and back. Server logs show rapid `global event connected` / `global event disconnected` cycling at ~15s intervals.
+
+### Plugin Command Sentinel Pattern
+
+Plugins can "handle" slash commands by throwing sentinel errors (e.g., `throw new Error("__COMPRESS_MANAGE_HANDLED__")`). The server catches these in `SessionPrompt.command()` — if the error message ends with `_HANDLED__`, it returns `undefined` instead of re-throwing. The server route returns HTTP 204 (no content) for null command results.
+
+**Desktop must sync after commands**: After a command returns (even 204), call `sync.session.sync(sessionId, { force: true })`. Without `force: true`, the sync short-circuits because messages are already cached for the current session. The plugin may have created messages server-side that the Desktop cache doesn't know about.
+
+### Desktop Agent Selector & session.agentID
+
+Each session can have an `agentID` field (set when subagent sessions are created via the Task tool). The TUI reads `session.agentID` and locks the agent selector for child sessions. The Desktop must do the same:
+
+- Show `session.agentID` in the selector when viewing a child session
+- Disable the selector (prevent cycling)
+- Use `session.agentID` for submission instead of `local.agent.current().name`
+- Skip `local.agent.set()` in `syncSessionModel` when the session has a locked agent
+
+If the Desktop ignores `session.agentID`, it falls back to the first primary agent (usually "build"), causing subagents to receive wrong agent identity and prompts.
+
+### Plugin Loader
+
+`packages/opencode/src/plugin/index.ts` supports three plugin specifier formats:
+
+1. **`file://` paths** — local development, e.g., `file:///path/to/dist/index.js`
+2. **npm packages** — e.g., `opencode-context-compress` or `opencode-context-compress@1.0.0`
+3. **GitHub repos** — e.g., `github:AidenGeunGeun/opencode-context-compress` or `github:owner/repo#tag`
+
+GitHub deps are installed via `bun add github:...` into `Global.Path.cache`. The package's `dist/` directory must be committed to the repo (bun doesn't run lifecycle scripts for git deps). Package name resolution after install uses a three-strategy approach (exact match → prefix match → diff on package.json).
+
 ## Backlog
 
 | ID | Feature | Description | Priority |
