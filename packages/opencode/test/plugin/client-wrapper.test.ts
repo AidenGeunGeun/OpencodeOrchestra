@@ -77,7 +77,7 @@ describe("plugin.client-wrapper", () => {
           const wrappedClient = wrapClientForDepthAwareness(mockClient)
           const result = await wrappedClient.session.get({ path: { id: orchSession.id } })
           
-          // Orchestrator session should have parentID HIDDEN (for DCP to apply pruning)
+          // Orchestrator session should have parentID HIDDEN (for compress plugin to apply pruning)
           expect(result.data?.parentID).toBeUndefined()
         },
       })
@@ -107,7 +107,7 @@ describe("plugin.client-wrapper", () => {
           const wrappedClient = wrapClientForDepthAwareness(mockClient)
           const result = await wrappedClient.session.get({ path: { id: subSession.id } })
           
-          // Subagent session should have parentID KEPT (for DCP to skip pruning)
+          // Subagent session should have parentID KEPT (for compress plugin to skip pruning)
           expect(result.data?.parentID).toBe(orchSession.id)
         },
       })
@@ -210,8 +210,8 @@ describe("plugin.client-wrapper", () => {
     })
   })
 
-  describe("DCP integration behavior", () => {
-    test("DCP sees no parentID for PM session → applies pruning", async () => {
+  describe("Compress plugin integration behavior", () => {
+    test("Compress plugin sees no parentID for PM session → applies pruning", async () => {
       await using tmp = await tmpdir({ git: true })
       await Instance.provide({
         directory: tmp.path,
@@ -225,14 +225,14 @@ describe("plugin.client-wrapper", () => {
           const wrappedClient = wrapClientForDepthAwareness(mockClient)
           const result = await wrappedClient.session.get({ path: { id: pmSession.id } })
           
-          // DCP's isSubAgentSession() checks: !!result.data?.parentID
-          const dcpWouldSkipPruning = !!result.data?.parentID
-          expect(dcpWouldSkipPruning).toBe(false) // DCP should apply pruning
+          // compress plugin's isSubAgentSession() checks: !!result.data?.parentID
+          const compressWouldSkipPruning = !!result.data?.parentID
+          expect(compressWouldSkipPruning).toBe(false) // compress plugin should apply pruning
         },
       })
     })
 
-    test("DCP sees no parentID for Orchestrator session → applies pruning", async () => {
+    test("Compress plugin sees no parentID for Orchestrator session → applies pruning", async () => {
       await using tmp = await tmpdir({ git: true })
       await Instance.provide({
         directory: tmp.path,
@@ -248,14 +248,14 @@ describe("plugin.client-wrapper", () => {
           const wrappedClient = wrapClientForDepthAwareness(mockClient)
           const result = await wrappedClient.session.get({ path: { id: orchSession.id } })
           
-          // DCP's isSubAgentSession() checks: !!result.data?.parentID
-          const dcpWouldSkipPruning = !!result.data?.parentID
-          expect(dcpWouldSkipPruning).toBe(false) // DCP should apply pruning
+          // compress plugin's isSubAgentSession() checks: !!result.data?.parentID
+          const compressWouldSkipPruning = !!result.data?.parentID
+          expect(compressWouldSkipPruning).toBe(false) // compress plugin should apply pruning
         },
       })
     })
 
-    test("DCP sees parentID for Subagent session → skips pruning", async () => {
+    test("Compress plugin sees parentID for Subagent session → skips pruning", async () => {
       await using tmp = await tmpdir({ git: true })
       await Instance.provide({
         directory: tmp.path,
@@ -273,9 +273,9 @@ describe("plugin.client-wrapper", () => {
           const wrappedClient = wrapClientForDepthAwareness(mockClient)
           const result = await wrappedClient.session.get({ path: { id: subSession.id } })
           
-          // DCP's isSubAgentSession() checks: !!result.data?.parentID
-          const dcpWouldSkipPruning = !!result.data?.parentID
-          expect(dcpWouldSkipPruning).toBe(true) // DCP should skip pruning
+          // compress plugin's isSubAgentSession() checks: !!result.data?.parentID
+          const compressWouldSkipPruning = !!result.data?.parentID
+          expect(compressWouldSkipPruning).toBe(true) // compress plugin should skip pruning
         },
       })
     })

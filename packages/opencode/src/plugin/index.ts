@@ -27,9 +27,9 @@ export namespace Plugin {
       // @ts-ignore - fetch type incompatibility
       fetch: async (...args) => Server.App().fetch(...args),
     })
-    // Wrap client for depth-aware DCP behavior:
-    // - depth 0-1 (PM/Orchestrator): hides parentID → DCP applies pruning
-    // - depth 2+ (Subagent): keeps parentID → DCP skips pruning
+    // Wrap client for depth-aware compress plugin behavior:
+    // - depth 0-1 (PM/Orchestrator): hides parentID → compress plugin applies pruning
+    // - depth 2+ (Subagent): keeps parentID → compress plugin skips pruning
     const client = wrapClientForDepthAwareness(rawClient)
     const config = await Config.get()
     const hooks: Hooks[] = []
@@ -57,7 +57,23 @@ export namespace Plugin {
       // ignore old codex plugin since it is supported first party now
       if (plugin.includes("opencode-openai-codex-auth") || plugin.includes("opencode-copilot-auth")) continue
       log.info("loading plugin", { path: plugin })
-      if (!plugin.startsWith("file://")) {
+      if (plugin.startsWith("github:") || plugin.startsWith("git+") || plugin.startsWith("git@")) {
+        const specifier = plugin
+        plugin = await BunProc.installGit(specifier).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err)
+          log.error("failed to install git plugin", {
+            specifier,
+            error: message,
+          })
+          Bus.publish(Session.Event.Error, {
+            error: new NamedError.Unknown({
+              message: `Failed to install plugin ${specifier}: ${message}`,
+            }).toObject(),
+          })
+          return ""
+        })
+        if (!plugin) continue
+      } else if (!plugin.startsWith("file://")) {
         const lastAtIndex = plugin.lastIndexOf("@")
         const pkg = lastAtIndex > 0 ? plugin.substring(0, lastAtIndex) : plugin
         const version = lastAtIndex > 0 ? plugin.substring(lastAtIndex + 1) : "latest"

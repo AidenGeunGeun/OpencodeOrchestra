@@ -307,7 +307,7 @@ return await Session.create({
             todoread: false,
             finish_task: true, // Enable finish_task for orchestrators
             ...(hasTaskPermission ? {} : { task: false }),
-            // primary_tools (DCP: compress/distill/prune) intentionally NOT denied for depth-1 orchestrators
+            // primary_tools (compress plugin) intentionally NOT denied for depth-1 orchestrators
           },
           parts: promptParts,
         }).catch((error) => {

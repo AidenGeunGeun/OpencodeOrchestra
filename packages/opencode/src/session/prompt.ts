@@ -1876,15 +1876,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         : await lastModel(input.sessionID)
       : taskModel
 
-    await Plugin.trigger(
-      "command.execute.before",
-      {
-        command: input.command,
-        sessionID: input.sessionID,
-        arguments: input.arguments,
-      },
-      { parts },
-    )
+    try {
+      await Plugin.trigger(
+        "command.execute.before",
+        {
+          command: input.command,
+          sessionID: input.sessionID,
+          arguments: input.arguments,
+        },
+        { parts },
+      )
+    } catch (err: any) {
+      if (typeof err?.message === "string" && err.message.endsWith("_HANDLED__")) {
+        log.info("command handled by plugin", {
+          command: input.command,
+          sentinel: err.message,
+        })
+        return undefined as any
+      }
+      throw err
+    }
 
     const result = (await prompt({
       sessionID: input.sessionID,

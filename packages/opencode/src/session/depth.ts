@@ -8,7 +8,7 @@
  * 
  * Used for:
  * - singleShot enforcement (depth 2+ = always singleShot)
- * - DCP gating (only apply pruning to depth 0-1)
+ * - compress plugin gating (only apply pruning to depth 0-1)
  */
 
 import { Session } from "./index"
@@ -60,7 +60,7 @@ export async function calculateDepth(sessionID: string): Promise<number> {
 }
 
 /**
- * Determine if pruning (DCP) should be applied to a session based on depth.
+ * Determine if pruning (compress plugin) should be applied to a session based on depth.
  * 
  * Rules:
  * - depth 0 (PM): Apply pruning (true)

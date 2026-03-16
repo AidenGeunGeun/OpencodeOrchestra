@@ -131,4 +131,85 @@ export namespace BunProc {
     await Bun.write(pkgjson.name!, JSON.stringify(parsed, null, 2))
     return mod
   }
+
+  export async function installGit(specifier: string) {
+    using _ = await Lock.write("bun-install")
+
+    const pkgjsonPath = path.join(Global.Path.cache, "package.json")
+    const pkgjson = Bun.file(pkgjsonPath)
+    const parsed = await pkgjson.json().catch(async () => {
+      const result = { dependencies: {} }
+      await Bun.write(pkgjson.name!, JSON.stringify(result, null, 2))
+      return result
+    })
+    const dependencies: Record<string, string> = parsed.dependencies ?? {}
+    const previousDependencies = { ...dependencies }
+    if (!parsed.dependencies) parsed.dependencies = dependencies
+
+    for (const [name, spec] of Object.entries(dependencies)) {
+      if (spec !== specifier) continue
+      const modPath = path.join(Global.Path.cache, "node_modules", name)
+      if (await Filesystem.exists(modPath)) {
+        log.info("git package already installed", { specifier, name })
+        return modPath
+      }
+    }
+
+    const proxied = !!(
+      process.env.HTTP_PROXY ||
+      process.env.HTTPS_PROXY ||
+      process.env.http_proxy ||
+      process.env.https_proxy
+    )
+
+    const args = [
+      "add",
+      "--force",
+      ...(proxied ? ["--no-cache"] : []),
+      "--cwd",
+      Global.Path.cache,
+      specifier,
+    ]
+
+    log.info("installing git package", { specifier })
+
+    await BunProc.run(args, {
+      cwd: Global.Path.cache,
+    }).catch((e) => {
+      throw new InstallFailedError(
+        { pkg: specifier, version: "git" },
+        {
+          cause: e,
+        },
+      )
+    })
+
+    const updatedParsed = await Bun.file(pkgjsonPath).json()
+    const updatedDependencies: Record<string, string> = updatedParsed.dependencies ?? {}
+
+    for (const [name, spec] of Object.entries(updatedDependencies)) {
+      if (spec === specifier) {
+        return path.join(Global.Path.cache, "node_modules", name)
+      }
+    }
+
+    for (const [name, spec] of Object.entries(updatedDependencies)) {
+      if (spec.startsWith(specifier)) {
+        return path.join(Global.Path.cache, "node_modules", name)
+      }
+    }
+
+    for (const name of Object.keys(updatedDependencies)) {
+      if (!(name in previousDependencies)) {
+        return path.join(Global.Path.cache, "node_modules", name)
+      }
+    }
+
+    throw new InstallFailedError(
+      { pkg: specifier, version: "git" },
+      {
+        cause: new Error(`Could not determine installed package name for ${specifier}`),
+      },
+    )
+  }
 }

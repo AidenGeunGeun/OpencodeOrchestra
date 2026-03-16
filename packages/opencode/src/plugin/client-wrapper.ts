@@ -1,19 +1,19 @@
 /**
- * OpenCodeOrchestra: Depth-Aware Client Wrapper for DCP Integration
+ * OpenCodeOrchestra: Depth-Aware Client Wrapper for Context Compress Integration
  * 
  * This module wraps the SDK client to provide depth-aware parentID responses.
- * DCP (Dynamic Context Pruning) uses parentID to determine if a session is a "subagent".
+ * The context compress plugin uses parentID to determine if a session is a "subagent".
  * 
- * Original DCP behavior:
+ * Original compress plugin behavior:
  *   - parentID exists → skip pruning (considered subagent)
  *   - parentID undefined → apply pruning
  * 
  * OcO depth-aware behavior:
- *   - depth 0 (PM) → parentID hidden → DCP applies pruning
- *   - depth 1 (Orchestrator) → parentID hidden → DCP applies pruning  
- *   - depth 2+ (Subagent) → parentID shown → DCP skips pruning
+ *   - depth 0 (PM) → parentID hidden → compress plugin applies pruning
+ *   - depth 1 (Orchestrator) → parentID hidden → compress plugin applies pruning  
+ *   - depth 2+ (Subagent) → parentID shown → compress plugin skips pruning
  * 
- * This approach allows DCP to remain completely unmodified while OcO controls
+ * This approach allows the compress plugin to remain completely unmodified while OcO controls
  * the pruning behavior through the client wrapper.
  */
 
@@ -26,9 +26,9 @@ const log = Log.create({ service: "plugin.client-wrapper" })
 type OpencodeClient = ReturnType<typeof createOpencodeClient>
 
 /**
- * Wraps the SDK client to provide depth-aware parentID responses for DCP.
+ * Wraps the SDK client to provide depth-aware parentID responses for the compress plugin.
  * 
- * When a plugin (like DCP) calls client.session.get(), this wrapper:
+ * When a plugin (like the compress plugin) calls client.session.get(), this wrapper:
  * 1. Calls the original session.get() to get the real response
  * 2. Calculates the session depth using calculateDepth()
  * 3. If depth <= 1 (PM or Orchestrator), hides parentID from the response
@@ -66,8 +66,8 @@ export function wrapClientForDepthAwareness(client: OpencodeClient): OpencodeCli
             const depth = await calculateDepth(sessionID)
             
             if (shouldApplyPruning(depth)) {
-              // depth <= 1: Hide parentID so DCP applies pruning
-              log.info("hiding parentID for DCP (depth-aware)", {
+              // depth <= 1: Hide parentID so compress plugin applies pruning
+              log.info("hiding parentID for compress plugin (depth-aware)", {
                 sessionID,
                 depth,
                 action: "apply_pruning",
@@ -81,8 +81,8 @@ export function wrapClientForDepthAwareness(client: OpencodeClient): OpencodeCli
                 },
               }
             } else {
-              // depth >= 2: Keep parentID so DCP skips pruning
-              log.info("keeping parentID for DCP (depth-aware)", {
+              // depth >= 2: Keep parentID so compress plugin skips pruning
+              log.info("keeping parentID for compress plugin (depth-aware)", {
                 sessionID,
                 depth,
                 action: "skip_pruning",
