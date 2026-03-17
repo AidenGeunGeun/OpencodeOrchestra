@@ -53,6 +53,7 @@ export namespace Command {
   export const Default = {
     INIT: "init",
     REVIEW: "review",
+    RELOAD: "reload",
   } as const
 
   const state = Instance.state(async () => {
@@ -66,6 +67,12 @@ export namespace Command {
           return PROMPT_INITIALIZE.replace("${path}", Instance.worktree)
         },
         hints: hints(PROMPT_INITIALIZE),
+      },
+      [Default.RELOAD]: {
+        name: Default.RELOAD,
+        description: "reload configuration, skills, and prompts",
+        template: "",
+        hints: [],
       },
       [Default.REVIEW]: {
         name: Default.REVIEW,

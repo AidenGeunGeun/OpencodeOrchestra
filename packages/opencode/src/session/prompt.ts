@@ -34,6 +34,9 @@ import { spawn } from "child_process"
 import { Command } from "../command"
 import { $, fileURLToPath, pathToFileURL } from "bun"
 import { ConfigMarkdown } from "../config/markdown"
+import { Config } from "../config/config"
+import { GlobalBus } from "../bus/global"
+import { GlobalDisposedEvent } from "../server/routes/global"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { fn } from "@/util/fn"
@@ -1764,6 +1767,17 @@ NOTE: At any point in time through this workflow you should feel free to ask the
   export async function command(input: CommandInput) {
     log.info("command", input)
     const command = await Command.get(input.command)
+
+    if (input.command === Command.Default.RELOAD) {
+      Config.global.reset()
+      await Instance.disposeAll()
+      GlobalBus.emit("event", {
+        directory: "global",
+        payload: { type: GlobalDisposedEvent.type, properties: {} },
+      })
+      return undefined as any
+    }
+
     const agentName = command.agent ?? input.agent ?? (await Agent.defaultAgent())
 
     const raw = input.arguments.match(argsRegex) ?? []
