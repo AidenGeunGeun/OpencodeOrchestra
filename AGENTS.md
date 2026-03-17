@@ -480,6 +480,9 @@ GitHub deps are installed via `bun add github:...` into `Global.Path.cache`. The
 | ID | Feature | Description | Priority |
 |----|---------|-------------|----------|
 | B1 | Live server switching | Allow toggling between Local Server and remote (Tailscale) server without restarting the desktop app. Currently requires remove default → relaunch → re-add default cycle. Sidecar lifecycle should be managed dynamically from the server selector UI. | low |
+| B2 | "Prefill" error on cross-client race | When Desktop user sends a message while session is busy from another client (TUI or /compress manage), Anthropic API returns "This model does not support assistant message prefill". Root cause: Desktop didn't receive `session.status: busy` SSE event (due to old heartbeat bug). Should be fixed by 10s heartbeat (v1.0.15) — Desktop now shows stop icon when busy. Needs manual verification. If still occurs, server needs to reject concurrent prompt requests on the same session. | low |
+| B3 | Discord-style project folders in sidebar rail | Group project icons into collapsible folders in the Desktop sidebar rail (like Discord server folders). Drag projects into/out of folders. Persisted in layout state. | medium |
+| B4 | Desktop auto-updater | Enable Tauri's built-in updater so users don't need to manually download .dmg per release. Requires code signing + updater endpoint. `tauri.prod.conf.json` currently has `"createUpdaterArtifacts": false`. | low |
 
 ## Formatting
 

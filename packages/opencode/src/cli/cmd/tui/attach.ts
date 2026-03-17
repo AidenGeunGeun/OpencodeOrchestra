@@ -1,6 +1,15 @@
 import { cmd } from "../cmd"
 import { tui } from "./app"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import os from "node:os"
+import path from "node:path"
+
+function remapAbsoluteDirectory(input: string, from: string, to: string) {
+  const relative = path.relative(from, input)
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return
+  return relative ? path.join(to, relative) : to
+}
 
 export const AttachCommand = cmd({
   command: "attach <url>",
@@ -31,21 +40,54 @@ export const AttachCommand = cmd({
     try {
       win32DisableProcessedInput()
 
-      const directory = (() => {
-        if (!args.dir) return undefined
-        try {
-          process.chdir(args.dir)
-          return process.cwd()
-        } catch {
-          // If the directory doesn't exist locally (remote attach), pass it through.
-          return args.dir
-        }
-      })()
       const headers = (() => {
         const password = args.password ?? process.env.OPENCODE_SERVER_PASSWORD
         if (!password) return undefined
         const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
         return { Authorization: auth }
+      })()
+      const directory = await (async () => {
+        if (!args.dir) return undefined
+        try {
+          const sdk = createOpencodeClient({
+            baseUrl: args.url,
+            directory: args.dir,
+            headers,
+          })
+          const result = await sdk.path.get()
+          let resolved = result.data?.directory ?? args.dir
+          if (!result.data || !path.isAbsolute(args.dir) || resolved !== args.dir) return resolved
+
+          const base = createOpencodeClient({
+            baseUrl: args.url,
+            headers,
+          })
+          const baseResult = await base.path.get()
+          if (!baseResult.data) return resolved
+
+          const candidates = [
+            remapAbsoluteDirectory(args.dir, os.homedir(), baseResult.data.home),
+            remapAbsoluteDirectory(args.dir, process.cwd(), baseResult.data.directory),
+          ].filter((item): item is string => !!item && item !== resolved)
+
+          for (const candidate of candidates) {
+            try {
+              const next = await createOpencodeClient({
+                baseUrl: args.url,
+                directory: candidate,
+                headers,
+              }).path.get()
+              resolved = next.data?.directory ?? candidate
+              break
+            } catch {
+              continue
+            }
+          }
+
+          return resolved
+        } catch {
+          return args.dir
+        }
       })()
       await tui({
         url: args.url,

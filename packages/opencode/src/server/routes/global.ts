@@ -6,6 +6,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Instance } from "../../project/instance"
 import { Installation } from "@/installation"
+import { Config } from "../../config/config"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 
@@ -121,6 +122,36 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
+        await Instance.disposeAll()
+        GlobalBus.emit("event", {
+          directory: "global",
+          payload: {
+            type: GlobalDisposedEvent.type,
+            properties: {},
+          },
+        })
+        return c.json(true)
+      },
+    )
+    .post(
+      "/reload",
+      describeRoute({
+        summary: "Reload configuration",
+        description: "Reload all configuration, skills, and prompts from disk without restarting the server.",
+        operationId: "global.reload",
+        responses: {
+          200: {
+            description: "Reload complete",
+            content: {
+              "application/json": {
+                schema: resolver(z.boolean()),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        Config.global.reset()
         await Instance.disposeAll()
         GlobalBus.emit("event", {
           directory: "global",
