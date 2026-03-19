@@ -47,16 +47,16 @@ export const AttachCommand = cmd({
         return { Authorization: auth }
       })()
       const directory = await (async () => {
-        if (!args.dir) return undefined
+        const dir = args.dir ?? process.cwd()
         try {
           const sdk = createOpencodeClient({
             baseUrl: args.url,
-            directory: args.dir,
+            directory: dir,
             headers,
           })
           const result = await sdk.path.get()
-          let resolved = result.data?.directory ?? args.dir
-          if (!result.data || !path.isAbsolute(args.dir) || resolved !== args.dir) return resolved
+          let resolved = result.data?.directory ?? dir
+          if (!result.data || !path.isAbsolute(dir) || resolved !== dir) return resolved
 
           const base = createOpencodeClient({
             baseUrl: args.url,
@@ -65,9 +65,11 @@ export const AttachCommand = cmd({
           const baseResult = await base.path.get()
           if (!baseResult.data) return resolved
 
+          // skip remapping when connected to same machine
+          if (os.homedir() === baseResult.data.home) return resolved
+
           const candidates = [
-            remapAbsoluteDirectory(args.dir, os.homedir(), baseResult.data.home),
-            remapAbsoluteDirectory(args.dir, process.cwd(), baseResult.data.directory),
+            remapAbsoluteDirectory(dir, os.homedir(), baseResult.data.home),
           ].filter((item): item is string => !!item && item !== resolved)
 
           for (const candidate of candidates) {
@@ -86,7 +88,7 @@ export const AttachCommand = cmd({
 
           return resolved
         } catch {
-          return args.dir
+          return dir
         }
       })()
       await tui({
