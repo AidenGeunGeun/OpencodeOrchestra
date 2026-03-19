@@ -1,124 +1,170 @@
+<div align="center">
+
+<!-- TODO: Replace with designed hero banner image -->
+<!-- [![OpenCodeOrchestra](.github/assets/hero.png)](https://github.com/AidenGeunGeun/OpencodeOrchestra) -->
+
 # OpenCodeOrchestra
 
-[OpenCode](https://github.com/AnomalyCo/opencode) is an open-source AI coding agent that runs in your terminal. Out of the box it has two flat agents (`build` and `plan`) that share the same context.
+**Your AI agent doesn't need 15 tools. It needs a team.**
 
-OpenCodeOrchestra (OCO) is a fork that replaces that flat model with a structured engineering hierarchy: a PM that talks to you and drafts specs, an Orchestrator that executes them, and specialist subagents for investigation, code review, web research, and documentation. Each role has its own depth level, permissions, and model configuration — the same way a real engineering team separates planning from implementation from review.
+PM plans. Orchestrator executes. Specialists investigate, review, research, and document.<br/>
+Each role has its own depth, permissions, and model. Like a real engineering team.
 
-## Architecture
+[![GitHub Release](https://img.shields.io/github/v/release/AidenGeunGeun/OpencodeOrchestra?color=369eff&labelColor=black&logo=github&style=flat-square)](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases)
+[![GitHub Stars](https://img.shields.io/github/stars/AidenGeunGeun/OpencodeOrchestra?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/AidenGeunGeun/OpencodeOrchestra/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-white?labelColor=black&style=flat-square)](LICENSE)
 
-```text
-User
-  |
-  v
-PM (Depth 0) - holds context, drafts specs, makes design decisions
-  |
-  +---> Orchestrator (Depth 1) - executes approved specs
-  |         |
-  |         +---> Investigator - read-only codebase analysis
-  |         +---> Auditor - code review, PASS/FAIL verdict
-  |         +---> Researcher - external web research
-  |         +---> Docs - documentation updates
-  |
-  v
-User reviews, approves, or redirects
-```
+A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x · Claude 4.6 adaptive thinking
 
-## Agent Roles
+</div>
 
-| Agent | Depth | Model | Role | Key Constraint |
-|-------|-------|-------|------|----------------|
-| `build` / `plan` | 0 | `anthropic/claude-opus-4-6` | PM-facing planning, specification, user alignment | Must get explicit approval before execution handoff |
-| `orchestrator` | 1 | `anthropic/claude-sonnet-4-6` by default | Executes approved specs and owns validation | Must return control via `finish_task` |
-| `investigator` | 2+ | `anthropic/claude-sonnet-4-6` by default | Internal codebase analysis | Read-only, no editing |
-| `auditor` | 2+ | `anthropic/claude-sonnet-4-6` by default | Review against spec, PASS/FAIL | Read-only, scoped review only |
-| `researcher` | 2+ | `anthropic/claude-sonnet-4-6` by default | External web research | Web-only, no editing |
-| `docs` | 2+ | `anthropic/claude-sonnet-4-6` by default | Documentation updates | Docs scope only |
-| `compaction` | internal | `anthropic/claude-sonnet-4-6` by default | Context compression | Hidden internal agent |
+---
 
-## Workflow
+## Install in 30 seconds
 
-1. User describes intent to PM.
-2. PM investigates and drafts a spec.
-3. User approves the spec.
-4. PM spawns the Orchestrator.
-5. Orchestrator implements through focused subagents.
-6. Auditor reviews the full changeset.
-7. Orchestrator reports terminal state with `finish_task`.
-8. PM reports back to the user with validation results and follow-ups.
+> [!TIP]
+> **For Agents** — paste this into your LLM agent (Claude Code, OpenCode, Cursor, etc.):
+> ```
+> Install and configure OpenCodeOrchestra by following the instructions here:
+> https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/docs/installation.md
+> ```
 
-## What You Get
-
-- **Hierarchical delegation** — PM plans, Orchestrator executes, subagents do scoped work. Depth is enforced at runtime so the hierarchy doesn't collapse.
-- **Spec-driven workflow** — the PM writes a spec, you approve it, then execution starts. No free-form implementation drift.
-- **Audit loop** — the Orchestrator sends its changes to an Auditor for PASS/FAIL review before reporting back.
-- **Clean handoff** — the Orchestrator calls `finish_task` to explicitly return control to the PM with a summary, not just "I'm done."
-- **Mixed model support** — use Claude for planning and GPT for execution, or all-Claude, or all-GPT. The config documents both patterns.
-
-| | Vanilla OpenCode | OCO |
-|--|------------------|-----|
-| Agent hierarchy | Flat (`build` / `plan`) | PM → Orchestrator → Subagent |
-| Spec approval before execution | No | Yes |
-| Audit loop | No | Yes |
-| Depth enforcement | None | Enforced |
-| `finish_task` | Auto | Orchestrator-triggered |
-
-## Quick Start
-
-**Prerequisites:** An Anthropic API key (Claude). GPT is optional. That's it — the shipped config works with Claude alone.
-
-### For Agents
-Copy and paste this prompt to your LLM agent:
-
-```text
-Install and configure OpenCodeOrchestra by following the instructions here:
-https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/docs/installation.md
-```
-
-### For Humans
-
-**Option A — From a release binary:**
+**For Humans** — copy, paste, run:
 
 ```bash
-# 1. Download the latest binary from GitHub Releases and put it on your PATH
-#    (macOS: you may need to ad-hoc sign it first: codesign -f -s - ./oco)
+# Download the latest binary from GitHub Releases, put it on your PATH
+# macOS: codesign -f -s - ~/.local/bin/oco
 
-# 2. Install the config and prompts
 mkdir -p ~/.config/opencode/prompts
 curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/opencode.jsonc -o ~/.config/opencode/opencode.jsonc
 for f in pm orchestrator investigator auditor researcher docs compaction; do
   curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/opencode/prompts/${f}.txt
 done
 
-# 3. Authenticate and launch
-oco auth login   # or: opencode auth login
+oco auth login
 oco
 ```
 
-**Option B — From source:**
+That's it. You have a PM, an Orchestrator, and four specialist agents. [Full setup guide →](docs/installation.md)
+
+---
+
+## The Problem
+
+Vanilla OpenCode has two agents: `build` and `plan`. They share everything — context, permissions, tools. You prompt, it codes, you hope for the best.
+
+That works for small tasks. It falls apart when you need multi-file changes, architecture decisions, or anything where "the AI went off the rails" means hours of cleanup.
+
+## The Fix
+
+OCO splits the work the way a real team would:
+
+```text
+You
+ │
+ ▼
+PM (Depth 0) ─── talks to you, investigates, drafts specs
+ │
+ ├──▶ Orchestrator (Depth 1) ─── executes the approved spec
+ │         │
+ │         ├──▶ Investigator ─── reads code, traces calls, reports facts
+ │         ├──▶ Auditor ─── reviews changes, returns PASS or FAIL
+ │         ├──▶ Researcher ─── fetches info from the web
+ │         └──▶ Docs ─── updates documentation
+ │
+ ▼
+You review, approve, or redirect
+```
+
+The PM doesn't write code. The Orchestrator doesn't talk to you. The Investigator can't edit files. Each agent does one thing, scoped to its depth level.
+
+---
+
+## How It Works
+
+| Step | What happens |
+|:-----|:-------------|
+| **1** | You describe what you want to the PM |
+| **2** | PM investigates the codebase and drafts a spec |
+| **3** | You approve (or adjust) the spec |
+| **4** | PM hands off to the Orchestrator |
+| **5** | Orchestrator implements through focused subagents |
+| **6** | Auditor reviews the full changeset — PASS or FAIL |
+| **7** | Orchestrator calls `finish_task` to return control to PM |
+| **8** | PM reports results and follow-ups back to you |
+
+No free-form "just go implement this." Spec first, approval gate, audit loop, clean handoff.
+
+---
+
+## Agents
+
+<!-- TODO: Replace with agent character art side-by-side -->
+<!-- <table><tr>
+<td align="center"><img src=".github/assets/pm.png" height="200" /></td>
+<td align="center"><img src=".github/assets/orchestrator.png" height="200" /></td>
+<td align="center"><img src=".github/assets/investigator.png" height="200" /></td>
+</tr></table> -->
+
+| Agent | Depth | Default Model | What it does | Constraint |
+|:------|:-----:|:--------------|:-------------|:-----------|
+| **PM** (`build` / `plan`) | 0 | Claude Opus 4.6 | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
+| **Orchestrator** | 1 | Claude Sonnet 4.6 | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
+| **Investigator** | 2+ | Claude Sonnet 4.6 | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
+| **Auditor** | 2+ | Claude Sonnet 4.6 | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
+| **Researcher** | 2+ | Claude Sonnet 4.6 | Fetches and synthesizes information from the web. | Web access only. No editing. |
+| **Docs** | 2+ | Claude Sonnet 4.6 | Updates README, docs, API references. | Docs scope only. |
+
+> [!NOTE]
+> The shipped config only requires **Anthropic** (Claude). Every agent defaults to Claude.<br/>
+> Want GPT for some roles? Swap the model and use `reasoningEffort` instead of `thinking`/`effort`. See [customization →](docs/customization.md)
+
+---
+
+## What Makes This Different
+
+|  | Vanilla OpenCode | OCO |
+|:--|:-----------------|:----|
+| Agent structure | Flat — two agents share everything | **Hierarchical** — PM → Orchestrator → Subagents |
+| Before execution | Nothing | **Spec approval gate** |
+| Code review | Hope the model checks itself | **Dedicated Auditor** with PASS/FAIL |
+| Depth enforcement | None | **Runtime enforced** — agents can't escape their level |
+| Execution handoff | Implicit | **Explicit `finish_task`** with summary |
+| AI SDK | 5.x | **6.x** with Claude 4.6 adaptive thinking |
+
+---
+
+## Documentation
+
+| Doc | What's in it |
+|:----|:-------------|
+| **[Installation](docs/installation.md)** | Zero-to-working setup — agent-followable and human-readable |
+| **[Architecture](docs/architecture.md)** | Why the hierarchy exists, depth model, spec workflow, audit loop |
+| **[Agents](docs/agents.md)** | Each agent's role, model, permissions, and prompt design |
+| **[Customization](docs/customization.md)** | Model swaps, plugins, MCPs, and recipes for different setups |
+| **[Upstream Diff](UPSTREAM-DIFF.md)** | Code-level divergence from OpenCode 1.2.5 |
+
+---
+
+## Build From Source
 
 ```bash
 git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
 cd OpencodeOrchestra && bun install
 cd packages/opencode && bun run build --single --skip-install
-# Binary is at dist/@skybluejacket/oco-$(uname -s | tr A-Z a-z)-$(uname -m)/bin/oco
-# Copy it to your PATH, then install config files as shown in Option A step 2.
+# Binary: dist/@skybluejacket/oco-<platform>-<arch>/bin/oco
 ```
 
-Full setup guide with troubleshooting: [docs/installation.md](docs/installation.md)
+Requires [Bun](https://bun.sh). macOS binaries must be ad-hoc signed: `codesign -f -s - ./oco`
 
-## Documentation
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow.
 
-- `docs/installation.md` - agent-followable and human-readable install guide
-- `docs/architecture.md` - why the hierarchy is structured this way
-- `docs/agents.md` - prompt, model, and permission design per agent
-- `docs/customization.md` - model swaps, permissions, MCPs, plugins, and recipes
-- `UPSTREAM-DIFF.md` - code-level divergence from upstream `opencode` 1.2.5
+---
 
-## Development
+<div align="center">
 
-```bash
-cd packages/opencode
-bun test
-```
+Config and prompts ship in `config/` — no more "works on my machine" agent setups.
 
-Config and prompts live in `config/` so the hierarchy ships with the repo. See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow details.
+**[Get started →](docs/installation.md)**
+
+</div>
