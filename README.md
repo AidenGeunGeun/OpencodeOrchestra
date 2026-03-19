@@ -1,170 +1,102 @@
-# OpenCodeOrchestra (OcO)
+# OpenCodeOrchestra
 
-**A spec-driven agentic workflow framework for long-term context programming.**
+OpenCodeOrchestra turns OpenCode into a structured engineering hierarchy: PM for alignment, Orchestrator for execution, specialist subagents for investigation, review, research, and docs. Real teams do not collapse planning, implementation, and review into one role. Your agent harness should not either.
 
-OpenCodeOrchestra is a fork of [opencode](https://github.com/anomalyco/opencode) (v1.2.5) that implements a structured PM -> Orchestrator -> Subagent hierarchy for complex, multi-session development tasks.
-
-**v1.0.12** — AI SDK 6.x, Claude 4.6 adaptive thinking, 1M context beta, desktop app, WebUI.
-
----
-
-## Installation
-
-### Desktop App (recommended)
-
-Download the latest release from [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases):
-
-- **macOS**: `.dmg` (Apple Silicon)
-- **Linux**: `.deb` or `.rpm`
-
-#### macOS first launch
-
-The app is unsigned. macOS Gatekeeper will block it unless you run this **before the first launch**:
-
-```bash
-xattr -cr /Applications/OpenCodeOrchestra.app
-```
-
-### CLI (build from source)
-
-```bash
-git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git
-cd OpenCodeOrchestra
-bun install
-bun run release patch   # builds binary + frontend, tags release
-```
-
-Or build the binary only:
-```bash
-cd packages/opencode
-bun run build --single --skip-install
-cp dist/@skybluejacket/oco-linux-x64/bin/oco ~/.local/bin/oco
-```
-
-### Usage
-
-```bash
-oco                # TUI (terminal UI)
-oco serve          # headless server (for remote access)
-oco web            # server + opens browser
-```
-
-### Remote Access (Tailscale)
-
-Run the server on one machine, access from anywhere:
-
-```bash
-# On the server machine
-oco serve --port 4096 --hostname 0.0.0.0
-```
-
-Then connect the desktop app or browser from any device on your Tailscale network.
-
----
-
-## Key Features
-
-- **Spec-Driven Workflow** - Specs and tests are the alignment mechanism between user intent and code
-- **Hierarchical Delegation** - Clear depth-based agent hierarchy with enforced boundaries
-- **Agent Type Inheritance** - Subagent sessions preserve their agent type, model, and system prompt
-- **SQLite Storage** - Fast, reliable session/message storage with automatic JSON migration
-- **AI SDK 6.x** - Full ecosystem upgrade with Claude 4.6 adaptive thinking and effort levels
-- **1M Context Beta** - Extended context window for compaction via `anthropic/claude-sonnet-4-6-1m` model
-- **User-Controlled Flow** - User approves specs, triggers finish_task, and resolves escalations
-
----
+The point is structure, not feature count. OCO makes specs and verification the alignment mechanism, enforces session depth, and gives execution a clean return path back to the user-facing PM.
 
 ## Architecture
 
-```
+```text
 User
   |
   v
-PM (Depth 0) -----> Holds long-term context, drafts specs, advises on design
+PM (Depth 0) - holds context, drafts specs, makes design decisions
   |
-  +--[spawn orchestrator]--> Orchestrator (Depth 1) -----> Executes approved specs
-  |                                |
-  |                                +--[spawn sub-agents]--> Depth 2+
+  +---> Orchestrator (Depth 1) - executes approved specs
+  |         |
+  |         +---> Investigator - read-only codebase analysis
+  |         +---> Auditor - code review, PASS/FAIL verdict
+  |         +---> Researcher - external web research
+  |         +---> Docs - documentation updates
   |
-  +--[spawn sub-agents directly]--> Depth 2 (skips depth 1)
+  v
+User reviews, approves, or redirects
 ```
 
-### Agent Roles
+## Agent Roles
 
-| Agent | Depth | Purpose |
-|-------|-------|---------|
-| **PM** | 0 | Long-term context, spec drafting, design decisions |
-| **Orchestrator** | 1 | Executes approved specs, delegates to sub-agents |
-| **Investigator** | 2+ | Codebase analysis (read-only) |
-| **Researcher** | 2+ | External web research (read-only) |
-| **Auditor** | 2+ | Code review, issues PASS/FAIL verdict |
-| **Cleanup** | 2+ | Removes @TODO markers after Auditor PASS |
-| **Docs** | 2+ | Documentation updates |
+| Agent | Depth | Model | Role | Key Constraint |
+|-------|-------|-------|------|----------------|
+| `build` / `plan` | 0 | `anthropic/claude-opus-4-6` | PM-facing planning, specification, user alignment | Must get explicit approval before execution handoff |
+| `orchestrator` | 1 | `anthropic/claude-sonnet-4-6` by default | Executes approved specs and owns validation | Must return control via `finish_task` |
+| `investigator` | 2+ | `anthropic/claude-sonnet-4-6` by default | Internal codebase analysis | Read-only, no editing |
+| `auditor` | 2+ | `anthropic/claude-sonnet-4-6` by default | Review against spec, PASS/FAIL | Read-only, scoped review only |
+| `researcher` | 2+ | `anthropic/claude-sonnet-4-6` by default | External web research | Web-only, no editing |
+| `docs` | 2+ | `anthropic/claude-sonnet-4-6` by default | Documentation updates | Docs scope only |
+| `compaction` | internal | `anthropic/claude-sonnet-4-6` by default | Context compression | Hidden internal agent |
 
-### Workflow
+## Workflow
 
-1. **User describes intent to PM** - Plain language, focus on what and why
-2. **PM drafts spec + test cases** - Written for user to understand
-3. **User reviews and approves** - "If these tests pass, I'm satisfied"
-4. **PM spawns Orchestrator** - Hands off approved spec
-5. **Orchestrator executes via sub-agents** - Implements in phases
-6. **Orchestrator escalates if needed** - User decides, Orchestrator continues
-7. **User triggers finish_task** - Control returns to PM
-8. **PM updates records** - Decisions logged, context preserved
+1. User describes intent to PM.
+2. PM investigates and drafts a spec.
+3. User approves the spec.
+4. PM spawns the Orchestrator.
+5. Orchestrator implements through focused subagents.
+6. Auditor reviews the full changeset.
+7. Orchestrator reports terminal state with `finish_task`.
+8. PM reports back to the user with validation results and follow-ups.
 
----
+## Feature Highlights
 
-## Navigation
+- Hierarchical agent delegation with enforced depth boundaries
+- Spec-driven workflow instead of free-form implementation drift
+- Audit loop: Orchestrator -> Auditor -> fix -> re-audit
+- `finish_task` for explicit control return from execution to PM
+- AI SDK 6.x with Claude 4.6 adaptive thinking support
+- Works with Claude-only, GPT-only, or mixed model setups
 
-- `Tab` - Switch between PM modes (Plan/Build)
-- `Ctrl+X Up/Down` - Navigate parent/child sessions (depth traversal)
-- `Ctrl+X Left/Right` - Navigate sibling sessions (same depth)
-- Agent type and model automatically match when entering subagent sessions
+## Comparison
 
----
+| Feature | Vanilla OpenCode | OCO |
+|---------|------------------|-----|
+| Agent hierarchy | Flat (`build` / `plan`) | PM -> Orchestrator -> Subagent |
+| Spec-driven | No | Yes |
+| Audit loop | No | Yes |
+| Depth enforcement | None | Enforced |
+| `finish_task` | Auto | Orchestrator-triggered |
+| AI SDK | 5.x | 6.x |
 
-## Configuration
+### For Agents
+Copy and paste this prompt to your LLM agent:
 
-Config files are loaded in priority order:
-1. `./opencode.json` or `./opencode.jsonc` (project-specific)
-2. `~/.config/opencode/opencode.jsonc` (global)
+```text
+Install and configure OpenCodeOrchestra by following the instructions here:
+https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/docs/installation.md
+```
 
----
+## For Humans
 
-## Key Differences from Upstream opencode
+1. Download the latest release from GitHub Releases, or build from source.
+2. Copy `config/opencode.jsonc` to `~/.config/opencode/opencode.jsonc`.
+3. Copy `config/prompts/` to `~/.config/opencode/prompts/`.
+4. Authenticate your model providers with `oco auth login` or `opencode auth login`.
+5. Start `oco` and verify the PM agent is the default entry point.
 
-| Feature | OpenCode | OpenCodeOrchestra |
-|---------|----------|-------------------|
-| Agent Hierarchy | Flat (build/plan) | PM -> Orchestrator -> Subagent |
-| Depth Enforcement | None | Orchestrator at depth 1 only |
-| Spec-Driven | No | Yes, specs + tests as alignment |
-| finish_task | Auto | User-triggered at depth 1 |
-| Agent Inheritance | None | Session preserves agent type + model |
-| AI SDK | 5.x (provider 2.x) | 6.x (provider 3.x, adaptive thinking) |
-| 1M Context | Console only | Beta header in CLI, configurable per-model |
-| Removed Agents | - | general, explore (disabled) |
+Detailed setup steps: `docs/installation.md`
 
----
+## Documentation
+
+- `docs/installation.md` - agent-followable and human-readable install guide
+- `docs/architecture.md` - why the hierarchy is structured this way
+- `docs/agents.md` - prompt, model, and permission design per agent
+- `docs/customization.md` - model swaps, permissions, MCPs, plugins, and recipes
+- `UPSTREAM-DIFF.md` - code-level divergence from upstream `opencode` 1.2.5
 
 ## Development
 
 ```bash
-# Run tests (884 pass / 29 skip / 0 fail)
-cd packages/opencode && bun test
-
-# Typecheck
-tsgo --noEmit
-
-# Rebuild after changes
-bun run build --single --skip-install
+cd packages/opencode
+bun test
 ```
 
----
-
-## License
-
-This project is a fork of [opencode](https://github.com/anomalyco/opencode) and maintains the same license terms.
-
----
-
-**Note:** This project is not affiliated with the original OpenCode team. It is an independent fork focused on structured agentic workflows for long-term context programming.
+The current release-ready config and prompts live in `config/` so the hierarchy can be distributed with the repo instead of depending on a maintainer's local machine.

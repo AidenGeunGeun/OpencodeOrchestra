@@ -1,0 +1,258 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // OCO defaults to the PM-facing `build` agent for new sessions.
+  // `plan` remains available as the hidden planning mode used when you want
+  // a spec-first workflow without starting implementation yet.
+  "default_agent": "build",
+
+  // Disable automatic snapshotting/compaction by default.
+  // OCO's hierarchy already tries to keep deep subagent sessions disposable,
+  // and many teams prefer explicit context management over automatic pruning.
+  "snapshot": false,
+  "compaction": {
+    "auto": false,
+  },
+
+  // Server settings used by `oco serve` / `opencode serve`.
+  // Adjust host/port here if you want remote access or to avoid a local conflict.
+  "server": {
+    "hostname": "0.0.0.0",
+    "port": 4321,
+  },
+
+  // Global permission baseline merged into every built-in agent.
+  // The important part is the read deny list: agent prompts should never
+  // casually inspect secrets, keys, or common credential stores.
+  // Agent-specific permission blocks below then tighten or reopen tools
+  // depending on the role.
+  // Permission evaluation is last-match-wins, so the broad allow comes first
+  // and the secret/file denies come afterward.
+  "permission": {
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.pem": "deny",
+      "*.key": "deny",
+      "secrets/**": "deny",
+      "credentials/**": "deny",
+      ".aws/**": "deny",
+      ".ssh/**": "deny",
+      "docker-compose*.yml": "deny",
+      "config/database.yml": "deny",
+      "**/.env*": "deny",
+      "**/*.pem": "deny",
+      "**/*.key": "deny",
+      "**/secrets/**": "deny",
+      "**/credentials/**": "deny",
+      "**/.aws/**": "deny",
+      "**/.ssh/**": "deny",
+      "**/docker-compose*.yml": "deny",
+      "**/config/database.yml": "deny",
+    },
+  },
+
+  // Add plugins here when you want extra commands/tools loaded at startup.
+  // Example:
+  // "plugin": [
+  //   "github:your-org/your-opencode-plugin#main"
+  // ],
+
+  // Add MCP servers here when you want external tool backends available.
+  // Keep them disabled until configured and authenticated.
+  // Example:
+  // "mcp": {
+  //   "context7": {
+  //     "type": "remote",
+  //     "url": "https://mcp.context7.com/mcp",
+  //     "enabled": false,
+  //   }
+  // },
+
+  // Custom models live under provider.<provider>.models.<name>.
+  // This is the place to define organization-specific aliases, limits, or
+  // reusable variants. GPT-style variants usually set `reasoningEffort`.
+  // Claude-style variants usually set adaptive `thinking` plus `effort`.
+  // Example:
+  // "provider": {
+  //   "openai": {
+  //     "models": {
+  //       "gpt-5-fast": {
+  //         "id": "gpt-5",
+  //         "name": "GPT-5 Fast",
+  //         "limit": { "context": 400000, "output": 128000 },
+  //         "variants": {
+  //           "high": { "reasoningEffort": "high" }
+  //         }
+  //       }
+  //     }
+  //   }
+  // },
+
+  "agent": {
+    // PM agents stay on Claude Opus by default because they hold user-facing
+    // context, make planning decisions, and write specs.
+    // Claude 4.6 uses AI SDK 6 / provider 3.x adaptive thinking:
+    // `thinking: { type: "adaptive" }` plus an `effort` level.
+    "plan": {
+      "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
+      "model": "anthropic/claude-opus-4-6",
+      "prompt": "{file:prompts/pm.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "max",
+      "permission": {
+        "edit": "allow",
+      },
+    },
+    "build": {
+      "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
+      "model": "anthropic/claude-opus-4-6",
+      "prompt": "{file:prompts/pm.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "max",
+      "permission": {
+        "edit": "allow",
+      },
+    },
+
+    // OCO keeps these built-ins around but hides them from normal menus so the
+    // hierarchy steers users toward the structured roles above.
+    "general": {
+      "hidden": true,
+      "description": "HIDDEN: Prefer @investigator or task-specific subagents instead.",
+    },
+    "explore": {
+      "hidden": true,
+      "description": "HIDDEN: Prefer @investigator for codebase analysis.",
+    },
+
+    // Orchestrator is the only persistent execution subagent.
+    // Defaulting to Claude Sonnet keeps the setup usable for teams without GPT.
+    // If you prefer GPT-5, swap the model and use `reasoningEffort` instead of
+    // Claude's `thinking`/`effort` fields.
+    "orchestrator": {
+      "mode": "subagent",
+      "description": "Orchestrator. Executes approved specs through phased implementation. Runs tests. Auditor loop. Reports to PM.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/orchestrator.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "high",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "high",
+      "permission": {
+        "edit": "allow",
+      },
+    },
+
+    // Investigator is documented as read-only. Built-in defaults in code only
+    // deny write tools, so this config intentionally tightens the tool surface.
+    "investigator": {
+      "mode": "subagent",
+      "description": "Internal Codebase Analysis. READ-ONLY. Deep multi-file tracing and cross-referencing.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/investigator.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "medium",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "medium",
+      "permission": {
+        "compress": "deny",
+        "finish_task": "deny",
+        "grep": "allow",
+        "glob": "allow",
+        "bash": "deny",
+        "edit": "deny",
+      },
+    },
+
+    // Auditor should inspect, not execute. Same read-only tightening as Investigator.
+    "auditor": {
+      "mode": "subagent",
+      "description": "Code Audit & Review. Verifies changes against spec, checks for regressions and style.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/auditor.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "high",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "high",
+      "permission": {
+        "compress": "deny",
+        "finish_task": "deny",
+        "grep": "allow",
+        "glob": "allow",
+        "bash": "deny",
+        "edit": "deny",
+      },
+    },
+
+    // Researcher is for external sources only. Keep web access, deny shell/edit.
+    "researcher": {
+      "mode": "subagent",
+      "description": "External Web Research. Fetches and synthesizes information from the web.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/researcher.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "medium",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "medium",
+      "permission": {
+        "compress": "deny",
+        "finish_task": "deny",
+        "webfetch": "allow",
+        "bash": "deny",
+        "edit": "deny",
+      },
+    },
+
+    // Compaction is internal and hidden, but included here so the full shipped
+    // hierarchy is inspectable and easy to customize.
+    "compaction": {
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/compaction.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "medium",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "medium",
+    },
+
+    // Docs can edit documentation and may need shell access for lightweight
+    // validation such as link checks or rendering checks.
+    "docs": {
+      "mode": "subagent",
+      "description": "Documentation updates. README, AGENTS.md, API docs, SKILL.md files.",
+      "model": "anthropic/claude-sonnet-4-6",
+      "prompt": "{file:prompts/docs.txt}",
+      "thinking": { "type": "adaptive" },
+      "effort": "medium",
+      // GPT alternative:
+      // "model": "openai/gpt-5",
+      // "reasoningEffort": "medium",
+      "permission": {
+        "compress": "deny",
+        "finish_task": "deny",
+        "bash": "allow",
+        "apply_patch": "allow",
+      },
+    },
+  },
+
+  // How to swap models for an agent:
+  // 1. Change `model` to another installed/provider-supported model id.
+  // 2. Use Claude fields (`thinking` + `effort`) for Claude-family models.
+  // 3. Use `reasoningEffort` for GPT-family models.
+  // 4. Optionally set `variant` when your custom model exposes named variants.
+  //
+  // Example GPT swap:
+  // "agent": {
+  //   "orchestrator": {
+  //     "model": "openai/gpt-5",
+  //     "reasoningEffort": "high"
+  //   }
+  // }
+}
