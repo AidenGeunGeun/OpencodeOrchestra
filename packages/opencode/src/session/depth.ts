@@ -12,6 +12,9 @@
  */
 
 import { Session } from "./index"
+import { Log } from "../util/log"
+
+const log = Log.create({ service: "session-depth" })
 
 /**
  * Calculate the depth of a session by traversing the parentID chain.
@@ -40,7 +43,7 @@ export async function calculateDepth(sessionID: string): Promise<number> {
   while (currentID && depth < MAX_DEPTH) {
     // Cycle detection
     if (visited.has(currentID)) {
-      console.warn(`[depth] Cyclic parentID chain detected at session ${currentID}`)
+      log.warn("cyclic parentID chain detected", { sessionID: currentID })
       break
     }
     visited.add(currentID)
