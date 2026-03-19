@@ -43,8 +43,6 @@ OpenCodeOrchestra organizes agent work by responsibility, not by raw tool access
 8. Orchestrator returns control to the PM through `finish_task`.
 9. PM reports completion, risks, and follow-ups to the user.
 
-Specs are not decoration. They are the contract between intent and execution.
-
 ## Escalation Model
 
 - PM escalates when product intent, architecture, security, or UX workflow needs user alignment.
@@ -59,7 +57,7 @@ Specs are not decoration. They are the contract between intent and execution.
 - On FAIL, Orchestrator fixes the issues, reruns validation, and re-audits with a fresh Auditor.
 - On PASS, Orchestrator calls `finish_task` with outcome, validation, and follow-ups.
 
-This keeps review as an explicit phase instead of an implied best effort.
+The audit loop makes review an explicit phase rather than an afterthought.
 
 ## Model Configuration By Family
 

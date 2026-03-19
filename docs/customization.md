@@ -116,9 +116,9 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 ## Adding Skills And Commands
 
-- Add skills in your normal OpenCode skill directories.
-- Add commands using your standard OpenCode command config paths.
-- OCO does not change the basic extension model; it changes the agent hierarchy and workflow.
+- Skills go in `~/.config/opencode/skill/<name>/SKILL.md`. Each skill is a directory with a `SKILL.md` file that describes when and how the skill should be loaded.
+- Commands go in `~/.config/opencode/command/<name>.md`. Each command is a markdown file that defines a slash command template.
+- OCO does not change the skill or command model — it changes the agent hierarchy and workflow.
 
 ## Common Recipes
 
@@ -142,7 +142,10 @@ Start disabled, then enable only after credentials and network assumptions are c
 - Define the minimum permissions it needs.
 - If it is meant to persist like the Orchestrator, set `single_shot: false`; otherwise leave it single-shot.
 
-Example:
+Steps:
+
+1. Create the prompt file at `~/.config/opencode/prompts/security-reviewer.txt` with the agent's system prompt.
+2. Add the agent definition in your `opencode.jsonc`:
 
 ```jsonc
 "agent": {
@@ -161,6 +164,8 @@ Example:
   }
 }
 ```
+
+3. Restart `oco`. The new agent will be available as a subagent that the Orchestrator can spawn.
 
 ## Prompt Overrides
 
