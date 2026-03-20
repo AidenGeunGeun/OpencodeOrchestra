@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- TODO: Replace with designed hero banner image -->
-<!-- [![OpenCodeOrchestra](.github/assets/hero.png)](https://github.com/AidenGeunGeun/OpencodeOrchestra) -->
+[![OpenCodeOrchestra](.github/assets/hero.png)](https://github.com/AidenGeunGeun/OpencodeOrchestra)
 
 # OpenCodeOrchestra
 
@@ -99,12 +98,16 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 
 ## Agents
 
-<!-- TODO: Replace with agent character art side-by-side -->
-<!-- <table><tr>
-<td align="center"><img src=".github/assets/pm.png" height="200" /></td>
-<td align="center"><img src=".github/assets/orchestrator.png" height="200" /></td>
-<td align="center"><img src=".github/assets/investigator.png" height="200" /></td>
-</tr></table> -->
+<table>
+<tr>
+<td align="center"><img src=".github/assets/icon-pm.png" height="200" /><br/><b>PM</b></td>
+<td align="center"><img src=".github/assets/icon-orch.png" height="200" /><br/><b>Orchestrator</b></td>
+<td align="center"><img src=".github/assets/icon-investigator.png" height="200" /><br/><b>Investigator</b></td>
+<td align="center"><img src=".github/assets/icon-auditor.png" height="200" /><br/><b>Auditor</b></td>
+<td align="center"><img src=".github/assets/icon-researcher.png" height="200" /><br/><b>Researcher</b></td>
+<td align="center"><img src=".github/assets/icon-docs.png" height="200" /><br/><b>Docs</b></td>
+</tr>
+</table>
 
 | Agent | Depth | Default Model | What it does | Constraint |
 |:------|:-----:|:--------------|:-------------|:-----------|
