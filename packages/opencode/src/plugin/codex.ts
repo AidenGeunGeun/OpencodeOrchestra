@@ -21,6 +21,7 @@ const OAUTH_ALLOWED_MODELS = new Set([
   "gpt-5.3-codex-spark",
   "gpt-5.1-codex",
   "gpt-5.4",
+  "gpt-5.4-mini",
 ])
 
 interface PkceCodes {
