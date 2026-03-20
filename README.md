@@ -109,18 +109,18 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 </tr>
 </table>
 
-| Agent | Depth | Default Model | What it does | Constraint |
-|:------|:-----:|:--------------|:-------------|:-----------|
-| **PM** (`build` / `plan`) | 0 | Claude Opus 4.6 | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
-| **Orchestrator** | 1 | Claude Sonnet 4.6 | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
-| **Investigator** | 2+ | Claude Sonnet 4.6 | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
-| **Auditor** | 2+ | Claude Sonnet 4.6 | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
-| **Researcher** | 2+ | Claude Sonnet 4.6 | Fetches and synthesizes information from the web. | Web access only. No editing. |
-| **Docs** | 2+ | Claude Sonnet 4.6 | Updates README, docs, API references. | Docs scope only. |
+| Agent | Depth | Default Model | Recommended | What it does | Constraint |
+|:------|:-----:|:--------------|:------------|:-------------|:-----------|
+| **PM** (`build` / `plan`) | 0 | Claude Opus 4.6 | Heavy model (Opus, GPT-5.4) | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
+| **Orchestrator** | 1 | Claude Sonnet 4.6 | Heavy model (Opus, GPT-5.4) | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
+| **Investigator** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
+| **Auditor** | 2+ | Claude Sonnet 4.6 | Heavy model (Sonnet, GPT-5.4) | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
+| **Researcher** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Fetches and synthesizes information from the web. | Web access only. No editing. |
+| **Docs** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Updates README, docs, API references. | Docs scope only. |
 
 > [!NOTE]
 > The shipped config only requires **Anthropic** (Claude). Every agent defaults to Claude.<br/>
-> Want GPT for some roles? Swap the model and use `reasoningEffort` instead of `thinking`/`effort`. See [customization →](docs/customization.md)
+> Investigator, Researcher, and Docs work great on **GPT-5.4 mini** — cheap, fast, and more than capable for their scoped tasks. Save the heavy models for PM, Orchestrator, and Auditor where judgment matters most. See [customization →](docs/customization.md)
 
 ---
 
