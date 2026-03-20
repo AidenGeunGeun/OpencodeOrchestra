@@ -172,8 +172,9 @@ GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The 
 - `src/plugin/codex.ts` handles the OpenAI / ChatGPT subscription-backed OAuth path.
 - That Codex OAuth path allows the GPT-5.4 subscription family and normalizes aliases to canonical upstream model IDs via `api.id`.
 - `src/plugin/anthropic.ts` handles Anthropic OAuth directly in-tree.
-- Anthropic token exchange / refresh requests use an explicit auth-side `User-Agent` because Anthropic's token endpoint can return `429` for the OpenCode CLI fingerprint.
+- Anthropic token exchange / refresh requests use the auth-side `User-Agent: anthropic` because Anthropic's token endpoint can return `429` for the OpenCode CLI fingerprint.
 - Message requests and OAuth requests intentionally use different Anthropic-facing request shaping.
+- If users were already in a broken Anthropic auth state before upgrading, have them re-run `oco auth login -p anthropic -m "Claude Pro/Max"`.
 
 If Claude auth regresses, inspect `src/plugin/anthropic.ts` before reaching for an external plugin workaround.
 

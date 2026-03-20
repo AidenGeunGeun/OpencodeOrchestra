@@ -3,7 +3,7 @@ import { generatePKCE } from "@openauthjs/openauth/pkce"
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const TOOL_PREFIX = "mcp_"
-const AUTH_USER_AGENT = "curl/8.7.1"
+const AUTH_USER_AGENT = "anthropic"
 const MESSAGE_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
 async function authorize(mode: "max" | "console") {
