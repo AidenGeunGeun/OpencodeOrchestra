@@ -132,7 +132,7 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 | Before execution | Nothing | **Spec approval gate** |
 | Code review | Hope the model checks itself | **Dedicated Auditor** with PASS/FAIL |
 | Depth enforcement | None | **Runtime enforced** — agents can't escape their level |
-| Execution handoff | Implicit | **Explicit `finish_task`** with summary |
+| Execution handoff | Single-shot stdin/stdout | **Explicit `finish_task`** with summary |
 | AI SDK | 5.x | **6.x** with Claude 4.6 adaptive thinking |
 
 ---
