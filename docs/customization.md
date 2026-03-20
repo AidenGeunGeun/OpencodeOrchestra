@@ -42,6 +42,31 @@ Project-local config usually wins over global config, but the environment variab
 
 Do not mix `reasoningEffort` into Claude configuration or Claude `thinking`/`effort` into GPT configuration.
 
+### OpenAI Subscription Models
+
+- The built-in OpenAI/Codex OAuth path supports the GPT-5.4 family directly.
+- Canonical upstream slugs such as `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5.4-nano` are allowed on the subscription-backed path.
+- Custom aliases should still resolve to a real upstream model via `api.id`.
+- If you want a fast lane alias such as `openai/gpt-5.4-fast`, keep the upstream model canonical and express the difference through provider options like `serviceTier: "priority"`.
+
+Example:
+
+```jsonc
+"provider": {
+  "openai": {
+    "models": {
+      "gpt-5.4-fast": {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4 Fast",
+        "options": {
+          "serviceTier": "priority"
+        }
+      }
+    }
+  }
+}
+```
+
 ## Adjusting Permissions
 
 - Global permission entries in `config/opencode.jsonc` apply to every agent.
@@ -127,6 +152,7 @@ Start disabled, then enable only after credentials and network assumptions are c
 - Use the shipped config unchanged.
 - Authenticate Anthropic.
 - Keep Claude adaptive thinking fields on PM and subagents.
+- Claude Pro/Max OAuth support is bundled in OCO; no extra local Anthropic plugin is required.
 
 ### "I have Claude + GPT"
 

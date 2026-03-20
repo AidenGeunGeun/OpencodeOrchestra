@@ -26,7 +26,7 @@ Guide for AI coding agents working in this repository.
 
 - Built Linux x64 binary path: `packages/opencode/dist/@skybluejacket/oco-linux-x64/bin/oco`
 
-- Package manager: **bun@1.3.9**
+- Package manager: **Bun** (see root `package.json` for the pinned version)
 - Build orchestrator: **Turbo** (`turbo.json`)
 - Default branch: **`main`**
 - Storage: **SQLite** (drizzle-orm) at `~/.local/share/opencode/opencode.db`
@@ -359,14 +359,13 @@ Also: `ProviderTransform.providerOptions()` (line 818) added for gateway-aware p
 - `session/prompt.ts`: `LoopInput` changed to `z.union([Identifier, { sessionID, resume_existing }])`
   for more flexible invocation; `Session.setPermission` calls replaced with `Session.update()` draft pattern.
 
-### Feature — Codex OAuth FAST Alias Handling (`plugin/codex.ts`)
+### Package-Specific Auth Notes
 
-For OpenAI OAuth / ChatGPT Codex sessions, FAST is not a standalone upstream model slug.
+Recent OAuth/plugin behavior lives in `packages/opencode/AGENTS.md`, not here.
 
-- User-facing aliases such as `openai/gpt-5.4-fast` are allowed.
-- These aliases must resolve to the canonical upstream model via `api.id` (for example `gpt-5.4`).
-- FAST behavior must be expressed through `options.serviceTier = "priority"`, not by sending a custom model slug like `gpt-5.4-fast` upstream.
-- When working in the OAuth Codex path, preserve alias display/selection behavior while ensuring outbound requests use the canonical model slug.
+- OpenAI/Codex OAuth alias handling and GPT-5.4 family allowlists are package-specific.
+- Anthropic OAuth compatibility and request shaping are package-specific.
+- If Claude or ChatGPT subscription auth regresses, start in `packages/opencode/src/plugin/` and read `packages/opencode/AGENTS.md` first.
 
 ### Feature — Cache Token Display (`cli/cmd/tui/routes/session/header.tsx`, `sidebar.tsx`)
 
@@ -474,15 +473,6 @@ If the Desktop ignores `session.agentID`, it falls back to the first primary age
 3. **GitHub repos** — e.g., `github:AidenGeunGeun/opencode-context-compress` or `github:owner/repo#tag`
 
 GitHub deps are installed via `bun add github:...` into `Global.Path.cache`. The package's `dist/` directory must be committed to the repo (bun doesn't run lifecycle scripts for git deps). Package name resolution after install uses a three-strategy approach (exact match → prefix match → diff on package.json).
-
-## Backlog
-
-| ID | Feature | Description | Priority |
-|----|---------|-------------|----------|
-| B1 | Live server switching | Allow toggling between Local Server and remote (Tailscale) server without restarting the desktop app. Currently requires setting new default → quit → reopen. Scope: (1) dynamic SDK client reinitialization on server switch, (2) SSE reconnection to new server, (3) directory/project state refresh, (4) sidecar lifecycle management — stop sidecar when switching to remote, start when switching to local, never spawn sidecar if remote server is configured as default on launch. No restart required. | low |
-| B2 | "Prefill" error on cross-client race | When Desktop user sends a message while session is busy from another client (TUI or /compress manage), Anthropic API returns "This model does not support assistant message prefill". Root cause: Desktop didn't receive `session.status: busy` SSE event (due to old heartbeat bug). Should be fixed by 10s heartbeat (v1.0.15) — Desktop now shows stop icon when busy. Needs manual verification. If still occurs, server needs to reject concurrent prompt requests on the same session. | low |
-| B3 | Discord-style project folders in sidebar rail | Group project icons into collapsible folders in the Desktop sidebar rail (like Discord server folders). Drag projects into/out of folders. Persisted in layout state. | medium |
-| B4 | Desktop auto-updater | Enable Tauri's built-in updater so users don't need to manually download .dmg per release. Requires code signing + updater endpoint. `tauri.prod.conf.json` currently has `"createUpdaterArtifacts": false`. | low |
 
 ## Formatting
 

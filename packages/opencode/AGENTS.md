@@ -61,9 +61,10 @@ return Instance.provide({ directory, init: InstanceBootstrap, fn: () => next() }
 The catch-all route `/*` in `src/server/server.ts` resolves the frontend in this order:
 
 1. `OPENCODE_FRONTEND_DIR` env var (if set and contains `index.html`)
-2. `../../app/dist` relative to the server source file — monorepo build output
-3. `~/.local/share/opencode/frontend` — XDG data directory install
-4. Falls back to proxying `https://app.opencode.ai`
+2. `../frontend` relative to the packaged server bundle — compiled binary frontend
+3. `../../../app/dist` relative to the server source file — monorepo build output
+4. `~/.local/share/opencode/frontend` — XDG data directory install
+5. Falls back to proxying `https://app.opencode.ai`
 
 Non-file-extension paths fall through to `index.html` for SPA routing. All HTML responses include a strict `Content-Security-Policy` header.
 
@@ -166,6 +167,16 @@ Supports three specifier formats in the config `plugin` array:
 
 GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The plugin's `dist/` directory must be committed to the repo. Package name resolution after `bun add github:...` uses exact match → prefix match → diff on cache package.json.
 
+### Built-In Auth Plugins
+
+- `src/plugin/codex.ts` handles the OpenAI / ChatGPT subscription-backed OAuth path.
+- That Codex OAuth path allows the GPT-5.4 subscription family and normalizes aliases to canonical upstream model IDs via `api.id`.
+- `src/plugin/anthropic.ts` handles Anthropic OAuth directly in-tree.
+- Anthropic token exchange / refresh requests use an explicit auth-side `User-Agent` because Anthropic's token endpoint can return `429` for the OpenCode CLI fingerprint.
+- Message requests and OAuth requests intentionally use different Anthropic-facing request shaping.
+
+If Claude auth regresses, inspect `src/plugin/anthropic.ts` before reaching for an external plugin workaround.
+
 ## Bus → SSE Event Flow
 
 ```
@@ -181,4 +192,4 @@ All `Bus.publish()` calls emit to ALL connected SSE clients, regardless of which
 
 ## Tests
 
-Tests live in `test/`. Run with `bun test`. Current baseline: 884 pass / 29 skip / 0 fail. Always run `bun test` before committing changes to this package.
+Tests live in `test/`. Run with `bun test`. Always run `bun test` before committing changes to this package.
