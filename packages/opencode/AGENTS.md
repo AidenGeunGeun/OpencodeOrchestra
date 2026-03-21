@@ -172,7 +172,8 @@ GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The 
 - `src/plugin/codex.ts` handles the OpenAI / ChatGPT subscription-backed OAuth path.
 - That Codex OAuth path allows the GPT-5.4 subscription family and normalizes aliases to canonical upstream model IDs via `api.id`.
 - `src/plugin/anthropic.ts` handles Anthropic OAuth directly in-tree.
-- Anthropic token exchange / refresh requests use `application/x-www-form-urlencoded` plus the auth-side `User-Agent: anthropic`; the OpenCode CLI fingerprint on JSON token requests is prone to `429` failures.
+- Anthropic token exchange / refresh requests use `application/x-www-form-urlencoded` plus the auth-side `User-Agent: claude-cli/2.1.80`; do not send the OpenCode CLI fingerprint on OAuth token calls because it is prone to `429` failures.
+- The OAuth code exchange sends the original PKCE verifier back as `state`, not a parsed `code#...` suffix, so plain authorization-code pastes still validate correctly.
 - Message requests and OAuth requests intentionally use different Anthropic-facing request shaping.
 - If users were already in a broken Anthropic auth state before upgrading, have them re-run `oco auth login -p anthropic -m "Claude Pro/Max"`.
 

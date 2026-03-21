@@ -153,7 +153,8 @@ Start disabled, then enable only after credentials and network assumptions are c
 - Authenticate Anthropic.
 - Keep Claude adaptive thinking fields on PM and subagents.
 - Claude Pro/Max OAuth support is bundled in OCO; no extra local Anthropic plugin is required.
-- OCO's bundled Anthropic OAuth flow now uses OAuth-style form-urlencoded token requests instead of JSON.
+- OCO's bundled Anthropic OAuth flow now uses OAuth-style form-urlencoded token requests instead of JSON, avoids the toxic OpenCode auth fingerprint, and sends a Claude CLI-style auth `User-Agent` on token exchange / refresh.
+- The bundled flow also sends the original PKCE verifier back as the exchange `state`, which avoids broken plain-code pastes where no `#...` suffix is present.
 - If Claude Pro/Max auth was already failing before an OCO update, re-run `oco auth login -p anthropic -m "Claude Pro/Max"` after upgrading so the stored auth state is refreshed.
 
 ### "I have Claude + GPT"

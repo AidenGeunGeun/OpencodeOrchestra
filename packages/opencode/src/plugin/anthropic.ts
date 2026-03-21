@@ -3,7 +3,7 @@ import { generatePKCE } from "@openauthjs/openauth/pkce"
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const TOOL_PREFIX = "mcp_"
-const AUTH_USER_AGENT = "anthropic"
+const AUTH_USER_AGENT = "claude-cli/2.1.80"
 const MESSAGE_USER_AGENT = "claude-cli/2.1.2 (external, cli)"
 
 async function authorize(mode: "max" | "console") {
@@ -43,7 +43,7 @@ async function exchange(code: string, verifier: string) {
     headers: buildAuthHeaders(),
     body: buildAuthBody({
       code: splits[0],
-      state: splits[1],
+      state: verifier,
       grant_type: "authorization_code",
       client_id: CLIENT_ID,
       redirect_uri: "https://console.anthropic.com/oauth/code/callback",
