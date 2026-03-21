@@ -27,9 +27,13 @@ async function authorize(mode: "max" | "console") {
 
 function buildAuthHeaders() {
   return {
-    "Content-Type": "application/json",
+    "Content-Type": "application/x-www-form-urlencoded",
     "User-Agent": AUTH_USER_AGENT,
   }
+}
+
+function buildAuthBody(values: Record<string, string>) {
+  return new URLSearchParams(values).toString()
 }
 
 async function exchange(code: string, verifier: string) {
@@ -37,7 +41,7 @@ async function exchange(code: string, verifier: string) {
   const result = await fetch("https://console.anthropic.com/v1/oauth/token", {
     method: "POST",
     headers: buildAuthHeaders(),
-    body: JSON.stringify({
+    body: buildAuthBody({
       code: splits[0],
       state: splits[1],
       grant_type: "authorization_code",
@@ -212,7 +216,7 @@ export async function AnthropicAuthPlugin({ client }: PluginInput): Promise<Hook
                 const response = await fetch("https://console.anthropic.com/v1/oauth/token", {
                   method: "POST",
                   headers: buildAuthHeaders(),
-                  body: JSON.stringify({
+                  body: buildAuthBody({
                     grant_type: "refresh_token",
                     refresh_token: auth.refresh,
                     client_id: CLIENT_ID,
