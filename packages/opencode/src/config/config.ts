@@ -11,7 +11,9 @@ import fs from "fs/promises"
 import { lazy } from "../util/lazy"
 import { NamedError } from "@opencode-ai/util/error"
 import { Flag } from "../flag/flag"
+import { Account } from "../account"
 import { Auth } from "../auth"
+import { Env } from "../env"
 import {
   type ParseError as JsoncParseError,
   applyEdits,
@@ -85,6 +87,31 @@ export namespace Config {
         )
         log.debug("loaded remote config from well-known", { url: key })
       }
+    }
+
+    delete process.env.OPENCODE_CONSOLE_TOKEN
+    Env.remove("OPENCODE_CONSOLE_TOKEN")
+    try {
+      const active = Account.active()
+      if (active) {
+        const [token, config] = await Promise.all([
+          Account.token(active.id),
+          active.active_org_id ? Account.config(active.id, active.active_org_id) : Promise.resolve(undefined),
+        ])
+
+        if (token) {
+          process.env.OPENCODE_CONSOLE_TOKEN = token
+          Env.set("OPENCODE_CONSOLE_TOKEN", token)
+        }
+
+        if (config) {
+          const remoteConfig = { ...config }
+          if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
+          result = mergeConfigConcatArrays(result, await load(JSON.stringify(remoteConfig), `${active.url}/api/config`))
+        }
+      }
+    } catch (err: any) {
+      log.debug("failed to fetch remote account config", { error: err?.message ?? err })
     }
 
     // Global user config overrides remote config

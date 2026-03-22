@@ -1,73 +1,40 @@
-import path from "path"
-import { Global } from "../global"
-import fs from "fs/promises"
-import z from "zod"
+import { Effect } from "effect"
 
-export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
+import { runtime } from "@/effect/runtime"
+import * as S from "./service"
+
+export { OAUTH_DUMMY_KEY } from "./service"
+
+function runPromise<A>(f: (service: S.AuthService.Service) => Effect.Effect<A, S.AuthServiceError>) {
+  return runtime.runPromise(S.AuthService.use(f))
+}
 
 export namespace Auth {
-  export const Oauth = z
-    .object({
-      type: z.literal("oauth"),
-      refresh: z.string(),
-      access: z.string(),
-      expires: z.number(),
-      accountId: z.string().optional(),
-      enterpriseUrl: z.string().optional(),
-    })
-    .meta({ ref: "OAuth" })
+  export const Oauth = S.Oauth
+  export type Oauth = import("./service").Oauth
 
-  export const Api = z
-    .object({
-      type: z.literal("api"),
-      key: z.string(),
-    })
-    .meta({ ref: "ApiAuth" })
+  export const Api = S.Api
+  export type Api = import("./service").Api
 
-  export const WellKnown = z
-    .object({
-      type: z.literal("wellknown"),
-      key: z.string(),
-      token: z.string(),
-    })
-    .meta({ ref: "WellKnownAuth" })
+  export const WellKnown = S.WellKnown
+  export type WellKnown = import("./service").WellKnown
 
-  export const Info = z.discriminatedUnion("type", [Oauth, Api, WellKnown]).meta({ ref: "Auth" })
-  export type Info = z.infer<typeof Info>
-
-  const filepath = path.join(Global.Path.data, "auth.json")
+  export const Info = S.Info
+  export type Info = import("./service").Info
 
   export async function get(providerID: string) {
-    const auth = await all()
-    return auth[providerID]
+    return runPromise((service) => service.get(S.normalizeProviderID(providerID)))
   }
 
   export async function all(): Promise<Record<string, Info>> {
-    const file = Bun.file(filepath)
-    const data = await file.json().catch(() => ({}) as Record<string, unknown>)
-    return Object.entries(data).reduce(
-      (acc, [key, value]) => {
-        const parsed = Info.safeParse(value)
-        if (!parsed.success) return acc
-        acc[key] = parsed.data
-        return acc
-      },
-      {} as Record<string, Info>,
-    )
+    return runPromise((service) => service.all())
   }
 
-  export async function set(key: string, info: Info) {
-    const file = Bun.file(filepath)
-    const data = await all()
-    await Bun.write(file, JSON.stringify({ ...data, [key]: info }, null, 2))
-    await fs.chmod(file.name!, 0o600)
+  export async function set(providerID: string, info: Info) {
+    return runPromise((service) => service.set(S.normalizeProviderID(providerID), info))
   }
 
-  export async function remove(key: string) {
-    const file = Bun.file(filepath)
-    const data = await all()
-    delete data[key]
-    await Bun.write(file, JSON.stringify(data, null, 2))
-    await fs.chmod(file.name!, 0o600)
+  export async function remove(providerID: string) {
+    return runPromise((service) => service.remove(S.normalizeProviderID(providerID)))
   }
 }
