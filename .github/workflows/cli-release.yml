@@ -3,11 +3,11 @@ name: cli-release
 on:
   push:
     tags:
-      - "v*"
+      - "oco-v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.20)"
+        description: "Release tag (e.g. oco-v1.0.20)"
         required: true
         type: string
 
