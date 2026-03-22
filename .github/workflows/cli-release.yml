@@ -1,0 +1,66 @@
+name: cli-release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.20)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-cli:
+    name: Build CLI binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Build all targets
+        working-directory: packages/opencode
+        run: bun run script/build.ts --skip-install
+
+      - name: Prepare release assets
+        working-directory: packages/opencode
+        run: |
+          mkdir -p release-assets
+          for dir in dist/@skybluejacket/oco-*/; do
+            name=$(basename "$dir")
+            # Strip the scope prefix for cleaner filenames
+            short_name="${name#@skybluejacket/}"
+            bin_path="$dir/bin/oco"
+            if [ -f "$bin_path" ]; then
+              # Tar the binary
+              tar -czf "release-assets/${short_name}.tar.gz" -C "$dir/bin" oco
+              echo "Packaged: ${short_name}.tar.gz"
+            elif [ -f "${bin_path}.exe" ]; then
+              # Zip Windows binary
+              (cd "$dir/bin" && zip -q "../../release-assets/${short_name}.zip" oco.exe)
+              echo "Packaged: ${short_name}.zip"
+            fi
+          done
+          ls -lh release-assets/
+
+      - name: Generate checksums
+        working-directory: packages/opencode/release-assets
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/opencode/release-assets/*
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
