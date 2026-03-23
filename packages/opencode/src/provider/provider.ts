@@ -123,6 +123,23 @@ export namespace Provider {
         options: hasKey ? {} : { apiKey: "public" },
       }
     },
+    "opencode-go": async (input) => {
+      const hasKey = await (async () => {
+        const env = Env.all()
+        if (input.env.some((item) => env[item])) return true
+        if (await Auth.get("opencode-go")) return true
+        if (await Auth.get("opencode")) return true
+        const config = await Config.get()
+        if (config.provider?.["opencode-go"]?.options?.apiKey) return true
+        if (config.provider?.["opencode"]?.options?.apiKey) return true
+        return false
+      })()
+
+      return {
+        autoload: true,
+        options: hasKey ? {} : { apiKey: "public" },
+      }
+    },
     openai: async () => {
       return {
         autoload: false,
