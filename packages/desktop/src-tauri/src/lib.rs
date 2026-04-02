@@ -1,3 +1,4 @@
+mod bootstrap;
 mod cli;
 mod constants;
 #[cfg(target_os = "linux")]
@@ -419,6 +420,12 @@ async fn initialize(app: AppHandle) {
     let (init_tx, init_rx) = watch::channel(InitStep::ServerWaiting);
 
     setup_app(&app, init_rx);
+
+    match bootstrap::seed_oco_user_assets() {
+        Ok(path) => tracing::info!(path = %path.display(), "Seeded bundled OCO desktop assets"),
+        Err(error) => tracing::error!(%error, "Failed to seed bundled OCO desktop assets"),
+    }
+
     spawn_cli_sync_task(app.clone());
 
     let skip_local = {
@@ -617,7 +624,7 @@ fn opencode_db_path() -> Result<PathBuf, &'static str> {
         }
     };
 
-    Ok(data_home.join("opencode").join("opencode.db"))
+    Ok(data_home.join("oco").join("oco.db"))
 }
 
 // Creates a `once` listener for the specified event and returns a future that resolves
