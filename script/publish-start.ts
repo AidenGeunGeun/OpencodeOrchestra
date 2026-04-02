@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import { Script } from "@opencodeorchestra/script"
+import { Script } from "@opencode-ai/script"
 import { buildNotes, getLatestRelease } from "./changelog"
 
 let notes: string[] = []
+const tag = `oco-v${Script.version}`
 
 console.log("=== publishing ===\n")
 
@@ -43,14 +44,14 @@ process.chdir(dir)
 let output = `version=${Script.version}\n`
 
 if (!Script.preview) {
-  await $`git commit -am "release: v${Script.version}"`
-  await $`git tag v${Script.version}`
+  await $`git commit -am ${"release: " + tag}`
+  await $`git tag ${tag}`
   await $`git fetch origin`
   await $`git cherry-pick HEAD..origin/dev`.nothrow()
-  await $`git push origin HEAD --tags --no-verify --force-with-lease`
+  await $`git push origin HEAD ${tag} --no-verify --force-with-lease`
   await new Promise((resolve) => setTimeout(resolve, 5_000))
-  await $`gh release create v${Script.version} -d --title "v${Script.version}" --notes ${notes.join("\n") || "No notable changes"} ./packages/opencode/dist/*.zip ./packages/opencode/dist/*.tar.gz`
-  const release = await $`gh release view v${Script.version} --json id,tagName`.json()
+  await $`gh release create ${tag} -d --title ${tag} --notes ${notes.join("\n") || "No notable changes"} ./packages/opencode/dist/*.zip ./packages/opencode/dist/*.tar.gz`
+  const release = await $`gh release view ${tag} --json id,tagName`.json()
   output += `release=${release.id}\n`
   output += `tag=${release.tagName}\n`
 }

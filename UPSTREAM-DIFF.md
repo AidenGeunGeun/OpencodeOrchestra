@@ -24,8 +24,8 @@ singleShot: z.boolean().default(true),
 Controls whether an agent auto-returns its first response to the parent (`true`, default for subagents)
 or waits for an explicit `finish_task` call (`false`, for orchestrators).
 
-**6 new agent definitions** added to the state initializer:
-`orchestrator`, `investigator`, `auditor`, `researcher`, `cleanup`, `docs`
+**5 new agent definitions** added to the state initializer:
+`orchestrator`, `investigator`, `auditor`, `web-search`, `docs`
 
 Each agent has `mode: "subagent"`, a description, `singleShot` value, and a custom prompt.
 
@@ -34,8 +34,7 @@ Each agent has `mode: "subagent"`, a description, `singleShot` value, and a cust
 ### `agent/prompt/orchestrator.txt` — NEW FILE
 ### `agent/prompt/investigator.txt` — NEW FILE
 ### `agent/prompt/auditor.txt` — NEW FILE
-### `agent/prompt/researcher.txt` — NEW FILE
-### `agent/prompt/cleanup.txt` — NEW FILE
+### `agent/prompt/web-search.txt` — NEW FILE
 ### `agent/prompt/docs.txt` — NEW FILE
 
 Custom system prompts for each OCO agent. Not present in upstream.
@@ -535,7 +534,7 @@ function normalizeSkillFile(file: string): string | undefined
 
 These files are not tracked in the source tree but diverge from upstream defaults.
 
-### `opencode.jsonc` (user config)
+### `oco.jsonc` (user config)
 
 Flat option structure instead of variant system:
 ```jsonc
@@ -558,7 +557,7 @@ options directly to allow adaptive thinking on Claude 4.6 without variant indire
 
 ---
 
-### `~/.config/opencode/prompts/compaction.txt`
+### `~/.config/oco/prompts/compaction.txt`
 
 Expanded from ~71 lines (upstream default) to ~100 lines.
 

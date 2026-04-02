@@ -21,6 +21,9 @@ interface RemovalTargets {
   binary: string | null
 }
 
+const CURL_BIN_DIRS = [Global.Namespace.projectDir, Global.Namespace.legacyProjectDir]
+const SHELL_MARKERS = ["# oco", "# opencode"]
+
 export const UninstallCommand = {
   command: "uninstall",
   describe: "uninstall oco and remove all related files",
@@ -218,13 +221,13 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
     if (process.platform === "win32") {
       prompts.log.info(`  del "${targets.binary}"`)
       const binDir = path.dirname(targets.binary)
-      if (binDir.includes(".opencode")) {
+      if (CURL_BIN_DIRS.some((dir) => binDir.includes(dir))) {
         prompts.log.info(`  rmdir /s /q "${binDir}"`)
       }
     } else {
       prompts.log.info(`  rm "${targets.binary}"`)
       const binDir = path.dirname(targets.binary)
-      if (binDir.includes(".opencode")) {
+      if (CURL_BIN_DIRS.some((dir) => binDir.includes(dir))) {
         prompts.log.info(`  rmdir "${binDir}" 2>/dev/null`)
       }
     }
@@ -283,7 +286,7 @@ async function getShellConfigFile(): Promise<string | null> {
     const content = await Bun.file(file)
       .text()
       .catch(() => "")
-    if (content.includes("# opencode") || content.includes(".opencode/bin")) {
+    if (SHELL_MARKERS.some((marker) => content.includes(marker)) || CURL_BIN_DIRS.some((dir) => content.includes(`${dir}/bin`))) {
       return file
     }
   }
@@ -301,21 +304,21 @@ async function cleanShellConfig(file: string) {
   for (const line of lines) {
     const trimmed = line.trim()
 
-    if (trimmed === "# opencode") {
+    if (SHELL_MARKERS.includes(trimmed)) {
       skip = true
       continue
     }
 
     if (skip) {
       skip = false
-      if (trimmed.includes(".opencode/bin") || trimmed.includes("fish_add_path")) {
+      if (CURL_BIN_DIRS.some((dir) => trimmed.includes(`${dir}/bin`) || trimmed.includes(dir)) || trimmed.includes("fish_add_path")) {
         continue
       }
     }
 
     if (
-      (trimmed.startsWith("export PATH=") && trimmed.includes(".opencode/bin")) ||
-      (trimmed.startsWith("fish_add_path") && trimmed.includes(".opencode"))
+      (trimmed.startsWith("export PATH=") && CURL_BIN_DIRS.some((dir) => trimmed.includes(`${dir}/bin`))) ||
+      (trimmed.startsWith("fish_add_path") && CURL_BIN_DIRS.some((dir) => trimmed.includes(dir)))
     ) {
       continue
     }

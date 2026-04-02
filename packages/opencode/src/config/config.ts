@@ -5,7 +5,7 @@ import os from "os"
 import z from "zod"
 import { Filesystem } from "../util/filesystem"
 import { ModelsDev } from "../provider/models"
-import { mergeDeep, pipe, unique } from "remeda"
+import { mergeDeep, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
 import { lazy } from "../util/lazy"
@@ -35,21 +35,64 @@ export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
 
   const log = Log.create({ service: "config" })
+  const CONFIG_FILENAMES = [...Global.Namespace.configFilenames]
+  const LEGACY_CONFIG_FILENAMES = [...Global.Namespace.legacyConfigFilenames]
+  const GLOBAL_CONFIG_FALLBACK_FILENAMES = ["config.json", ...CONFIG_FILENAMES]
+  const LEGACY_GLOBAL_CONFIG_FALLBACK_FILENAMES = ["config.json", ...LEGACY_CONFIG_FILENAMES]
+  const PROJECT_CONFIG_DIRS = [Global.Namespace.legacyProjectDir, Global.Namespace.projectDir]
+
+  function containsPath(parent: string, child: string) {
+    const relative = path.relative(parent, child)
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  }
+
+  function hasConfigFiles(dir: string, files: string[]) {
+    return files.some((file) => existsSync(path.join(dir, file)))
+  }
+
+  function readConfigFilenames(dir: string, options?: { allowLegacy?: boolean }) {
+    if (hasConfigFiles(dir, CONFIG_FILENAMES)) return CONFIG_FILENAMES
+    if (options?.allowLegacy !== false && hasConfigFiles(dir, LEGACY_CONFIG_FILENAMES)) return LEGACY_CONFIG_FILENAMES
+    return CONFIG_FILENAMES
+  }
+
+  function globalReadTarget() {
+    if (hasConfigFiles(Global.Path.config, GLOBAL_CONFIG_FALLBACK_FILENAMES)) {
+      return {
+        dir: Global.Path.config,
+        files: GLOBAL_CONFIG_FALLBACK_FILENAMES,
+      }
+    }
+    if (hasConfigFiles(Global.Path.legacy.config, LEGACY_GLOBAL_CONFIG_FALLBACK_FILENAMES)) {
+      return {
+        dir: Global.Path.legacy.config,
+        files: LEGACY_GLOBAL_CONFIG_FALLBACK_FILENAMES,
+      }
+    }
+    return {
+      dir: Global.Path.config,
+      files: GLOBAL_CONFIG_FALLBACK_FILENAMES,
+    }
+  }
+
+  function isLegacyConfigPath(filepath: string) {
+    return containsPath(Global.Path.legacy.config, filepath) || filepath.split(path.sep).includes(Global.Namespace.legacyProjectDir)
+  }
 
   // Managed settings directory for enterprise deployments (highest priority, admin-controlled)
   // These settings override all user and project settings
   function getManagedConfigDir(): string {
     switch (process.platform) {
       case "darwin":
-        return "/Library/Application Support/opencode"
+        return "/Library/Application Support/oco"
       case "win32":
-        return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
+        return path.join(process.env.ProgramData || "C:\\ProgramData", "oco")
       default:
-        return "/etc/opencode"
+        return "/etc/oco"
     }
   }
 
-  const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || getManagedConfigDir()
+  const managedConfigDir = process.env.OCO_TEST_MANAGED_CONFIG_DIR || process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || getManagedConfigDir()
 
   // Custom merge function that concatenates array fields instead of replacing them
   function mergeConfigConcatArrays(target: Info, source: Info): Info {
@@ -125,7 +168,7 @@ export namespace Config {
 
     // Project config has highest precedence (overrides global and remote)
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of ["opencode.jsonc", "opencode.json"]) {
+      for (const file of CONFIG_FILENAMES) {
         const found = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
         for (const resolved of found.toReversed()) {
           result = mergeConfigConcatArrays(result, await loadFile(resolved))
@@ -144,21 +187,21 @@ export namespace Config {
     result.plugin = result.plugin || []
 
     const directories = [
-      Global.Path.config,
-      // Only scan project .opencode/ directories when project discovery is enabled
+      globalDirectory(),
+      // Only scan project .oco/ directories when project discovery is enabled
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? await Array.fromAsync(
             Filesystem.up({
-              targets: [".opencode"],
+              targets: PROJECT_CONFIG_DIRS,
               start: Instance.directory,
               stop: Instance.worktree,
             }),
           )
         : []),
-      // Always scan ~/.opencode/ (user home directory)
+      // Always scan ~/.oco/ (user home directory)
       ...(await Array.fromAsync(
         Filesystem.up({
-          targets: [".opencode"],
+          targets: PROJECT_CONFIG_DIRS,
           start: Global.Path.home,
           stop: Global.Path.home,
         }),
@@ -167,14 +210,14 @@ export namespace Config {
 
     if (Flag.OPENCODE_CONFIG_DIR) {
       directories.push(Flag.OPENCODE_CONFIG_DIR)
-      log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
+      log.debug("loading config from OCO_CONFIG_DIR/OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
     }
 
     const deps: Promise<void>[] = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-        for (const file of ["opencode.jsonc", "opencode.json"]) {
+      if (PROJECT_CONFIG_DIRS.some((name) => dir.endsWith(name)) || dir === Flag.OPENCODE_CONFIG_DIR) {
+        for (const file of readConfigFilenames(dir)) {
           log.debug(`loading config from ${path.join(dir, file)}`)
           result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
           // to satisfy the type checker
@@ -196,7 +239,7 @@ export namespace Config {
     }
 
     if (existsSync(managedConfigDir)) {
-      for (const file of ["opencode.jsonc", "opencode.json"]) {
+      for (const file of CONFIG_FILENAMES) {
         result = mergeConfigConcatArrays(result, await loadFile(path.join(managedConfigDir, file)))
       }
     }
@@ -313,7 +356,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/command/", "/.opencode/commands/", "/command/", "/commands/"]
+      const patterns = [
+        `/${Global.Namespace.projectDir}/command/`,
+        `/${Global.Namespace.projectDir}/commands/`,
+        `/${Global.Namespace.legacyProjectDir}/command/`,
+        `/${Global.Namespace.legacyProjectDir}/commands/`,
+        "/command/",
+        "/commands/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const name = trim(file)
 
@@ -353,7 +403,14 @@ export namespace Config {
       })
       if (!md) continue
 
-      const patterns = ["/.opencode/agent/", "/.opencode/agents/", "/agent/", "/agents/"]
+      const patterns = [
+        `/${Global.Namespace.projectDir}/agent/`,
+        `/${Global.Namespace.projectDir}/agents/`,
+        `/${Global.Namespace.legacyProjectDir}/agent/`,
+        `/${Global.Namespace.legacyProjectDir}/agents/`,
+        "/agent/",
+        "/agents/",
+      ]
       const file = rel(item, patterns) ?? path.basename(item)
       const agentName = trim(file)
 
@@ -449,9 +506,9 @@ export namespace Config {
    * Deduplicates plugins by name, with later entries (higher priority) winning.
    * Priority order (highest to lowest):
    * 1. Local plugin/ directory
-   * 2. Local opencode.json
+    * 2. Local oco.json
    * 3. Global plugin/ directory
-   * 4. Global opencode.json
+    * 4. Global oco.json
    *
    * Since plugins are added in low-to-high priority order,
    * we reverse, deduplicate (keeping first occurrence), then restore order.
@@ -1179,27 +1236,28 @@ export namespace Config {
   export type Info = z.output<typeof Info>
 
   export const global = lazy(async () => {
-    let result: Info = pipe(
-      {},
-      mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
-    )
+    const target = globalReadTarget()
+    let result: Info = {}
+    for (const file of target.files) {
+      result = mergeDeep(result, await loadFile(path.join(target.dir, file)))
+    }
 
-    await import(path.join(Global.Path.config, "config"), {
-      with: {
-        type: "toml",
-      },
-    })
-      .then(async (mod) => {
-        const { provider, model, ...rest } = mod.default
-        if (provider && model) result.model = `${provider}/${model}`
-        result["$schema"] = "https://opencode.ai/config.json"
-        result = mergeDeep(result, rest)
-        await Bun.write(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
-        await fs.unlink(path.join(Global.Path.config, "config"))
+    if (target.dir === Global.Path.config) {
+      await import(path.join(Global.Path.config, "config"), {
+        with: {
+          type: "toml",
+        },
       })
-      .catch(() => {})
+        .then(async (mod) => {
+          const { provider, model, ...rest } = mod.default
+          if (provider && model) result.model = `${provider}/${model}`
+          result["$schema"] = "https://opencode.ai/config.json"
+          result = mergeDeep(result, rest)
+          await Bun.write(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
+          await fs.unlink(path.join(Global.Path.config, "config"))
+        })
+        .catch(() => {})
+    }
 
     return result
   })
@@ -1289,7 +1347,9 @@ export namespace Config {
         parsed.data.$schema = "https://opencode.ai/config.json"
         // Write the $schema to the original text to preserve variables like {env:VAR}
         const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-        await Bun.write(configFilepath, updated).catch(() => {})
+        if (!isLegacyConfigPath(configFilepath)) {
+          await Bun.write(configFilepath, updated).catch(() => {})
+        }
       }
       const data = parsed.data
       if (data.plugin) {
@@ -1343,14 +1403,29 @@ export namespace Config {
   }
 
   export async function update(config: Info) {
-    const filepath = path.join(Instance.directory, "config.json")
-    const existing = await loadFile(filepath)
-    await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
+    const candidates = CONFIG_FILENAMES.map((file) => path.join(Instance.directory, file))
+    const filepath = candidates.find((file) => existsSync(file)) ?? candidates[0]
+    const before = await Bun.file(filepath)
+      .text()
+      .catch((err) => {
+        if (err.code === "ENOENT") return "{}"
+        throw new JsonError({ path: filepath }, { cause: err })
+      })
+
+    if (!filepath.endsWith(".jsonc")) {
+      const existing = parseConfig(before, filepath)
+      await Bun.write(filepath, JSON.stringify(mergeDeep(existing, config), null, 2))
+    } else {
+      const next = patchJsonc(before, config)
+      parseConfig(next, filepath)
+      await Bun.write(filepath, next)
+    }
+
     await Instance.dispose()
   }
 
   function globalConfigFile() {
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
+    const candidates = [...CONFIG_FILENAMES, "config.json"].map((file) =>
       path.join(Global.Path.config, file),
     )
     for (const file of candidates) {
@@ -1445,6 +1520,10 @@ export namespace Config {
 
   export async function directories() {
     return state().then((x) => x.directories)
+  }
+
+  export function globalDirectory() {
+    return globalReadTarget().dir
   }
 
   export async function waitForDependencies() {

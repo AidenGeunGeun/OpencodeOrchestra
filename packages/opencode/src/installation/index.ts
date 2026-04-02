@@ -6,6 +6,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { Log } from "../util/log"
 import { iife } from "@/util/iife"
 import { Flag } from "../flag/flag"
+import { Global } from "@/global"
 
 declare global {
   const OPENCODE_VERSION: string
@@ -58,7 +59,12 @@ export namespace Installation {
   }
 
   export async function method() {
-    if (process.execPath.includes(path.join(".opencode", "bin"))) return "curl"
+    if (
+      [Global.Namespace.projectDir, Global.Namespace.legacyProjectDir].some((dir) =>
+        process.execPath.includes(path.join(dir, "bin")),
+      )
+    )
+      return "curl"
     if (process.execPath.includes(path.join(".local", "bin"))) return "curl"
     const exec = process.execPath.toLowerCase()
 

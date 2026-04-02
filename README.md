@@ -13,7 +13,7 @@ Each role has its own depth, permissions, and model. Like a real engineering tea
 [![GitHub Stars](https://img.shields.io/github/stars/AidenGeunGeun/OpencodeOrchestra?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/AidenGeunGeun/OpencodeOrchestra/stargazers)
 [![License](https://img.shields.io/badge/license-MIT-white?labelColor=black&style=flat-square)](LICENSE)
 
-A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x · Claude 4.6 adaptive thinking
+A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x · GPT-5.4 default agent stack
 
 </div>
 
@@ -34,11 +34,21 @@ A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x
 # Download the latest binary from GitHub Releases, put it on your PATH
 # macOS: codesign -f -s - ~/.local/bin/oco
 
-mkdir -p ~/.config/opencode/prompts
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/opencode.jsonc -o ~/.config/opencode/opencode.jsonc
-for f in pm orchestrator investigator auditor researcher docs compaction; do
-  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/opencode/prompts/${f}.txt
+mkdir -p \
+  ~/.config/oco/prompts \
+  ~/.config/oco/skill/agents-md/references \
+  ~/.config/oco/skill/skill-creator/references
+
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/oco.jsonc -o ~/.config/oco/oco.jsonc
+for f in pm orchestrator investigator auditor web-search docs compaction; do
+  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/oco/prompts/${f}.txt
 done
+
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
 
 oco auth login
 oco
@@ -46,13 +56,15 @@ oco
 
 That's it. You have a PM, an Orchestrator, and four specialist agents. [Full setup guide →](docs/installation.md)
 
+If you already have an older `~/.config/opencode/` install, the new binary reads it as a fallback until you migrate. Run `scripts/migrate-config.sh` to copy missing config, prompts, state, and cache files into the new `oco` namespace and duplicate `opencode.jsonc` / `opencode.json` as `oco.jsonc` / `oco.json`.
+
 ---
 
 ## The Problem
 
 Vanilla OpenCode has two agents: `build` and `plan`. They share everything — context, permissions, tools. You prompt, it codes, you hope for the best.
 
-That works for small tasks. It falls apart when you need multi-file changes, architecture decisions, or anything where "the AI went off the rails" means hours of cleanup.
+That works for small tasks. It falls apart when you need multi-file changes, architecture decisions, or anything where "the AI went off the rails" means hours of rework.
 
 ## The Fix
 
@@ -68,7 +80,7 @@ PM (Depth 0) ─── talks to you, investigates, drafts specs
  │         │
  │         ├──▶ Investigator ─── reads code, traces calls, reports facts
  │         ├──▶ Auditor ─── reviews changes, returns PASS or FAIL
- │         ├──▶ Researcher ─── fetches info from the web
+ │         ├──▶ Web-Search ─── fetches info from the web
  │         └──▶ Docs ─── updates documentation
  │
  ▼
@@ -104,23 +116,23 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 <td align="center"><img src=".github/assets/icon-orch.png" height="200" /><br/><b>Orchestrator</b></td>
 <td align="center"><img src=".github/assets/icon-investigator.png" height="200" /><br/><b>Investigator</b></td>
 <td align="center"><img src=".github/assets/icon-auditor.png" height="200" /><br/><b>Auditor</b></td>
-<td align="center"><img src=".github/assets/icon-researcher.png" height="200" /><br/><b>Researcher</b></td>
+<td align="center"><img src=".github/assets/icon-web-search.png" height="200" /><br/><b>Web-Search</b></td>
 <td align="center"><img src=".github/assets/icon-docs.png" height="200" /><br/><b>Docs</b></td>
 </tr>
 </table>
 
 | Agent | Depth | Default Model | Recommended | What it does | Constraint |
 |:------|:-----:|:--------------|:------------|:-------------|:-----------|
-| **PM** (`build` / `plan`) | 0 | Claude Opus 4.6 | Heavy model (Opus, GPT-5.4) | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
-| **Orchestrator** | 1 | Claude Sonnet 4.6 | Heavy model (Opus, GPT-5.4) | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
-| **Investigator** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
-| **Auditor** | 2+ | Claude Sonnet 4.6 | Heavy model (Sonnet, GPT-5.4) | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
-| **Researcher** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Fetches and synthesizes information from the web. | Web access only. No editing. |
-| **Docs** | 2+ | Claude Sonnet 4.6 | Fast model (GPT-5.4 mini) | Updates README, docs, API references. | Docs scope only. |
+| **PM** (`build` / `plan`) | 0 | GPT-5.4 | Heavy model (GPT-5.4, Claude Opus) | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
+| **Orchestrator** | 1 | GPT-5.4 | Heavy model (GPT-5.4, Claude Opus) | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
+| **Investigator** | 2+ | GPT-5.4 mini | Fast model (GPT-5.4 mini, Claude Sonnet) | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
+| **Auditor** | 2+ | GPT-5.4 | Heavy model (GPT-5.4, Claude Sonnet) | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
+| **Web-Search** | 2+ | GPT-5.4 mini | Fast model (GPT-5.4 mini, Claude Sonnet) | Searches the web and returns evidence with source citations. | Read-only. No editing. |
+| **Docs** | 2+ | GPT-5.4 mini | Fast model (GPT-5.4 mini, Claude Sonnet) | Updates README, docs, API references. | Docs scope only. |
 
 > [!NOTE]
-> The shipped config only requires **Anthropic** (Claude). Every agent defaults to Claude.<br/>
-> Investigator, Researcher, and Docs work great on **GPT-5.4 mini** — cheap, fast, and more than capable for their scoped tasks. Save the heavy models for PM, Orchestrator, and Auditor where judgment matters most. See [customization →](docs/customization.md)
+> The shipped config defaults every agent to **OpenAI**.<br/>
+> PM, Orchestrator, and Auditor use **GPT-5.4**; Investigator, Web-Search, Docs, and Compaction use **GPT-5.4 mini**. Claude remains a supported swap if you prefer it. See [customization →](docs/customization.md)
 
 ---
 

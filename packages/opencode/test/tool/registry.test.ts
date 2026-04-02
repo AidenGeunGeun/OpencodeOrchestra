@@ -9,10 +9,10 @@ import { Agent } from "../../src/agent/agent"
 const SLOW_TIMEOUT_MS = 30000
 
 describe("tool.registry", () => {
-  test("loads tools from .opencode/tool (singular)", async () => {
+  test("loads tools from .oco/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        const opencodeDir = path.join(dir, ".opencode")
+        const opencodeDir = path.join(dir, ".oco")
         await fs.mkdir(opencodeDir, { recursive: true })
 
         const toolDir = path.join(opencodeDir, "tool")
@@ -43,10 +43,10 @@ describe("tool.registry", () => {
     })
   }, SLOW_TIMEOUT_MS)
 
-  test("loads tools from .opencode/tools (plural)", async () => {
+  test("loads tools from .oco/tools (plural)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        const opencodeDir = path.join(dir, ".opencode")
+        const opencodeDir = path.join(dir, ".oco")
         await fs.mkdir(opencodeDir, { recursive: true })
 
         const toolsDir = path.join(opencodeDir, "tools")

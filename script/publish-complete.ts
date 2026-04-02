@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 
-import { Script } from "@opencodeorchestra/script"
+import { Script } from "@opencode-ai/script"
 import { $ } from "bun"
 
+const tag = `oco-v${Script.version}`
+
 if (!Script.preview) {
-  await $`gh release edit v${Script.version} --draft=false`
+  await $`gh release edit ${tag} --draft=false`
 }
 
 await $`bun install`

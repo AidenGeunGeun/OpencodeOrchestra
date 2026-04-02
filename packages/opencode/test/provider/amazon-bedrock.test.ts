@@ -46,7 +46,7 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
@@ -78,7 +78,7 @@ test("Bedrock: falls back to AWS_REGION env var when no config region", async ()
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
         }),
@@ -103,7 +103,7 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
@@ -171,7 +171,7 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async 
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
@@ -204,7 +204,7 @@ test("Bedrock: includes custom endpoint in options when specified", async () => 
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {
@@ -237,7 +237,7 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async () 
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
-        path.join(dir, "opencode.json"),
+        path.join(dir, "oco.json"),
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           provider: {

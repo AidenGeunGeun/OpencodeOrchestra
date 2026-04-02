@@ -1,6 +1,5 @@
 import path from "path"
 import os from "os"
-import { Global } from "../global"
 import { Filesystem } from "../util/filesystem"
 import { Config } from "../config/config"
 import { Instance } from "../project/instance"
@@ -21,7 +20,7 @@ function globalFiles() {
   if (Flag.OPENCODE_CONFIG_DIR) {
     files.push(path.join(Flag.OPENCODE_CONFIG_DIR, "AGENTS.md"))
   }
-  files.push(path.join(Global.Path.config, "AGENTS.md"))
+  files.push(path.join(Config.globalDirectory(), "AGENTS.md"))
   if (!Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
     files.push(path.join(os.homedir(), ".claude", "CLAUDE.md"))
   }
@@ -34,7 +33,7 @@ async function resolveRelative(instruction: string): Promise<string[]> {
   }
   if (!Flag.OPENCODE_CONFIG_DIR) {
     log.warn(
-      `Skipping relative instruction "${instruction}" - no OPENCODE_CONFIG_DIR set while project config is disabled`,
+      `Skipping relative instruction "${instruction}" - no OCO_CONFIG_DIR or OPENCODE_CONFIG_DIR set while project config is disabled`,
     )
     return []
   }

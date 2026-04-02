@@ -13,42 +13,56 @@
 
 ### Step 2: Handle Existing Config
 
-- If `~/.config/opencode/opencode.jsonc` already exists, back it up before replacing it:
+- If `~/.config/oco/oco.jsonc` already exists, back it up before replacing it:
 
 ```bash
-cp ~/.config/opencode/opencode.jsonc ~/.config/opencode/opencode.jsonc.bak.$(date +%Y%m%d%H%M%S)
+cp ~/.config/oco/oco.jsonc ~/.config/oco/oco.jsonc.bak.$(date +%Y%m%d%H%M%S)
 ```
 
-- If the user already has a custom OpenCode setup, ask whether to merge or replace.
-- If the user is unsure, recommend backing up and replacing first, then reapplying custom MCP/plugin/model entries after OCO is working.
+- If the user already has `~/.config/opencode/opencode.jsonc`, explain that OCO now uses `~/.config/oco/oco.jsonc` but still reads the old file as a read-only fallback.
+- To migrate explicitly, run `./scripts/migrate-config.sh` from the repo. It copies `config`, `data`, `cache`, and `state` into the `oco` namespace, duplicates `opencode.jsonc`/`opencode.json` as `oco.jsonc`/`oco.json`, and does not delete the old paths.
+- If the user is unsure, recommend keeping the fallback first, verifying OCO works, then running the migration script.
 
 ### Step 3: Download Config Files
 
 - Create the config directories if they do not exist:
 
 ```bash
-mkdir -p ~/.config/opencode/prompts
+mkdir -p \
+  ~/.config/oco/prompts \
+  ~/.config/oco/skill/agents-md/references \
+  ~/.config/oco/skill/skill-creator/references
 ```
 
 - Fetch the main config file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/opencode.jsonc -o ~/.config/opencode/opencode.jsonc
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/oco.jsonc -o ~/.config/oco/oco.jsonc
 ```
 
 - Fetch the seven system prompts:
 
 ```bash
-for f in pm orchestrator investigator auditor researcher docs compaction; do
-  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/opencode/prompts/${f}.txt
+for f in pm orchestrator investigator auditor web-search docs compaction; do
+  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/oco/prompts/${f}.txt
 done
+```
+
+- Fetch the bundled skills:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
 ```
 
 ### Step 4: Configure Provider Authentication
 
 - Run `oco auth login` (or `opencode auth login`).
-- The shipped default config only requires **Anthropic** (Claude). GPT is optional.
-- If the user wants to use GPT models for some agents, they will need OpenAI access too — see `docs/customization.md` for how to swap models.
+- The shipped default config uses **OpenAI** models for every agent.
+- Claude remains supported, but it is now an optional customization rather than the default.
 
 ### Step 5: Verify Setup
 
@@ -65,9 +79,21 @@ Tell the user what was just installed:
 - **Orchestrator**: executes approved specs by spawning focused subagents.
 - **Investigator**: reads and traces code without modifying anything.
 - **Auditor**: reviews changes against the spec and returns PASS or FAIL.
-- **Researcher**: fetches information from the web.
+- **Web-Search**: searches the web and returns evidence with citations.
 - **Docs**: updates documentation files.
 - **Compaction**: internal agent for context compression (hidden, automatic).
+- **Bundled skills**: `agents-md` and `skill-creator` are installed into `~/.config/oco/skill/`.
+
+### Step 7: Optional Migration
+
+- If the user is upgrading from an older OpenCode/OpenCodeOrchestra install, point them at `scripts/migrate-config.sh`.
+- The script copies these trees without deleting the originals:
+  - `~/.config/opencode/` -> `~/.config/oco/`
+  - `~/.local/share/opencode/` -> `~/.local/share/oco/`
+  - `~/.cache/opencode/` -> `~/.cache/oco/`
+  - `~/.local/state/opencode/` -> `~/.local/state/oco/`
+- It also copies `~/.config/opencode/opencode.jsonc` to `~/.config/oco/oco.jsonc` and `~/.config/opencode/opencode.json` to `~/.config/oco/oco.json` when the new filenames are missing.
+- Session history only moves if the user runs the script, because the new namespace is intentionally separate.
 
 Suggest a first task: ask the PM to investigate a codebase and draft a spec before implementing anything. That exercises the full hierarchy.
 
@@ -86,13 +112,22 @@ Suggest a first task: ask the PM to investigate a codebase and draft a spec befo
 3. Install the config files:
 
 ```bash
-mkdir -p ~/.config/opencode/prompts
+mkdir -p \
+  ~/.config/oco/prompts \
+  ~/.config/oco/skill/agents-md/references \
+  ~/.config/oco/skill/skill-creator/references
 
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/opencode.jsonc -o ~/.config/opencode/opencode.jsonc
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/oco.jsonc -o ~/.config/oco/oco.jsonc
 
-for f in pm orchestrator investigator auditor researcher docs compaction; do
-  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/opencode/prompts/${f}.txt
+for f in pm orchestrator investigator auditor web-search docs compaction; do
+  curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/oco/prompts/${f}.txt
 done
+
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
 ```
 
 4. Authenticate and launch:
@@ -122,22 +157,25 @@ codesign -f -s - ~/.local/bin/oco   # macOS only
 Then install the config files using the curl commands from Option A step 3, or copy directly from the repo:
 
 ```bash
-mkdir -p ~/.config/opencode/prompts
-cp config/opencode.jsonc ~/.config/opencode/opencode.jsonc
-cp config/prompts/*.txt ~/.config/opencode/prompts/
+mkdir -p ~/.config/oco/prompts ~/.config/oco/skill
+cp config/oco.jsonc ~/.config/oco/oco.jsonc
+cp config/prompts/*.txt ~/.config/oco/prompts/
+cp -R config/skills/* ~/.config/oco/skill/
 ```
 
 ### Verification Checklist
 
 - `oco --version` reports `1.0.15+`
-- `~/.config/opencode/opencode.jsonc` exists
-- `~/.config/opencode/prompts/` contains 7 `.txt` files
+- `~/.config/oco/oco.jsonc` exists
+- `~/.config/oco/prompts/` contains 7 `.txt` files
+- `~/.config/oco/skill/agents-md/` and `~/.config/oco/skill/skill-creator/` exist
 - `oco` opens without errors
 - The default session starts with the `build` agent (the PM)
 
 ## Troubleshooting
 
 - **Binary killed on macOS with no error**: run `codesign -f -s - ~/.local/bin/oco`. Unsigned binaries are silently killed by Gatekeeper (exit code 137).
-- **Missing prompt file errors**: re-download the prompt files using the curl loop above.
-- **Wrong default model or provider unavailable**: edit `~/.config/opencode/opencode.jsonc` — see [customization.md](customization.md).
+- **Missing prompt or skill file errors**: re-download the prompt files and bundled skill files using the commands above.
+- **Wrong default model or provider unavailable**: edit `~/.config/oco/oco.jsonc` — see [customization.md](customization.md).
+- **Old session history missing after upgrade**: run `scripts/migrate-config.sh` so `~/.local/share/opencode/` is copied into `~/.local/share/oco/`.
 - **Config conflicts with existing setup**: restore your backup, confirm OCO works with the shipped config first, then merge your custom entries back in.

@@ -61,10 +61,11 @@ Guide for AI coding agents working in this repository.
 
 ### Prompt Bundling (optional)
 
-For prompt-bundling releases, treat `~/.config/opencode/opencode.jsonc` as the source of truth for which user prompt overrides are currently in use, then sync those from `~/.config/opencode/prompts/` into `packages/opencode/src/agent/prompt/`.
-- Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `researcher.txt`, `investigator.txt`, `auditor.txt`, `compaction.txt`, `docs.txt`
-- Do not update bundled prompts without active user overrides: `cleanup.txt`, `explore.txt`, `summary.txt`, `title.txt`, `pm-plan.txt`
-- Verify synced prompts with `diff -u ~/.config/opencode/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` before building.
+For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritative prompt source, then sync the shipped prompt set into both `config/prompts/` and `packages/opencode/src/agent/prompt/`.
+- Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `investigator.txt`, `auditor.txt`, `web-search.txt`, `docs.txt`, `compaction.txt`
+- Do not modify internal-only prompt files unless the task explicitly calls for it: `explore.txt`, `summary.txt`, `title.txt`
+- Verify synced prompts with `diff -u ~/.config/oco/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` before building.
+- Bundle shipped skills from `~/.config/oco/skill/agents-md/` and `~/.config/oco/skill/skill-creator/` into `config/skills/` for release-ready installs.
 
 ## CI / CD
 
@@ -217,7 +218,7 @@ The web UI is a three-layer stack:
 1. `OPENCODE_FRONTEND_DIR` environment variable (if set and contains `index.html`)
 2. `../frontend` relative to binary — works in compiled `oco` binary (build copies frontend to `dist/<name>/frontend/`)
 3. `../../../app/dist` relative to server source — monorepo build output (works with `bun dev serve`)
-4. `~/.local/share/opencode/frontend` — XDG data dir install (set by `bun run release`)
+4. `~/.local/share/oco/frontend` — XDG data dir install (set by `bun run release`)
 5. Falls back to proxying `https://app.opencode.ai` for every unmatched request
 
 **During development, use `bun dev serve`** (not `oco serve`). The compiled `oco` binary resolves `import.meta.dirname` to its install directory, so the monorepo-relative path (step 3) fails. `bun dev serve` runs from source where monorepo paths resolve correctly.
@@ -290,7 +291,7 @@ Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-
 | AI SDK 6.x migration | `package.json`, `session/index.ts`, `session/processor.ts`, `session/prompt.ts`, `provider/transform.ts`, `provider/provider.ts`, +26 more | `ai` 5→6, token semantics, finish reason normalization |
 | Bug fixes | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts` | SIGHUP zombie, reasoning display, text-delta guard |
 | Features | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts` | 1M context, cache display, skill path validation |
-| Config (external) | `opencode.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
+| Config (external) | `oco.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
 
 ### AI SDK 6.x — Package Versions
 
@@ -408,8 +409,8 @@ leaves an orphan worker process holding the TCP port.
 
 | File | Change |
 |------|--------|
-| `opencode.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
-| `~/.config/opencode/prompts/compaction.txt` | Expanded ~71 → ~100 lines; adds self-review pass and proactive enrichment rules. |
+| `oco.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
+| `~/.config/oco/prompts/compaction.txt` | Expanded ~71 -> ~100 lines; adds self-review pass and proactive enrichment rules. |
 
 ## Conventions & Lessons Learned
 

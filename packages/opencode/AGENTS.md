@@ -63,7 +63,7 @@ The catch-all route `/*` in `src/server/server.ts` resolves the frontend in this
 1. `OPENCODE_FRONTEND_DIR` env var (if set and contains `index.html`)
 2. `../frontend` relative to the packaged server bundle — compiled binary frontend
 3. `../../../app/dist` relative to the server source file — monorepo build output
-4. `~/.local/share/opencode/frontend` — XDG data directory install
+4. `~/.local/share/oco/frontend` — XDG data directory install
 5. Falls back to proxying `https://app.opencode.ai`
 
 Non-file-extension paths fall through to `index.html` for SPA routing. All HTML responses include a strict `Content-Security-Policy` header.

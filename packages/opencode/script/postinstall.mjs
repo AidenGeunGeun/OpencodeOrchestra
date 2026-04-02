@@ -76,7 +76,7 @@ function installFrontend(packageDir) {
   const sourceDir = path.join(packageDir, "frontend")
   if (!fs.existsSync(path.join(sourceDir, "index.html"))) return
 
-  const targetDir = path.join(dataHome(), "opencode", "frontend")
+  const targetDir = path.join(dataHome(), "oco", "frontend")
   fs.mkdirSync(targetDir, { recursive: true })
   fs.cpSync(sourceDir, targetDir, { recursive: true })
   console.log(`Frontend assets copied to: ${targetDir}`)

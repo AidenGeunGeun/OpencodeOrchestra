@@ -71,46 +71,43 @@
   // },
 
   // Custom models live under provider.<provider>.models.<name>.
-  // This is the place to define organization-specific aliases, limits, or
-  // reusable variants. GPT-style variants usually set `reasoningEffort`.
-  // Claude-style variants usually set adaptive `thinking` plus `effort`.
-  // Example:
-  // "provider": {
-  //   "openai": {
-  //     "models": {
-  //       "gpt-5-fast": {
-  //         "id": "gpt-5",
-  //         "name": "GPT-5 Fast",
-  //         "limit": { "context": 400000, "output": 128000 },
-  //         "variants": {
-  //           "high": { "reasoningEffort": "high" }
-  //         }
-  //       }
-  //     }
-  //   }
-  // },
+  // The shipped config defines a `gpt-5.4` alias so agents can share named
+  // reasoning variants without repeating them in every agent block.
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-5.4": {
+          "id": "gpt-5.4",
+          "name": "GPT-5.4",
+          "limit": { "context": 1050000, "output": 128000 },
+          "variants": {
+            "none": { "reasoningEffort": "none" },
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" },
+            "xhigh": { "reasoningEffort": "xhigh" }
+          }
+        }
+      }
+    }
+  },
 
   "agent": {
-    // PM agents stay on Claude Opus by default because they hold user-facing
-    // context, make planning decisions, and write specs.
-    // Claude 4.6 uses AI SDK 6 / provider 3.x adaptive thinking:
-    // `thinking: { type: "adaptive" }` plus an `effort` level.
+    // PM agents use the full `gpt-5.4` alias with a high reasoning effort.
     "plan": {
       "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
-      "model": "anthropic/claude-opus-4-6",
+      "model": "openai/gpt-5.4",
       "prompt": "{file:prompts/pm.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "max",
+      "reasoningEffort": "high",
       "permission": {
         "edit": "allow",
       },
     },
     "build": {
       "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
-      "model": "anthropic/claude-opus-4-6",
+      "model": "openai/gpt-5.4",
       "prompt": "{file:prompts/pm.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "max",
+      "reasoningEffort": "high",
       "permission": {
         "edit": "allow",
       },
@@ -127,20 +124,14 @@
       "description": "HIDDEN: Prefer @investigator for codebase analysis.",
     },
 
-    // Orchestrator is the only persistent execution subagent.
-    // Defaulting to Claude Sonnet keeps the setup usable for teams without GPT.
-    // If you prefer GPT-5, swap the model and use `reasoningEffort` instead of
-    // Claude's `thinking`/`effort` fields.
+    // Orchestrator gets the same GPT-5.4 base model with the highest shipped
+    // reasoning setting because it owns implementation and audit recovery.
     "orchestrator": {
       "mode": "subagent",
       "description": "Orchestrator. Executes approved specs through phased implementation. Runs tests. Auditor loop. Reports to PM.",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai/gpt-5.4",
       "prompt": "{file:prompts/orchestrator.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "high",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "high",
+      "reasoningEffort": "xhigh",
       "permission": {
         "edit": "allow",
       },
@@ -151,13 +142,8 @@
     "investigator": {
       "mode": "subagent",
       "description": "Internal Codebase Analysis. READ-ONLY. Deep multi-file tracing and cross-referencing.",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai/gpt-5.4-mini",
       "prompt": "{file:prompts/investigator.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "medium",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "medium",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
@@ -172,13 +158,9 @@
     "auditor": {
       "mode": "subagent",
       "description": "Code Audit & Review. Verifies changes against spec, checks for regressions and style.",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai/gpt-5.4",
       "prompt": "{file:prompts/auditor.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "high",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "high",
+      "reasoningEffort": "high",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
@@ -189,22 +171,18 @@
       },
     },
 
-    // Researcher is for external sources only. Keep web access, deny shell/edit.
-    "researcher": {
+    // Web-Search is for external sources only. Keep web access plus shell for
+    // CLI-based search, and deny editing.
+    "web-search": {
       "mode": "subagent",
-      "description": "External Web Research. Fetches and synthesizes information from the web.",
-      "model": "anthropic/claude-sonnet-4-6",
-      "prompt": "{file:prompts/researcher.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "medium",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "medium",
+      "description": "External Web Search. Searches the web and returns evidence with source citations.",
+      "model": "openai/gpt-5.4-mini",
+      "prompt": "{file:prompts/web-search.txt}",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
         "webfetch": "allow",
-        "bash": "deny",
+        "bash": "allow",
         "edit": "deny",
       },
     },
@@ -212,13 +190,8 @@
     // Compaction is internal and hidden, but included here so the full shipped
     // hierarchy is inspectable and easy to customize.
     "compaction": {
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai/gpt-5.4-mini",
       "prompt": "{file:prompts/compaction.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "medium",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "medium",
     },
 
     // Docs can edit documentation and may need shell access for lightweight
@@ -226,13 +199,8 @@
     "docs": {
       "mode": "subagent",
       "description": "Documentation updates. README, AGENTS.md, API docs, SKILL.md files.",
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "openai/gpt-5.4-mini",
       "prompt": "{file:prompts/docs.txt}",
-      "thinking": { "type": "adaptive" },
-      "effort": "medium",
-      // GPT alternative:
-      // "model": "openai/gpt-5",
-      // "reasoningEffort": "medium",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
@@ -244,15 +212,7 @@
 
   // How to swap models for an agent:
   // 1. Change `model` to another installed/provider-supported model id.
-  // 2. Use Claude fields (`thinking` + `effort`) for Claude-family models.
-  // 3. Use `reasoningEffort` for GPT-family models.
+  // 2. Use `reasoningEffort` for GPT-family models.
+  // 3. Use Claude fields (`thinking` + `effort`) for Claude-family models.
   // 4. Optionally set `variant` when your custom model exposes named variants.
-  //
-  // Example GPT swap:
-  // "agent": {
-  //   "orchestrator": {
-  //     "model": "openai/gpt-5",
-  //     "reasoningEffort": "high"
-  //   }
-  // }
 }

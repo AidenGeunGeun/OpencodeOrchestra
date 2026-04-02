@@ -9,13 +9,12 @@
 - The bundled prompt files in `packages/opencode/src/agent/prompt/` match the current user prompt files for these prompt names:
   - `pm.txt`
   - `orchestrator.txt`
-  - `researcher.txt`
+  - `web-search.txt`
   - `investigator.txt`
   - `auditor.txt`
   - `compaction.txt`
   - `docs.txt`
 - Bundled prompt files that do not currently have corresponding user prompt overrides remain unchanged:
-  - `cleanup.txt`
   - `explore.txt`
   - `summary.txt`
   - `title.txt`
@@ -66,7 +65,7 @@
 
 - `diff -u ~/.config/opencode/prompts/pm.txt packages/opencode/src/agent/prompt/pm.txt`
 - `diff -u ~/.config/opencode/prompts/orchestrator.txt packages/opencode/src/agent/prompt/orchestrator.txt`
-- `diff -u ~/.config/opencode/prompts/researcher.txt packages/opencode/src/agent/prompt/researcher.txt`
+- `diff -u ~/.config/opencode/prompts/web-search.txt packages/opencode/src/agent/prompt/web-search.txt`
 - `diff -u ~/.config/opencode/prompts/investigator.txt packages/opencode/src/agent/prompt/investigator.txt`
 - `diff -u ~/.config/opencode/prompts/auditor.txt packages/opencode/src/agent/prompt/auditor.txt`
 - `diff -u ~/.config/opencode/prompts/compaction.txt packages/opencode/src/agent/prompt/compaction.txt`

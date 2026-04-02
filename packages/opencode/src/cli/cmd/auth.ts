@@ -330,7 +330,7 @@ export const AuthLoginCommand = cmd({
           }
 
           prompts.log.warn(
-            `This only stores a credential for ${provider} - you will need configure it in opencode.json, check the docs for examples.`,
+            `This only stores a credential for ${provider} - you will need configure it in oco.jsonc, check the docs for examples.`,
           )
         }
 
@@ -339,7 +339,7 @@ export const AuthLoginCommand = cmd({
             "Amazon Bedrock authentication priority:\n" +
               "  1. Bearer token (AWS_BEARER_TOKEN_BEDROCK or /connect)\n" +
               "  2. AWS credential chain (profile, access keys, IAM roles, EKS IRSA)\n\n" +
-              "Configure via opencode.json options (profile, region, endpoint) or\n" +
+              "Configure via oco.jsonc options (profile, region, endpoint) or\n" +
               "AWS environment variables (AWS_PROFILE, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_WEB_IDENTITY_TOKEN_FILE).",
           )
         }

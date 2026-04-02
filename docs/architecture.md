@@ -20,7 +20,7 @@ OpenCodeOrchestra organizes agent work by responsibility, not by raw tool access
 
 - `investigator` handles internal codebase analysis.
 - `auditor` reviews the full scoped changeset and returns PASS or FAIL.
-- `researcher` gathers external facts.
+- `web-search` gathers external facts.
 - `docs` updates documentation.
 - These sessions are intentionally disposable, single-shot, and narrowly scoped.
 
@@ -61,7 +61,7 @@ The audit loop makes review an explicit phase rather than an afterthought.
 
 ## Model Configuration By Family
 
-OCO is designed to support mixed-model setups, but the shipped config defaults to Claude so it works without GPT access.
+OCO is designed to support mixed-model setups, but the shipped config now defaults to the GPT-5.4 family.
 
 ### Claude Pattern
 
@@ -77,8 +77,8 @@ OCO is designed to support mixed-model setups, but the shipped config defaults t
 
 ### Shipped Default
 
-- PM agents use `anthropic/claude-opus-4-6`
-- Subagents use `anthropic/claude-sonnet-4-6`
-- You can swap any of them in `config/opencode.jsonc`
+- PM, Orchestrator, and Auditor use `openai/gpt-5.4`
+- Investigator, Web-Search, Docs, and Compaction use `openai/gpt-5.4-mini`
+- You can swap any of them in `config/oco.jsonc`
 
 For exact model and permission examples, see `docs/agents.md` and `docs/customization.md`.

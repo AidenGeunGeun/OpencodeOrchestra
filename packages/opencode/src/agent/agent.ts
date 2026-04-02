@@ -17,8 +17,7 @@ import PROMPT_PM from "./prompt/pm.txt"
 import PROMPT_ORCHESTRATOR from "./prompt/orchestrator.txt"
 import PROMPT_INVESTIGATOR from "./prompt/investigator.txt"
 import PROMPT_AUDITOR from "./prompt/auditor.txt"
-import PROMPT_RESEARCHER from "./prompt/researcher.txt"
-import PROMPT_CLEANUP from "./prompt/cleanup.txt"
+import PROMPT_WEB_SEARCH from "./prompt/web-search.txt"
 import PROMPT_DOCS from "./prompt/docs.txt"
 import { PermissionNext } from "@/permission/next"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
@@ -116,7 +115,7 @@ export namespace Agent {
             },
             edit: {
               "*": "deny",
-              [path.join(".opencode", "plans", "*.md").replaceAll("\\", "/")]: "allow",
+              [path.join(Global.Namespace.projectDir, "plans", "*.md").replaceAll("\\", "/")]: "allow",
               [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md"))).replaceAll("\\", "/")]: "allow",
             },
           }),
@@ -284,12 +283,12 @@ export namespace Agent {
         prompt: PROMPT_AUDITOR,
         singleShot: true, // Depth 2: auto-returns first response
       },
-      // OpenCodeOrchestra: Researcher agent - READ-ONLY external web research (depth 2)
-      researcher: {
-        name: "researcher",
-        description: "External web research. READ-ONLY. FACTS ONLY.",
+      // OpenCodeOrchestra: Web-Search agent - READ-ONLY external web research (depth 2)
+      "web-search": {
+        name: "web-search",
+        description: "External Web Search. Searches the web and returns evidence with source citations.",
          color: "#FFB6C1",
-         mode: "subagent",
+          mode: "subagent",
         options: {},
         native: true,
         permission: PermissionNext.merge(
@@ -302,29 +301,7 @@ export namespace Agent {
           }),
           user,
         ),
-        prompt: PROMPT_RESEARCHER,
-        singleShot: true, // Depth 2: auto-returns first response
-      },
-      // OpenCodeOrchestra: Cleanup agent - removes @TODO markers after Auditor PASS (depth 2)
-      cleanup: {
-        name: "cleanup",
-        description: "@TODO marker removal ONLY. After Auditor PASS.",
-         color: "#80CBC4",
-         mode: "subagent",
-        options: {},
-        native: true,
-        permission: PermissionNext.merge(
-          defaults,
-          PermissionNext.fromConfig({
-            "*": "deny",
-            read: "allow",
-            glob: "allow",
-            grep: "allow",
-            edit: "allow", // Limited to @TODO removal per prompt
-          }),
-          user,
-        ),
-        prompt: PROMPT_CLEANUP,
+        prompt: PROMPT_WEB_SEARCH,
         singleShot: true, // Depth 2: auto-returns first response
       },
       // OpenCodeOrchestra: Docs agent - documentation updates only (depth 2)

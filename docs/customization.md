@@ -7,37 +7,37 @@ OpenCodeOrchestra is opinionated about workflow, not about one provider stack. T
 Lowest to highest precedence:
 
 1. Remote well-known config, when a provider exposes `/.well-known/opencode`
-2. Global user config: `~/.config/opencode/opencode.json` or `~/.config/opencode/opencode.jsonc`
-3. `OPENCODE_CONFIG`, if set
-4. Project config files discovered from parent directories: `opencode.jsonc` then `opencode.json`
-5. `OPENCODE_CONFIG_CONTENT`, if set
+2. Global user config: `~/.config/oco/oco.json` or `~/.config/oco/oco.jsonc`
+3. `OCO_CONFIG` or `OPENCODE_CONFIG`, if set (`OCO_` wins when both are present)
+4. Project config files discovered from parent directories: `oco.jsonc` then `oco.json`
+5. `OCO_CONFIG_CONTENT` or `OPENCODE_CONFIG_CONTENT`, if set (`OCO_` wins when both are present)
 6. Managed config loaded from the managed config directory, if present
 
-Project-local config usually wins over global config, but the environment variable overrides are even higher priority.
+Project-local config usually wins over global config, but the environment variable overrides are even higher priority. If `~/.config/oco/oco.jsonc` does not exist yet, OCO falls back to `~/.config/opencode/opencode.jsonc` for read-only compatibility.
 
 ## Swapping Models
 
-### Claude-Only Setup
+### OpenAI-First Setup
 
 - Keep the shipped defaults.
-- PM agents stay on `anthropic/claude-opus-4-6`.
-- Subagents stay on `anthropic/claude-sonnet-4-6`.
-- Use Claude-style fields:
-
-```jsonc
-"thinking": { "type": "adaptive" },
-"effort": "high"
-```
-
-### Claude + GPT Setup
-
-- Keep PM on Claude Opus.
-- Move execution or review roles to GPT if you prefer.
+- PM, Orchestrator, and Auditor stay on `openai/gpt-5.4`.
+- Investigator, Web-Search, Docs, and Compaction stay on `openai/gpt-5.4-mini`.
 - Use GPT-style fields:
 
 ```jsonc
-"model": "openai/gpt-5",
 "reasoningEffort": "high"
+```
+
+### Claude + OpenAI Setup
+
+- Keep the shipped OpenAI defaults if you want the simplest setup.
+- Move any role back to Claude if you prefer Anthropic for planning or writing.
+- Use Claude-style fields:
+
+```jsonc
+"model": "anthropic/claude-sonnet-4-6",
+"thinking": { "type": "adaptive" },
+"effort": "high"
 ```
 
 Do not mix `reasoningEffort` into Claude configuration or Claude `thinking`/`effort` into GPT configuration.
@@ -69,7 +69,7 @@ Example:
 
 ## Adjusting Permissions
 
-- Global permission entries in `config/opencode.jsonc` apply to every agent.
+- Global permission entries in `config/oco.jsonc` apply to every agent.
 - Agent-level permission blocks then tighten or extend that baseline.
 - Use the shipped secret deny list as a floor, not a suggestion.
 
@@ -141,17 +141,17 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 ## Adding Skills And Commands
 
-- Skills go in `~/.config/opencode/skill/<name>/SKILL.md`. Each skill is a directory with a `SKILL.md` file that describes when and how the skill should be loaded.
-- Commands go in `~/.config/opencode/command/<name>.md`. Each command is a markdown file that defines a slash command template.
+- Skills go in `~/.config/oco/skill/<name>/SKILL.md`. Each skill is a directory with a `SKILL.md` file that describes when and how the skill should be loaded.
+- Commands go in `~/.config/oco/command/<name>.md`. Each command is a markdown file that defines a slash command template.
 - OCO does not change the skill or command model — it changes the agent hierarchy and workflow.
 
 ## Common Recipes
 
 ### "I only have Claude"
 
-- Use the shipped config unchanged.
+- Swap the shipped OpenAI defaults to Claude models in `config/oco.jsonc`.
 - Authenticate Anthropic.
-- Keep Claude adaptive thinking fields on PM and subagents.
+- Use Claude adaptive thinking fields on any agent you move.
 - Claude Pro/Max OAuth support is bundled in OCO; no extra local Anthropic plugin is required.
 - OCO's bundled Anthropic OAuth flow now uses OAuth-style form-urlencoded token requests instead of JSON, avoids the toxic OpenCode auth fingerprint, and sends a Claude CLI-style auth `User-Agent` on token exchange / refresh.
 - The bundled flow also sends the original PKCE verifier back as the exchange `state`, which avoids broken plain-code pastes where no `#...` suffix is present.
@@ -159,9 +159,9 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 ### "I have Claude + GPT"
 
-- Keep PM on Claude Opus.
-- Move `orchestrator` and `auditor` to GPT if you want stronger GPT-style reasoning.
-- Use `reasoningEffort` on those GPT-backed agents.
+- Keep the shipped OpenAI defaults unless you have a reason to override them.
+- Move PM or Docs to Claude if you prefer Anthropic's style for planning or writing.
+- Use `reasoningEffort` on GPT-backed agents and `thinking`/`effort` on Claude-backed agents.
 
 ### "I want to add a custom agent"
 
@@ -173,8 +173,8 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 Steps:
 
-1. Create the prompt file at `~/.config/opencode/prompts/security-reviewer.txt` with the agent's system prompt.
-2. Add the agent definition in your `opencode.jsonc`:
+1. Create the prompt file at `~/.config/oco/prompts/security-reviewer.txt` with the agent's system prompt.
+2. Add the agent definition in your `oco.jsonc`:
 
 ```jsonc
 "agent": {
@@ -198,6 +198,6 @@ Steps:
 
 ## Prompt Overrides
 
-- The distributed config points agents at files in `~/.config/opencode/prompts/`.
+- The distributed config points agents at files in `~/.config/oco/prompts/`.
 - To customize behavior, copy a prompt file, edit it, and keep the config path stable.
 - For team-wide distribution, check both the config and prompt files into your own repo or dotfiles setup.

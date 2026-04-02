@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import { createOpencode } from "@opencodeorchestra/sdk"
+import { createOpencode } from "@opencode-ai/sdk"
 import { parseArgs } from "util"
 
 export const team = [
@@ -17,13 +17,40 @@ export const team = [
   "opencode-agent[bot]",
 ]
 
+const RELEASE_REPO = process.env.GITHUB_REPOSITORY || "AidenGeunGeun/OpencodeOrchestra"
+const RELEASE_TAG_PREFIX = "oco-v"
+const RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
+const LEGACY_RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/
+
+function normalizeReleaseVersion(tagOrVersion: string) {
+  return tagOrVersion.replace(/^oco-v/, "").replace(/^v/, "")
+}
+
+function toReleaseRef(tagOrVersion: string) {
+  if (tagOrVersion === "HEAD") return tagOrVersion
+  if (tagOrVersion.startsWith(RELEASE_TAG_PREFIX)) return tagOrVersion
+  if (LEGACY_RELEASE_TAG_PATTERN.test(tagOrVersion) || RELEASE_VERSION_PATTERN.test(tagOrVersion)) {
+    return `${RELEASE_TAG_PREFIX}${normalizeReleaseVersion(tagOrVersion)}`
+  }
+  return tagOrVersion
+}
+
+function formatReleaseRef(tagOrVersion: string) {
+  if (tagOrVersion === "HEAD") return tagOrVersion
+  if (tagOrVersion.startsWith(RELEASE_TAG_PREFIX)) return tagOrVersion
+  if (LEGACY_RELEASE_TAG_PATTERN.test(tagOrVersion) || RELEASE_VERSION_PATTERN.test(tagOrVersion)) {
+    return `${RELEASE_TAG_PREFIX}${normalizeReleaseVersion(tagOrVersion)}`
+  }
+  return tagOrVersion
+}
+
 export async function getLatestRelease() {
-  return fetch("https://api.github.com/repos/anomalyco/opencode/releases/latest")
+  return fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`)
     .then((res) => {
       if (!res.ok) throw new Error(res.statusText)
       return res.json()
     })
-    .then((data: any) => data.tag_name.replace(/^v/, ""))
+    .then((data: any) => normalizeReleaseVersion(data.tag_name))
 }
 
 type Commit = {
@@ -34,12 +61,12 @@ type Commit = {
 }
 
 export async function getCommits(from: string, to: string): Promise<Commit[]> {
-  const fromRef = from.startsWith("v") ? from : `v${from}`
-  const toRef = to === "HEAD" ? to : to.startsWith("v") ? to : `v${to}`
+  const fromRef = toReleaseRef(from)
+  const toRef = toReleaseRef(to)
 
   // Get commit data with GitHub usernames from the API
   const compare =
-    await $`gh api "/repos/anomalyco/opencode/compare/${fromRef}...${toRef}" --jq '.commits[] | {sha: .sha, login: .author.login, message: .commit.message}'`.text()
+    await $`gh api "/repos/${RELEASE_REPO}/compare/${fromRef}...${toRef}" --jq '.commits[] | {sha: .sha, login: .author.login, message: .commit.message}'`.text()
 
   const commitData = new Map<string, { login: string | null; message: string }>()
   for (const line of compare.split("\n").filter(Boolean)) {
@@ -187,10 +214,10 @@ export async function generateChangelog(commits: Commit[], opencode: Awaited<Ret
 }
 
 export async function getContributors(from: string, to: string) {
-  const fromRef = from.startsWith("v") ? from : `v${from}`
-  const toRef = to === "HEAD" ? to : to.startsWith("v") ? to : `v${to}`
+  const fromRef = toReleaseRef(from)
+  const toRef = toReleaseRef(to)
   const compare =
-    await $`gh api "/repos/anomalyco/opencode/compare/${fromRef}...${toRef}" --jq '.commits[] | {login: .author.login, message: .commit.message}'`.text()
+    await $`gh api "/repos/${RELEASE_REPO}/compare/${fromRef}...${toRef}" --jq '.commits[] | {login: .author.login, message: .commit.message}'`.text()
   const contributors = new Map<string, Set<string>>()
 
   for (const line of compare.split("\n").filter(Boolean)) {
@@ -277,7 +304,7 @@ Options:
 
 Examples:
   bun script/changelog.ts                     # Latest release to HEAD
-  bun script/changelog.ts --from 1.0.200      # v1.0.200 to HEAD
+  bun script/changelog.ts --from 1.0.200      # oco-v1.0.200 to HEAD
   bun script/changelog.ts -f 1.0.200 -t 1.0.205
 `)
     process.exit(0)
@@ -286,7 +313,7 @@ Examples:
   const to = values.to!
   const from = values.from ?? (await getLatestRelease())
 
-  console.log(`Generating changelog: v${from} -> ${to}\n`)
+  console.log(`Generating changelog: ${formatReleaseRef(from)} -> ${formatReleaseRef(to)}\n`)
 
   const notes = await buildNotes(from, to)
   console.log("\n=== Final Notes ===")

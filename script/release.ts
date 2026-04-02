@@ -106,7 +106,7 @@ console.log("  ✓ Binary built")
 
 console.log("\n▸ Installing frontend to XDG data dir...")
 const xdgData = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
-const frontendTarget = path.join(xdgData, "opencode", "frontend")
+const frontendTarget = path.join(xdgData, "oco", "frontend")
 const frontendSource = path.join(ROOT, "packages/app/dist")
 
 if (fs.existsSync(path.join(frontendSource, "index.html"))) {

@@ -18,7 +18,7 @@ OCO uses a three-tier depth-enforced agent system:
 |-------|------------------|---------------------------------------------------------------|-----------|
 | 0     | Project Manager  | `build` (PM Build), `plan` (PM Plan)                         | primary   |
 | 1     | Orchestrator     | `orchestrator`                                                | subagent  |
-| 2+    | Subagents        | `investigator`, `auditor`, `researcher`, `cleanup`, `docs`    | subagent  |
+| 2+    | Subagents        | `investigator`, `auditor`, `web-search`, `docs`               | subagent  |
 
 **Flow**: PM (depth 0) spawns Orchestrator (depth 1) which spawns subagents (depth 2+, forced singleShot).
 
@@ -26,22 +26,21 @@ OCO uses a three-tier depth-enforced agent system:
 
 All agents have system prompts in `src/agent/prompt/`:
 
-| Agent         | Prompt File        | Import Constant       |
-|---------------|--------------------|-----------------------|
-| PM Build      | `pm.txt`           | `PROMPT_PM`           |
-| PM Plan       | `pm-plan.txt`      | `PROMPT_PM_PLAN`      |
+| Agent         | Prompt File        | Import Constant        |
+|---------------|--------------------|------------------------|
+| PM            | `pm.txt`           | `PROMPT_PM`            |
 | Orchestrator  | `orchestrator.txt` | `PROMPT_ORCHESTRATOR`  |
 | Investigator  | `investigator.txt` | `PROMPT_INVESTIGATOR`  |
 | Auditor       | `auditor.txt`      | `PROMPT_AUDITOR`       |
-| Researcher    | `researcher.txt`   | `PROMPT_RESEARCHER`    |
-| Cleanup       | `cleanup.txt`      | `PROMPT_CLEANUP`       |
+| Web-Search    | `web-search.txt`   | `PROMPT_WEB_SEARCH`    |
 | Docs          | `docs.txt`         | `PROMPT_DOCS`          |
+| Compaction    | `compaction.txt`   | `PROMPT_COMPACTION`    |
 
 Prompts are imported and assigned in `src/agent/agent.ts`. Every agent MUST have a `prompt:` field.
 
 ### Model Configuration
 
-No per-agent model assignments by default — all agents inherit from `Provider.defaultModel()` or the parent session's model. Per-agent models can be configured via `opencode.json`:
+The core runtime does not hardcode per-agent models in `agent.ts`; OCO's shipped distribution config in `config/oco.jsonc` provides the default per-agent model assignments. You can still override any agent model in your own config:
 
 ```json
 {
@@ -64,7 +63,7 @@ Cross-session memory for PM agents (depth 0 only). Subagents cannot access it.
 | `project_state_read`   | Read objectives, decisions, learnings, todos         |
 | `project_state_write`  | Update fields (replaces entire arrays per field)     |
 
-**Storage**: `.opencode/project-state.md` in project root.
+**Storage**: `.oco/project-state.md` in project root.
 
 PM reads at session start to restore context. Writes when decisions are made, tasks complete, or insights are discovered. This is the only mechanism for context to survive across sessions.
 

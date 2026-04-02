@@ -294,7 +294,7 @@ export namespace Ripgrep {
       children: [],
     }
     for (const file of files) {
-      if (file.includes(".opencode")) continue
+      if (file.includes(Global.Namespace.projectDir) || file.includes(Global.Namespace.legacyProjectDir)) continue
       const parts = file.split(path.sep)
       getPath(root, parts, true)
     }

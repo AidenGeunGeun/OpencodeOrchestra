@@ -5,8 +5,8 @@ This document describes the seven shipped OCO agents and the configuration surfa
 ## `pm` (`build` and `plan`)
 
 - Role: PM-facing planning and alignment layer
-- Model: `anthropic/claude-opus-4-6`
-- Why: strongest long-context planning and decision support in the shipped default setup
+- Model: `openai/gpt-5.4`
+- Why: strongest shipped default reasoning model, with named `reasoningEffort` variants via the bundled alias
 - Permissions: broad editing access, but secret-oriented file reads are denied by the global permission baseline
 - Spawned by: user entry point as `build`, with hidden `plan` mode available for plan-only sessions
 - Prompt design: both modes use `pm.txt`; `plan` behavior is further constrained by runtime session reminders and `plan_exit`
@@ -15,18 +15,18 @@ This document describes the seven shipped OCO agents and the configuration surfa
 ## `orchestrator`
 
 - Role: execution lead for approved specs
-- Model: `anthropic/claude-sonnet-4-6` by default
-- Why: capable enough for execution while remaining more broadly accessible than GPT-only defaults
+- Model: `openai/gpt-5.4` by default
+- Why: same top-tier base model as PM, but with the highest shipped reasoning setting for implementation and audit recovery
 - Permissions: edit access plus the ability to call specialist subagents; completion must flow through `finish_task`
 - Spawned by: PM after explicit spec approval
 - Prompt design: implementation lifecycle ownership, validation, and mandatory audit loop
-- Configuration options: swap to GPT by changing `model` and using `reasoningEffort` instead of Claude `thinking`/`effort`
+- Configuration options: swap model family, prompt, reasoning level, or permissions as needed
 
 ## `investigator`
 
 - Role: internal codebase analysis
-- Model: `anthropic/claude-sonnet-4-6` by default
-- Why: strong enough for deep tracing without consuming the highest-cost planning model
+- Model: `openai/gpt-5.4-mini` by default
+- Why: fast enough for deep tracing while keeping the heavier GPT-5.4 budget focused on planning and review
 - Permissions: tightened to read-only in the shipped config; `glob` and `grep` allowed, shell/edit denied
 - Spawned by: PM or Orchestrator when they need factual code understanding
 - Prompt design: exact citations, factual reporting, no speculation
@@ -35,28 +35,28 @@ This document describes the seven shipped OCO agents and the configuration surfa
 ## `auditor`
 
 - Role: review changed code against the approved spec
-- Model: `anthropic/claude-sonnet-4-6` by default
-- Why: good review quality while preserving the same prompt/permission discipline as other specialist subagents
+- Model: `openai/gpt-5.4` by default
+- Why: uses the heavier shipped reasoning model because review quality is part of the execution contract
 - Permissions: read-only; `glob` and `grep` allowed, shell/edit denied
 - Spawned by: Orchestrator after substantive implementation work
 - Prompt design: PASS/FAIL verdict, blocking findings vs warnings, exact file references required
 - Configuration options: adjust model, prompt, effort, and restrictions as needed
 
-## `researcher`
+## `web-search`
 
-- Role: external web research
-- Model: `anthropic/claude-sonnet-4-6` by default
-- Why: broad availability, sufficient reasoning, and clean separation from execution
-- Permissions: `webfetch` allowed, shell/edit denied
+- Role: external web search
+- Model: `openai/gpt-5.4-mini` by default
+- Why: the scope is narrow and evidence-first, so the shipped config keeps it fast and inexpensive
+- Permissions: `webfetch` and shell allowed, edit denied
 - Spawned by: PM or Orchestrator when outside facts matter
-- Prompt design: evidence-first, source URLs required, no unsupported synthesis
+- Prompt design: evidence-first, source URLs required, `exa-cli` via shell as the primary search path
 - Configuration options: change provider/model, prompt, or web access rules
 
 ## `docs`
 
 - Role: documentation updates
-- Model: `anthropic/claude-sonnet-4-6` by default
-- Why: balanced model for prose work, repo conventions, and light validation
+- Model: `openai/gpt-5.4-mini` by default
+- Why: fast enough for prose, repo conventions, and light validation without using the heavier reasoning tier
 - Permissions: documentation editing plus shell/apply-patch support in the shipped config
 - Spawned by: Orchestrator when doc changes are part of the approved scope
 - Prompt design: edit docs only, preserve repo style, report changed files clearly
@@ -65,7 +65,7 @@ This document describes the seven shipped OCO agents and the configuration surfa
 ## `compaction`
 
 - Role: internal conversation compaction
-- Model: `anthropic/claude-sonnet-4-6` by default
+- Model: `openai/gpt-5.4-mini` by default
 - Why: hidden utility role for context compression rather than user-facing planning or execution
 - Permissions: internal/hidden behavior; configured mainly so teams can inspect or override it
 - Spawned by: the harness, not normal user workflow
@@ -76,7 +76,7 @@ This document describes the seven shipped OCO agents and the configuration surfa
 
 - The shipped config applies a global secret-file deny list to every agent.
 - Built-in source defaults for some read-only roles are looser than their prompts imply.
-- The distribution config tightens `investigator`, `auditor`, and `researcher` explicitly so the shipped behavior matches the intended role descriptions.
+- The distribution config tightens `investigator`, `auditor`, and `web-search` explicitly so the shipped behavior matches the intended role descriptions.
 
 ## Prompt Files
 
@@ -86,8 +86,8 @@ The distributed prompt files live in `config/prompts/`:
 - `orchestrator.txt`
 - `investigator.txt`
 - `auditor.txt`
-- `researcher.txt`
+- `web-search.txt`
 - `docs.txt`
 - `compaction.txt`
 
-Point agents at these with `{file:prompts/<name>.txt}` in `config/opencode.jsonc`.
+Point agents at these with `{file:prompts/<name>.txt}` in `config/oco.jsonc`.

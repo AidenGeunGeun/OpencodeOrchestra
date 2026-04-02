@@ -1,14 +1,21 @@
-function truthy(key: string) {
-  const value = process.env[key]?.toLowerCase()
+function env(...keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key]
+    if (value !== undefined) return value
+  }
+}
+
+function truthy(...keys: string[]) {
+  const value = env(...keys)?.toLowerCase()
   return value === "true" || value === "1"
 }
 
 export namespace Flag {
   export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
   export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
-  export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
+  export const OPENCODE_CONFIG = env("OCO_CONFIG", "OPENCODE_CONFIG")
   export declare const OPENCODE_CONFIG_DIR: string | undefined
-  export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
+  export const OPENCODE_CONFIG_CONTENT = env("OCO_CONFIG_CONTENT", "OPENCODE_CONFIG_CONTENT")
   export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
   export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
   export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
@@ -59,23 +66,23 @@ export namespace Flag {
   }
 }
 
-// Dynamic getter for OPENCODE_DISABLE_PROJECT_CONFIG
+// Dynamic getter for OCO_DISABLE_PROJECT_CONFIG / OPENCODE_DISABLE_PROJECT_CONFIG
 // This must be evaluated at access time, not module load time,
 // because external tooling may set this env var at runtime
 Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
   get() {
-    return truthy("OPENCODE_DISABLE_PROJECT_CONFIG")
+    return truthy("OCO_DISABLE_PROJECT_CONFIG", "OPENCODE_DISABLE_PROJECT_CONFIG")
   },
   enumerable: true,
   configurable: false,
 })
 
-// Dynamic getter for OPENCODE_CONFIG_DIR
+// Dynamic getter for OCO_CONFIG_DIR / OPENCODE_CONFIG_DIR
 // This must be evaluated at access time, not module load time,
 // because external tooling may set this env var at runtime
 Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
   get() {
-    return process.env["OPENCODE_CONFIG_DIR"]
+    return env("OCO_CONFIG_DIR", "OPENCODE_CONFIG_DIR")
   },
   enumerable: true,
   configurable: false,

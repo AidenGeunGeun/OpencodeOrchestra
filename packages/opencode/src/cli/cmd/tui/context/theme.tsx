@@ -39,6 +39,7 @@ import carbonfox from "./theme/carbonfox.json" with { type: "json" }
 import { useKV } from "./kv"
 import { useRenderer } from "@opentui/solid"
 import { createStore, produce } from "solid-js/store"
+import { Config } from "@/config/config"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 
@@ -392,10 +393,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 const CUSTOM_THEME_GLOB = new Bun.Glob("themes/*.json")
 async function getCustomThemes() {
   const directories = [
-    Global.Path.config,
+    Config.globalDirectory(),
     ...(await Array.fromAsync(
       Filesystem.up({
-        targets: [".opencode"],
+        targets: [Global.Namespace.legacyProjectDir, Global.Namespace.projectDir],
         start: process.cwd(),
       }),
     )),
