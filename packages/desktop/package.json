@@ -1,12 +1,13 @@
 {
   "name": "@opencode-ai/desktop",
   "private": true,
-  "version": "1.0.21",
+  "version": "1.0.22",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "typecheck": "tsgo -b",
     "predev": "bun ./scripts/predev.ts",
+    "prebuild": "bun ./scripts/prebuild.ts",
     "dev": "vite",
     "build": "bun run typecheck && vite build",
     "preview": "vite preview",

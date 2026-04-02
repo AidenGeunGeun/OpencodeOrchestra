@@ -5,6 +5,8 @@ use process_wrap::tokio::ProcessGroup;
 #[cfg(windows)]
 use process_wrap::tokio::{CommandWrapper, JobObject, KillOnDrop};
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -40,8 +42,9 @@ impl CommandWrapper for WinCreationFlags {
     }
 }
 
-const CLI_INSTALL_DIR: &str = ".opencode/bin";
-const CLI_BINARY_NAME: &str = "opencode";
+const CLI_INSTALL_DIR: &str = ".oco/bin";
+const CLI_BINARY_NAME: &str = "oco";
+const SIDECAR_BINARY_NAME: &str = "oco";
 const SHELL_ENV_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(serde::Deserialize, Debug)]
@@ -109,13 +112,75 @@ fn get_cli_install_path() -> Option<std::path::PathBuf> {
     })
 }
 
+fn cli_install_dir() -> Option<std::path::PathBuf> {
+    get_cli_install_path()?.parent().map(|path| path.to_path_buf())
+}
+
+fn path_contains(dir: &Path) -> bool {
+    std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).any(|entry| entry == dir))
+        .unwrap_or(false)
+}
+
+fn ensure_cli_dir_on_path() -> Result<(), String> {
+    let install_dir = cli_install_dir().ok_or_else(|| "Could not determine install path".to_string())?;
+    if path_contains(&install_dir) {
+        return Ok(());
+    }
+
+    let home = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let shell = get_user_shell();
+    let shell_name = Path::new(&shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+
+    let (config_path, command) = match shell_name {
+        "fish" => (
+            home.join(".config/fish/config.fish"),
+            format!("fish_add_path {}", install_dir.display()),
+        ),
+        "bash" => (
+            home.join(".bashrc"),
+            format!("export PATH=\"{}:$PATH\"", install_dir.display()),
+        ),
+        _ => (
+            home.join(".zshrc"),
+            format!("export PATH=\"{}:$PATH\"", install_dir.display()),
+        ),
+    };
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create shell config directory: {}", e))?;
+    }
+
+    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+    if existing.contains(&command) || existing.contains(install_dir.to_string_lossy().as_ref()) {
+        return Ok(());
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config_path)
+        .map_err(|e| format!("Failed to update shell PATH config: {}", e))?;
+
+    let needs_newline = !existing.is_empty() && !existing.ends_with('\n');
+    let prefix = if needs_newline { "\n" } else { "" };
+    file.write_all(format!("{prefix}\n# oco\n{command}\n").as_bytes())
+        .map_err(|e| format!("Failed to update shell PATH config: {}", e))?;
+
+    Ok(())
+}
+
 pub fn get_sidecar_path(app: &tauri::AppHandle) -> std::path::PathBuf {
     // Get binary with symlinks support
     tauri::process::current_binary(&app.env())
         .expect("Failed to get current binary")
         .parent()
         .expect("Failed to get parent dir")
-        .join("opencode-cli")
+        .join(SIDECAR_BINARY_NAME)
 }
 
 fn is_cli_installed() -> bool {
@@ -123,8 +188,6 @@ fn is_cli_installed() -> bool {
         .map(|path| path.exists())
         .unwrap_or(false)
 }
-
-const INSTALL_SCRIPT: &str = include_str!("../../../../install");
 
 #[tauri::command]
 #[specta::specta]
@@ -138,32 +201,25 @@ pub fn install_cli(app: tauri::AppHandle) -> Result<String, String> {
         return Err("Sidecar binary not found".to_string());
     }
 
-    let temp_script = std::env::temp_dir().join("opencode-install.sh");
-    std::fs::write(&temp_script, INSTALL_SCRIPT)
-        .map_err(|e| format!("Failed to write install script: {}", e))?;
+    let install_path =
+        get_cli_install_path().ok_or_else(|| "Could not determine install path".to_string())?;
+
+    let install_dir = install_path
+        .parent()
+        .ok_or_else(|| "Could not determine install path".to_string())?;
+    std::fs::create_dir_all(install_dir)
+        .map_err(|e| format!("Failed to create CLI install directory: {}", e))?;
+    std::fs::copy(&sidecar, &install_path)
+        .map_err(|e| format!("Failed to copy CLI binary: {}", e))?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&temp_script, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Failed to set script permissions: {}", e))?;
+        std::fs::set_permissions(&install_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set CLI permissions: {}", e))?;
     }
 
-    let output = std::process::Command::new(&temp_script)
-        .arg("--binary")
-        .arg(&sidecar)
-        .output()
-        .map_err(|e| format!("Failed to run install script: {}", e))?;
-
-    let _ = std::fs::remove_file(&temp_script);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Install script failed: {}", stderr));
-    }
-
-    let install_path =
-        get_cli_install_path().ok_or_else(|| "Could not determine install path".to_string())?;
+    ensure_cli_dir_on_path()?;
 
     Ok(install_path.to_string_lossy().to_string())
 }
@@ -569,7 +625,7 @@ pub fn serve(
         format!("--print-logs --log-level WARN serve --hostname {hostname} --port {port}").as_str(),
         &envs,
     )
-    .expect("Failed to spawn opencode");
+    .expect("Failed to spawn oco sidecar");
 
     let mut exit_tx = Some(exit_tx);
     tokio::spawn(

@@ -13,6 +13,10 @@ export async function createMenu(trigger: (id: string) => void) {
 
   await initI18n()
 
+  const docsUrl = "https://github.com/AidenGeunGeun/OpenCodeOrchestra/tree/main/docs"
+  const issuesUrl = "https://github.com/AidenGeunGeun/OpenCodeOrchestra/issues"
+  const newIssueUrl = "https://github.com/AidenGeunGeun/OpenCodeOrchestra/issues/new"
+
   const menu = await Menu.new({
     items: [
       await Submenu.new({
@@ -21,11 +25,14 @@ export async function createMenu(trigger: (id: string) => void) {
           await PredefinedMenuItem.new({
             item: { About: null },
           }),
-          await MenuItem.new({
-            enabled: UPDATER_ENABLED,
-            action: () => runUpdater({ alertOnFail: true }),
-            text: t("desktop.menu.checkForUpdates"),
-          }),
+          ...(UPDATER_ENABLED
+            ? [
+                await MenuItem.new({
+                  action: () => runUpdater({ alertOnFail: true }),
+                  text: t("desktop.menu.checkForUpdates"),
+                }),
+              ]
+            : []),
           await MenuItem.new({
             action: () => installCli(),
             text: t("desktop.menu.installCli"),
@@ -59,7 +66,7 @@ export async function createMenu(trigger: (id: string) => void) {
           await PredefinedMenuItem.new({
             item: "Quit",
           }),
-        ].filter(Boolean),
+        ],
       }),
       await Submenu.new({
         text: t("desktop.menu.file"),
@@ -159,11 +166,11 @@ export async function createMenu(trigger: (id: string) => void) {
         items: [
           // missing native macos search
           await MenuItem.new({
-            action: () => openUrl("https://opencode.ai/docs"),
+            action: () => openUrl(docsUrl),
             text: t("desktop.menu.help.documentation"),
           }),
           await MenuItem.new({
-            action: () => openUrl("https://discord.com/invite/opencode"),
+            action: () => openUrl(issuesUrl),
             text: t("desktop.menu.help.supportForum"),
           }),
           await PredefinedMenuItem.new({
@@ -176,11 +183,11 @@ export async function createMenu(trigger: (id: string) => void) {
             item: "Separator",
           }),
           await MenuItem.new({
-            action: () => openUrl("https://github.com/anomalyco/opencode/issues/new?template=feature_request.yml"),
+            action: () => openUrl(newIssueUrl),
             text: t("desktop.menu.help.shareFeedback"),
           }),
           await MenuItem.new({
-            action: () => openUrl("https://github.com/anomalyco/opencode/issues/new?template=bug_report.yml"),
+            action: () => openUrl(newIssueUrl),
             text: t("desktop.menu.help.reportBug"),
           }),
         ],
