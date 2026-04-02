@@ -82,7 +82,7 @@ const cli = yargs(hideBin(process.argv))
       args: process.argv.slice(2),
     })
 
-    const marker = path.join(Global.Path.data, "opencode.db")
+    const marker = path.join(Global.Path.data, "oco.db")
     const storageDir = path.join(Global.Path.data, "storage")
     if (!existsSync(marker) && existsSync(storageDir)) {
       const tty = process.stderr.isTTY
