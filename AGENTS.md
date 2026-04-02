@@ -136,6 +136,22 @@ Use this release path. It is the one that has actually been validated in this re
   # Output: packages/desktop/src-tauri/target/release/bundle/deb/*.deb
   ```
 
+### Migrating From Vanilla OpenCode
+
+Users coming from vanilla `opencode` (or pre-namespace-split OCO) need to migrate their chat history database. OCO stores sessions in a SQLite database, and the directory changed from `~/.local/share/opencode/` to `~/.local/share/oco/`. The database filename itself is still `opencode.db` — same schema, just a different parent directory.
+
+**Migration command (run before first OCO launch):**
+```bash
+mkdir -p ~/.local/share/oco
+cp ~/.local/share/opencode/opencode.db ~/.local/share/oco/opencode.db
+cp ~/.local/share/opencode/opencode.db-shm ~/.local/share/oco/opencode.db-shm 2>/dev/null
+cp ~/.local/share/opencode/opencode.db-wal ~/.local/share/oco/opencode.db-wal 2>/dev/null
+```
+
+This copies (not moves) the database and its WAL journal files. The old `~/.local/share/opencode/` is left untouched so vanilla `opencode` continues to work if needed. The copy is non-destructive — if `~/.local/share/oco/opencode.db` already exists, it will be overwritten with the latest data.
+
+After migration, all previous sessions, messages, and tool outputs appear in OCO as if nothing changed.
+
 ### Prompt Bundling (optional)
 
 For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritative prompt source, then sync the shipped prompt set into both `config/prompts/` and `packages/opencode/src/agent/prompt/`.
