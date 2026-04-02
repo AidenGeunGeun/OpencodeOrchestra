@@ -42,7 +42,7 @@ jobs:
               echo "Packaged: ${short_name}.tar.gz"
             elif [ -f "${bin_path}.exe" ]; then
               # Zip Windows binary
-              (cd "$dir/bin" && zip -q "../../../release-assets/${short_name}.zip" oco.exe)
+              zip -j -q "release-assets/${short_name}.zip" "${bin_path}.exe"
               echo "Packaged: ${short_name}.zip"
             fi
           done
