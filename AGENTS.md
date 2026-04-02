@@ -97,29 +97,44 @@ Use this release path. It is the one that has actually been validated in this re
    - Create the GitHub release with `gh release create ...` or edit the existing release with `gh release upload ...`.
 
 7. Let the **Linux** `desktop-build` job finish and attach the Linux desktop artifacts:
-   - `OpenCodeOrchestra_<version>_amd64.AppImage`
-   - `OpenCodeOrchestra_<version>_amd64.deb`
-   - `OpenCodeOrchestra-<version>-1.x86_64.rpm`
+    - `OpenCodeOrchestra_<version>_amd64.deb`
+    - `OpenCodeOrchestra-<version>-1.x86_64.rpm`
+    - `OpenCodeOrchestra_<version>_amd64.AppImage` (if AppImage step succeeds — it is `continue-on-error` so `.deb`/`.rpm` upload regardless)
 
 8. Final verification checklist:
-   - release page exists at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>`
-   - assets include:
-     - macOS desktop `.dmg`
-     - Linux desktop `.AppImage`, `.deb`, `.rpm`
-     - CLI: macOS arm64, macOS x64, Linux x64, Windows x64
-     - `SHA256SUMS.txt`
-   - release notes explicitly say:
-     - macOS -> `.dmg`
-     - Ubuntu / Debian -> `.AppImage` first, `.deb` second
-     - Fedora / RHEL -> `.rpm` or `.AppImage`
-     - Windows -> CLI `.zip`
+    - release page exists at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>`
+    - assets include:
+      - macOS desktop `.dmg`
+      - Linux desktop `.deb`, `.rpm` (`.AppImage` if available)
+      - CLI: macOS arm64, macOS x64, Linux x64, Windows x64
+      - `SHA256SUMS.txt`
+    - release notes explicitly say:
+      - macOS -> `.dmg`
+      - Ubuntu / Debian -> `.deb` (`sudo dpkg -i <file>.deb`)
+      - Fedora / RHEL -> `.rpm`
+      - Windows -> CLI `.zip`
+      - Linux terminal-only -> CLI `.tar.gz`
 
-### Linux AppImage Notes
+### Linux Desktop Notes
 
-- The Linux desktop workflow builds `.deb` and `.rpm` first, then attempts `.AppImage` as a separate `continue-on-error` step. This guarantees `.deb`/`.rpm` always upload even if AppImage fails.
-- `.github/workflows/desktop-build.yml` sets `APPIMAGE_EXTRACT_AND_RUN=1` on the AppImage build step. Without that, `linuxdeploy` fails in GitHub Actions.
-- The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) because `ubuntu-24.04` removed `libfuse2` which `linuxdeploy` requires. The workflow also explicitly installs `libfuse2`.
-- On macOS, do **not** try to locally build Linux desktop artifacts. Build the macOS desktop app locally, then rely on the Linux GitHub runner for `.AppImage`, `.deb`, and `.rpm`.
+- The `.deb` is the primary Linux desktop deliverable. Ubuntu/Debian users install it with `sudo dpkg -i <file>.deb`. The `.rpm` serves Fedora/RHEL users.
+- AppImage is attempted as a `continue-on-error` step in CI. As of 1.0.27, AppImage bundling (`linuxdeploy`) still fails on GitHub Actions even with `ubuntu-22.04` + `libfuse2` + `APPIMAGE_EXTRACT_AND_RUN=1`. The `.deb`/`.rpm` always upload regardless. AppImage is a nice-to-have, not a blocker.
+- The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) because `ubuntu-24.04` removed `libfuse2`. This is a build-time constraint only — the built `.deb`/`.rpm` run fine on Ubuntu 22.04 and 24.04.
+- Do **not** try to build Linux desktop artifacts on macOS via Docker. x86_64 emulation on Apple Silicon is extremely slow (12GB RAM, 200% CPU, 30+ minute cold builds). Rely on the GitHub Linux runner or a native Linux machine instead.
+- If a user on Linux wants to build the desktop app locally (native x86_64), it takes ~5-10 minutes on first build, ~1-2 minutes with cached deps:
+  ```bash
+  # Install deps (Ubuntu/Debian)
+  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+  # Install Bun and Rust if not present
+  curl -fsSL https://bun.sh/install | bash
+  curl https://sh.rustup.rs -sSf | sh
+  # Clone and build
+  git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git && cd OpencodeOrchestra
+  bun install
+  cd packages/opencode && bun run script/build.ts --single --baseline && cd ../desktop
+  bunx tauri build --bundles deb --config src-tauri/tauri.prod.conf.json
+  # Output: packages/desktop/src-tauri/target/release/bundle/deb/*.deb
+  ```
 
 ### Prompt Bundling (optional)
 
