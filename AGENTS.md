@@ -143,14 +143,12 @@ Users coming from vanilla `opencode` (or pre-namespace-split OCO) need to migrat
 **Migration command (run before first OCO launch):**
 ```bash
 mkdir -p ~/.local/share/oco
-cp ~/.local/share/opencode/opencode.db ~/.local/share/oco/opencode.db
-cp ~/.local/share/opencode/opencode.db-shm ~/.local/share/oco/opencode.db-shm 2>/dev/null
-cp ~/.local/share/opencode/opencode.db-wal ~/.local/share/oco/opencode.db-wal 2>/dev/null
+rsync -a ~/.local/share/opencode/ ~/.local/share/oco/
 ```
 
-This copies (not moves) the database and its WAL journal files. The old `~/.local/share/opencode/` is left untouched so vanilla `opencode` continues to work if needed. The copy is non-destructive — if `~/.local/share/oco/opencode.db` already exists, it will be overwritten with the latest data.
+This copies the entire data directory: the SQLite database (`opencode.db` + WAL files), the `storage/` directory (session messages, parts, diffs), and `tool-output/` (large tool call results). The old `~/.local/share/opencode/` is left untouched so vanilla `opencode` continues to work if needed.
 
-After migration, all previous sessions, messages, and tool outputs appear in OCO as if nothing changed.
+After migration, all previous sessions, messages, compression history, and tool outputs appear in OCO as if nothing changed.
 
 ### Prompt Bundling (optional)
 
