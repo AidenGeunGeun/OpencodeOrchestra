@@ -22,7 +22,7 @@ jobs:
             rust-target: aarch64-apple-darwin
             sidecar-build-args: ""
           - name: Linux (x86_64)
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
             sidecar-build-args: --baseline
     steps:
@@ -44,7 +44,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
 
       - name: Build sidecar
         working-directory: packages/opencode
@@ -58,11 +58,23 @@ jobs:
         env:
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.rust-target }}
 
-      - name: Build desktop app
+      - name: Build desktop app (deb + rpm)
+        if: runner.os == 'Linux'
         working-directory: packages/desktop
-        run: bunx tauri build --config src-tauri/tauri.prod.conf.json
+        run: bunx tauri build --bundles deb,rpm --config src-tauri/tauri.prod.conf.json
+
+      - name: Build desktop app (appimage)
+        if: runner.os == 'Linux'
+        working-directory: packages/desktop
+        continue-on-error: true
+        run: bunx tauri build --bundles appimage --config src-tauri/tauri.prod.conf.json
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
+
+      - name: Build desktop app (macOS)
+        if: runner.os == 'macOS'
+        working-directory: packages/desktop
+        run: bunx tauri build --config src-tauri/tauri.prod.conf.json
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/oco-v')

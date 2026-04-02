@@ -116,8 +116,9 @@ Use this release path. It is the one that has actually been validated in this re
 
 ### Linux AppImage Notes
 
-- `packages/desktop/src-tauri/tauri.prod.conf.json` must explicitly include `"appimage"` in `bundle.targets`.
-- `.github/workflows/desktop-build.yml` must set `APPIMAGE_EXTRACT_AND_RUN=1` on the Linux Tauri build step. Without that, `linuxdeploy` can fail in GitHub Actions when it tries to run as an AppImage.
+- The Linux desktop workflow builds `.deb` and `.rpm` first, then attempts `.AppImage` as a separate `continue-on-error` step. This guarantees `.deb`/`.rpm` always upload even if AppImage fails.
+- `.github/workflows/desktop-build.yml` sets `APPIMAGE_EXTRACT_AND_RUN=1` on the AppImage build step. Without that, `linuxdeploy` fails in GitHub Actions.
+- The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) because `ubuntu-24.04` removed `libfuse2` which `linuxdeploy` requires. The workflow also explicitly installs `libfuse2`.
 - On macOS, do **not** try to locally build Linux desktop artifacts. Build the macOS desktop app locally, then rely on the Linux GitHub runner for `.AppImage`, `.deb`, and `.rpm`.
 
 ### Prompt Bundling (optional)

@@ -4,7 +4,7 @@
   "identifier": "ai.opencode.orchestra",
   "bundle": {
     "createUpdaterArtifacts": false,
-    "targets": ["deb", "rpm", "appimage", "dmg"],
+    "targets": "all",
     "icon": [
       "icons/prod/32x32.png",
       "icons/prod/128x128.png",
