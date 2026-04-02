@@ -14,7 +14,7 @@ Guide for AI coding agents working in this repository.
 | Task                      | Command                                          | Where to run        |
 | ------------------------- | ------------------------------------------------ | ------------------- |
 | **Build**                 | `bun run build`                                  | `packages/opencode` |
-| **Build (single)**        | `bun run build --single --skip-install`          | `packages/opencode` |
+| **Build (single)**        | `bun run build --single`                         | `packages/opencode` |
 | **Typecheck**             | `tsgo --noEmit`                                  | `packages/opencode` |
 | **Test all**              | `bun test`                                       | `packages/opencode` |
 | **Test single file**      | `bun test path/to/file.test.ts`                  | `packages/opencode` |
@@ -29,7 +29,7 @@ Guide for AI coding agents working in this repository.
 - Package manager: **Bun** (see root `package.json` for the pinned version)
 - Build orchestrator: **Turbo** (`turbo.json`)
 - Default branch: **`main`**
-- Storage: **SQLite** (drizzle-orm) at `~/.local/share/opencode/opencode.db`
+- Storage: **SQLite** (drizzle-orm) at `~/.local/share/oco/oco.db`
 
 ## Search Safety
 
@@ -47,17 +47,78 @@ Guide for AI coding agents working in this repository.
 
 ### Release Steps
 
-1. Run `bun run release [patch|minor|major|X.Y.Z]` from repo root.
-   - Bumps all `package.json` files, runs `bun install`, typecheck, builds CLI binary + frontend, deploys frontend to XDG, commits, tags.
-2. Push commits and **only the new tag**:
+Use this release path. It is the one that has actually been validated in this repo.
+
+1. Before releasing:
+   - `git status --short` must be clean except for intended release changes.
+   - Delete any local packaging directory before running the release script:
+     ```sh
+     rm -rf release-assets
+     ```
+   - Never leave manually packaged `.tar.gz`, `.zip`, or checksum files in the repo root before running `bun run release`, or they may get swept into the release commit.
+
+2. Run the version bump and tag from repo root:
    ```sh
-   git push && git push origin oco-v<version>
+   bun run release X.Y.Z
    ```
-   **IMPORTANT**: Never use `git push --tags`. The repo has hundreds of inherited upstream tags that will fail to push and flood the output. Always push the specific tag by name.
-3. GitHub Actions triggers:
-   - `test` workflow runs typecheck + tests on the push to `main`.
-   - `desktop-build` workflow builds macOS + Linux desktop apps and attaches them to a GitHub Release.
-4. Desktop app artifacts appear on `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>` within ~10–15 minutes.
+   This bumps package versions, runs `bun install`, typecheck, builds the current-platform CLI/frontend, deploys frontend to the XDG data dir, commits, and tags.
+
+3. Push commits and **only the new tag**:
+   ```sh
+   git push origin main && git push origin oco-vX.Y.Z
+   ```
+   **IMPORTANT**: Never use `git push --tags`. The repo has inherited upstream tags and that will create noise or fail.
+
+4. Treat GitHub Actions like this:
+   - `desktop-build` is the important one for public desktop artifacts.
+   - `cli-release` and `test` can be cancelled when doing the manual local-asset release path described below.
+
+5. Build the local release artifacts yourself:
+   - CLI matrix:
+     ```sh
+     # workdir: packages/opencode
+     bun run script/build.ts
+     ```
+   - macOS desktop:
+     ```sh
+     # workdir: packages/desktop
+     bunx tauri build --config src-tauri/tauri.prod.conf.json
+     ```
+
+6. Package and upload the local assets manually:
+   - Package these exact CLI artifacts from `packages/opencode/dist/@skybluejacket/`:
+     - `oco-darwin-arm64/bin/oco` -> `oco-darwin-arm64.tar.gz`
+     - `oco-darwin-x64/bin/oco` -> `oco-darwin-x64.tar.gz`
+     - `oco-linux-x64/bin/oco` -> `oco-linux-x64.tar.gz`
+     - `oco-windows-x64/bin/oco.exe` -> `oco-windows-x64.zip`
+   - Generate `SHA256SUMS.txt` alongside them.
+   - Upload the local macOS desktop artifact:
+     - `packages/desktop/src-tauri/target/release/bundle/dmg/OpenCodeOrchestra_<version>_aarch64.dmg`
+   - Create the GitHub release with `gh release create ...` or edit the existing release with `gh release upload ...`.
+
+7. Let the **Linux** `desktop-build` job finish and attach the Linux desktop artifacts:
+   - `OpenCodeOrchestra_<version>_amd64.AppImage`
+   - `OpenCodeOrchestra_<version>_amd64.deb`
+   - `OpenCodeOrchestra-<version>-1.x86_64.rpm`
+
+8. Final verification checklist:
+   - release page exists at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>`
+   - assets include:
+     - macOS desktop `.dmg`
+     - Linux desktop `.AppImage`, `.deb`, `.rpm`
+     - CLI: macOS arm64, macOS x64, Linux x64, Windows x64
+     - `SHA256SUMS.txt`
+   - release notes explicitly say:
+     - macOS -> `.dmg`
+     - Ubuntu / Debian -> `.AppImage` first, `.deb` second
+     - Fedora / RHEL -> `.rpm` or `.AppImage`
+     - Windows -> CLI `.zip`
+
+### Linux AppImage Notes
+
+- `packages/desktop/src-tauri/tauri.prod.conf.json` must explicitly include `"appimage"` in `bundle.targets`.
+- `.github/workflows/desktop-build.yml` must set `APPIMAGE_EXTRACT_AND_RUN=1` on the Linux Tauri build step. Without that, `linuxdeploy` can fail in GitHub Actions when it tries to run as an AppImage.
+- On macOS, do **not** try to locally build Linux desktop artifacts. Build the macOS desktop app locally, then rely on the Linux GitHub runner for `.AppImage`, `.deb`, and `.rpm`.
 
 ### Prompt Bundling (optional)
 
