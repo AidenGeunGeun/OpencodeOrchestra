@@ -101,15 +101,25 @@ Suggest a first task: ask the PM to investigate a codebase and draft a spec befo
 
 ### Option A: Install From Release
 
-1. Go to [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases) and download the binary for your platform.
+1. Go to [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases) and download the recommended file for your platform:
 
-2. Put the binary on your PATH (e.g., `~/.local/bin/oco`).
+   | Platform | Recommended download |
+   | --- | --- |
+   | macOS | Desktop `.dmg` |
+   | Ubuntu / Debian | Desktop `.AppImage` first, `.deb` second |
+   | Fedora / RHEL | Desktop `.AppImage` first, `.rpm` second |
+   | Windows | CLI `.zip` |
+   | Linux terminal-only | CLI `.tar.gz` |
+
+2. If you downloaded a desktop app (`.dmg`, `.AppImage`, `.deb`, `.rpm`), install/open that and you are done.
+
+3. If you downloaded the CLI instead, put the binary on your PATH (e.g., `~/.local/bin/oco`).
    - **macOS**: the binary must be ad-hoc signed or macOS will silently kill it:
      ```bash
      codesign -f -s - ~/.local/bin/oco
      ```
 
-3. Install the config files:
+4. Install the config files:
 
 ```bash
 mkdir -p \

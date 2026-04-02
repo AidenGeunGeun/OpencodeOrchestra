@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "1.0.24",
+  "version": "1.0.25",
   "name": "@skybluejacket/oco",
   "type": "module",
   "license": "MIT",

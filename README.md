@@ -21,6 +21,16 @@ A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x
 
 ## Install in 30 seconds
 
+**Release downloads by platform**
+
+| Platform | Recommended download |
+| --- | --- |
+| macOS | Desktop `.dmg` |
+| Ubuntu / Debian | Desktop `.AppImage` first, `.deb` second |
+| Fedora / RHEL | Desktop `.AppImage` first, `.rpm` second |
+| Windows | CLI `.zip` |
+| Linux terminal-only | CLI `.tar.gz` |
+
 > [!TIP]
 > **For Agents** — paste this into your LLM agent (Claude Code, OpenCode, Cursor, etc.):
 > ```
