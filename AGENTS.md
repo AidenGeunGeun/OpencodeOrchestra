@@ -85,7 +85,13 @@ Use this release path. It is the one that has actually been validated in this re
      bunx tauri build --config src-tauri/tauri.prod.conf.json
      ```
 
-6. Package and upload the local assets manually:
+6. After updating the system `oco` binary on macOS, always re-sign it or macOS will kill it:
+   ```bash
+   codesign -f -s - ~/.local/bin/oco
+   ```
+   This applies any time a new binary is copied to PATH on macOS.
+
+7. Package and upload the local assets manually:
    - Package these exact CLI artifacts from `packages/opencode/dist/@skybluejacket/`:
      - `oco-darwin-arm64/bin/oco` -> `oco-darwin-arm64.tar.gz`
      - `oco-darwin-x64/bin/oco` -> `oco-darwin-x64.tar.gz`
