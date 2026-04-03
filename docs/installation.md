@@ -113,6 +113,13 @@ Tell the user what was just installed:
 
 Suggest a first task: ask the PM to investigate a codebase and draft a spec before implementing anything. That exercises the full hierarchy.
 
+### Step 8: Explain How to Update
+
+- OCO does not auto-update. Tell the user to check GitHub Releases manually: https://github.com/AidenGeunGeun/OpencodeOrchestra/releases
+- CLI installs update by downloading the new archive, extracting it, and replacing the existing `oco` binary.
+- Desktop installs update by reinstalling the new desktop artifact for that platform: `.dmg` on macOS, `.deb` on Ubuntu/Debian, `.rpm` on Fedora/RHEL.
+- Config, skills, prompts, and chat history under `~/.config/oco/` and `~/.local/share/oco/` are not removed by reinstalling the binary or desktop app.
+
 ## For Humans
 
 ### Option A: Install From Release
@@ -128,6 +135,11 @@ Suggest a first task: ask the PM to investigate a codebase and draft a spec befo
    | Linux terminal-only | CLI `.tar.gz` |
 
 2. If you downloaded a desktop app (`.dmg`, `.deb`, `.rpm`), install/open that and you are done.
+   - **macOS `.dmg` only**: before the first launch, run:
+     ```bash
+     xattr -cr /Applications/OpenCodeOrchestra.app
+     ```
+     The desktop app is unsigned, so Gatekeeper blocks it unless you clear the quarantine attribute first.
 
 3. If you downloaded the CLI instead, put the binary on your PATH (e.g., `~/.local/bin/oco`).
    - **macOS**: the binary must be ad-hoc signed or macOS will silently kill it:
@@ -156,7 +168,7 @@ curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/mai
 curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
 ```
 
-4. Authenticate and launch:
+5. Authenticate and launch:
 
 ```bash
 oco auth login
@@ -180,7 +192,7 @@ cp dist/@skybluejacket/oco-darwin-arm64/bin/oco ~/.local/bin/oco
 codesign -f -s - ~/.local/bin/oco   # macOS only
 ```
 
-Then install the config files using the curl commands from Option A step 3, or copy directly from the repo:
+Then install the config files using the curl commands from Option A step 4, or copy directly from the repo:
 
 ```bash
 mkdir -p ~/.config/oco/prompts ~/.config/oco/skill
@@ -188,6 +200,46 @@ cp config/oco.jsonc ~/.config/oco/oco.jsonc
 cp config/prompts/*.txt ~/.config/oco/prompts/
 cp -R config/skills/* ~/.config/oco/skill/
 ```
+
+## How to Update
+
+There is no auto-update flow for OCO today. To update, check [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases), download the newest release for your platform, and reinstall it.
+
+### CLI Binary Update
+
+1. Download the newest CLI archive for your platform from GitHub Releases.
+2. Extract it and replace your existing `oco` binary (for example `~/.local/bin/oco`).
+3. On macOS, re-run:
+
+```bash
+codesign -f -s - ~/.local/bin/oco
+```
+
+### Desktop Update on macOS
+
+1. Download the newest `.dmg`.
+2. Open it and drag `OpenCodeOrchestra.app` to `/Applications` again to replace the old app.
+3. Before launching the new version, run:
+
+```bash
+xattr -cr /Applications/OpenCodeOrchestra.app
+```
+
+### Desktop Update on Ubuntu / Debian
+
+1. Download the newest `.deb`.
+2. Install it in place:
+
+```bash
+sudo dpkg -i <new-file>.deb
+```
+
+`dpkg` upgrades the existing installation in place.
+
+### What Updates Do Not Change
+
+- Replacing the CLI binary or reinstalling the desktop app does not remove your config or chat history. Those live separately in `~/.config/oco/` and `~/.local/share/oco/`.
+- Skills and prompts under `~/.config/oco/` are also left alone. If you want the latest shipped versions, you can re-run the `curl` install commands from this guide.
 
 ### Verification Checklist
 

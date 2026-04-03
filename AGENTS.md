@@ -144,15 +144,16 @@ Use this release path. It is the one that has actually been validated in this re
 
 ### Migrating From Vanilla OpenCode
 
-Users coming from vanilla `opencode` (or pre-namespace-split OCO) need to migrate their chat history database. OCO stores sessions in a SQLite database, and the directory changed from `~/.local/share/opencode/` to `~/.local/share/oco/`. The database filename itself is still `opencode.db` — same schema, just a different parent directory.
+Users coming from vanilla `opencode` (or pre-namespace-split OCO) need to migrate their chat history database. OCO stores sessions in a SQLite database, and the directory changed from `~/.local/share/opencode/` to `~/.local/share/oco/`. OCO 1.0.28+ uses `oco.db`, so migration needs to copy the old `opencode.db` file to the new filename after the directory sync.
 
 **Migration command (run before first OCO launch):**
 ```bash
 mkdir -p ~/.local/share/oco
 rsync -a ~/.local/share/opencode/ ~/.local/share/oco/
+cp ~/.local/share/oco/opencode.db ~/.local/share/oco/oco.db
 ```
 
-This copies the entire data directory: the SQLite database (`opencode.db` + WAL files), the `storage/` directory (session messages, parts, diffs), and `tool-output/` (large tool call results). The old `~/.local/share/opencode/` is left untouched so vanilla `opencode` continues to work if needed.
+This copies the entire data directory, then creates the `oco.db` file that OCO reads. After the copy, both `opencode.db` and `oco.db` can exist in `~/.local/share/oco/`, which is fine. Do not delete `opencode.db` because vanilla `opencode` still uses it. The old `~/.local/share/opencode/` directory is also left untouched as a backup.
 
 After migration, all previous sessions, messages, compression history, and tool outputs appear in OCO as if nothing changed.
 
@@ -198,6 +199,10 @@ Release artifact upload only runs on tag pushes (not manual `workflow_dispatch` 
 - **Sidecar**: The `oco` CLI binary bundled at `src-tauri/sidecars/opencode-cli-<rust-target>`, launched at startup to provide the API server
 - **Dev config**: `src-tauri/tauri.conf.json` (product name "OpenCode Dev")
 - **Prod config**: `src-tauri/tauri.prod.conf.json` (product name "OpenCode Orchestra", identifier `ai.opencode.orchestra`)
+
+### Updater Behavior
+
+`UPDATER_ENABLED` is `option_env!("TAURI_SIGNING_PRIVATE_KEY").is_some()` in `packages/desktop/src-tauri/src/constants.rs`. Because production builds do not set `TAURI_SIGNING_PRIVATE_KEY`, this compiles to `false`, the updater plugin is not loaded, and no in-app "Check for Updates" menu item is shown. `packages/desktop/src-tauri/tauri.prod.conf.json` also sets `createUpdaterArtifacts: false`, so the update model is GitHub Releases plus manual reinstall. If this ever changes, set `TAURI_SIGNING_PRIVATE_KEY` in CI and configure the updater endpoint before documenting auto-update behavior.
 
 ### Server Connection Model
 

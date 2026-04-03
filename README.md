@@ -26,8 +26,8 @@ A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x
 | Platform | Recommended download |
 | --- | --- |
 | macOS | Desktop `.dmg` |
-| Ubuntu / Debian | Desktop `.AppImage` first, `.deb` second |
-| Fedora / RHEL | Desktop `.AppImage` first, `.rpm` second |
+| Ubuntu / Debian | Desktop `.deb` |
+| Fedora / RHEL | Desktop `.rpm` |
 | Windows | CLI `.zip` |
 | Linux terminal-only | CLI `.tar.gz` |
 
@@ -67,6 +67,10 @@ oco
 That's it. You have a PM, an Orchestrator, and four specialist agents. [Full setup guide →](docs/installation.md)
 
 If you already have an older `~/.config/opencode/` install, the new binary reads it as a fallback until you migrate. Run `scripts/migrate-config.sh` to copy missing config, prompts, state, and cache files into the new `oco` namespace and duplicate `opencode.jsonc` / `opencode.json` as `oco.jsonc` / `oco.json`.
+
+### Updating
+
+OCO does not auto-update. To update, check [GitHub Releases](https://github.com/AidenGeunGeun/OpencodeOrchestra/releases), download the newest release for your platform, and reinstall it using the same steps as your initial install.
 
 ---
 
