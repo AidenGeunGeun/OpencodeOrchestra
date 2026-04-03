@@ -179,10 +179,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     }
 
     const touch = (directory: string, setStore: Setter, sessionID: string) => {
+      // Preserve root sessions (PM/build agent — no parentID) so navigating
+      // deep into subagent trees never evicts the parent session from cache.
+      const [store] = globalSync.child(directory, { bootstrap: false })
+      const rootSessions = store.session.filter((s) => !s.parentID).map((s) => s.id)
       const stale = pickSessionCacheEvictions({
         seen: seenFor(directory),
         keep: sessionID,
         limit: SESSION_CACHE_LIMIT,
+        preserve: rootSessions,
       })
       evict(directory, setStore, stale)
     }
