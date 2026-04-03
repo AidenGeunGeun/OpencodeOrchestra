@@ -19,14 +19,10 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     const abort = new AbortController()
 
     const eventFetch = (() => {
-      if (!platform.fetch || !server.current) return
-      try {
-        const url = new URL(server.current.http.url)
-        const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1"
-        if (url.protocol === "http:" && !loopback) return platform.fetch
-      } catch {
-        return
-      }
+      // Always use platform.fetch (tauriFetch / Rust reqwest) when available.
+      // WebKit's native fetch buffers SSE responses instead of streaming them
+      // incrementally, which breaks real-time event delivery in Tauri webviews.
+      if (platform.fetch) return platform.fetch
     })()
 
     const currentServer = server.current
