@@ -1,60 +1,78 @@
-import type { UserMessage } from "@opencode-ai/sdk/v2"
-import { batch } from "solid-js"
+import type { Message, UserMessage } from "@opencode-ai/sdk/v2"
 
-type Local = {
-  agent: {
-    current():
-      | {
-          model?: UserMessage["model"]
-          variant?: string
-        }
-      | undefined
-    set(name: string | undefined): void
-  }
-  model: {
-    set(model: UserMessage["model"] | undefined): void
-    current():
-      | {
-          id: string
-          provider: { id: string }
-        }
-      | undefined
-    session: {
-      set(
-        sessionID: string,
-        value:
-          | {
-              model?: UserMessage["model"]
-              variant?: string
-            }
-          | undefined,
-      ): void
-    }
-    variant: {
-      set(value: string | undefined): void
-    }
-  }
+type ModelKey = UserMessage["model"]
+
+type SessionModelState = {
+  model?: ModelKey
+  variant?: string
+  source?: "manual" | "submit"
 }
 
-export const resetSessionModel = (local: Local) => {
-  const agent = local.agent.current()
-  if (!agent) return
-  batch(() => {
-    local.model.set(agent.model)
-    local.model.variant.set(agent.variant)
-  })
+type AgentDefaults = {
+  model?: ModelKey
+  variant?: string
 }
 
-export const syncSessionModel = (local: Local, msg: UserMessage, opts?: { lockedAgent?: string }) => {
-  batch(() => {
-    if (!opts?.lockedAgent) local.agent.set(msg.agent)
-    local.model.set(msg.model)
-    local.model.session.set(msg.sessionID, { model: msg.model, variant: msg.variant })
-  })
+type ResolveSessionModelSelectionInput = {
+  session?: SessionModelState
+  messages?: Message[]
+  revertMessageID?: string
+  agent?: AgentDefaults
+  fallback?: ModelKey
+  isModelValid?: (model: ModelKey) => boolean
+}
 
-  const model = local.model.current()
-  if (!model) return
-  if (model.provider.id !== msg.model.providerID) return
-  if (model.id !== msg.model.modelID) return
-  local.model.variant.set(msg.variant)
+function isUserMessage(message: Message): message is UserMessage {
+  return message.role === "user"
+}
+
+function sameModel(left: ModelKey | undefined, right: ModelKey | undefined) {
+  if (!left || !right) return left === right
+  return left.providerID === right.providerID && left.modelID === right.modelID
+}
+
+function sameSelection(session: SessionModelState | undefined, message: UserMessage | undefined) {
+  if (!session) return false
+  if (!message) return false
+  if (!sameModel(session.model, message.model)) return false
+  return session.variant === message.variant
+}
+
+export function getLastUserMessage(messages: Message[] | undefined, revertMessageID?: string) {
+  if (!messages) return undefined
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || !isUserMessage(message)) continue
+    if (revertMessageID && message.id >= revertMessageID) continue
+    return message
+  }
+  return undefined
+}
+
+export function resolveSessionModelSelection(input: ResolveSessionModelSelectionInput) {
+  const isModelValid = input.isModelValid ?? (() => true)
+  const lastUserMessage = getLastUserMessage(input.messages, input.revertMessageID)
+  const sessionModel = input.session?.model
+  const hasPendingSessionOverride =
+    !!input.session &&
+    (input.messages === undefined || (input.session.source !== "submit" && !sameSelection(input.session, lastUserMessage)))
+  if (hasPendingSessionOverride && sessionModel && isModelValid(sessionModel)) {
+    return { model: sessionModel, variant: input.session?.variant }
+  }
+
+  if (lastUserMessage?.model && isModelValid(lastUserMessage.model)) {
+    return { model: lastUserMessage.model, variant: lastUserMessage.variant }
+  }
+
+  const agentModel = input.agent?.model
+  if (agentModel && isModelValid(agentModel)) {
+    return { model: agentModel, variant: input.agent?.variant }
+  }
+
+  const fallbackModel = input.fallback
+  if (fallbackModel && isModelValid(fallbackModel)) {
+    return { model: fallbackModel, variant: undefined }
+  }
+
+  return { model: undefined, variant: undefined }
 }

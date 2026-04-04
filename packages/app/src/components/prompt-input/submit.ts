@@ -289,6 +289,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
+    const model = {
+      modelID: currentModel.id,
+      providerID: currentModel.provider.id,
+    }
+    const variant = local.model.variant.current()
+
     input.addToHistory(currentPrompt, mode)
     input.resetHistoryNavigation()
 
@@ -352,6 +358,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           return undefined
         })
       if (session) {
+        local.model.session?.set?.(session.id, { model, variant, source: "submit" })
         if (shouldAutoAccept) permission.enableAutoAccept(session.id, sessionDirectory)
         layout.handoff.setTabs(base64Encode(sessionDirectory), session.id)
         navigate(`/${base64Encode(sessionDirectory)}/session/${session.id}`)
@@ -365,12 +372,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    const model = {
-      modelID: currentModel.id,
-      providerID: currentModel.provider.id,
-    }
     const agent = session?.agentID ?? currentAgent.name
-    const variant = local.model.variant.current()
     const context = prompt.context.items().slice()
     const draft: FollowupDraft = {
       sessionID: session.id,

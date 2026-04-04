@@ -354,7 +354,7 @@ export namespace Agent {
       item.hidden = value.hidden ?? item.hidden
       item.name = value.name ?? item.name
       item.steps = value.steps ?? item.steps
-      item.variant = value.variant ?? item.variant
+      item.variant = value.variant ?? value.effort ?? item.variant
       item.singleShot = value.single_shot ?? item.singleShot // OpenCodeOrchestra: Config override
       item.options = mergeDeep(item.options, value.options ?? {})
       item.permission = PermissionNext.merge(item.permission, PermissionNext.fromConfig(value.permission ?? {}))

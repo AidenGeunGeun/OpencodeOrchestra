@@ -46,7 +46,6 @@ import { createOpenReviewFile, createSessionTabs, createSizing, focusTerminalByI
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { resetSessionModel, syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
@@ -571,36 +570,6 @@ export default function Page() {
     const path = file.pathFromTab(tab)
     if (path) file.load(path)
   })
-
-  let resetSessionModelToken = 0
-
-  createEffect(
-    on(
-      () => lastUserMessage()?.id,
-      () => {
-        const msg = lastUserMessage()
-        if (!msg) return
-        syncSessionModel(local, msg, { lockedAgent: info()?.agentID })
-      },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => ({ dir: params.dir, id: params.id }),
-      (next, prev) => {
-        if (!prev) return
-        if (next.dir === prev.dir && next.id === prev.id) return
-        const token = ++resetSessionModelToken
-        if (next.id) return
-        queueMicrotask(() => {
-          if (token !== resetSessionModelToken) return
-          if (!params.id) resetSessionModel(local)
-        })
-      },
-      { defer: true },
-    ),
-  )
 
   const [store, setStore] = createStore({
     messageId: undefined as string | undefined,

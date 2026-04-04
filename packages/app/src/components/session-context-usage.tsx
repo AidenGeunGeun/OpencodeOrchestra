@@ -89,6 +89,12 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
               <span class="text-text-invert-strong">{ctx().usage ?? 0}%</span>
               <span class="text-text-invert-base">{language.t("context.usage.usage")}</span>
             </div>
+            <Show when={ctx().cacheRead > 0}>
+              <div class="flex items-center gap-2">
+                <span class="text-text-invert-strong">{ctx().cacheRead.toLocaleString(language.intl())}</span>
+                <span class="text-text-invert-base">cached</span>
+              </div>
+            </Show>
           </>
         )}
       </Show>
