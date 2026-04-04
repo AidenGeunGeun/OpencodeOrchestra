@@ -5,6 +5,15 @@ Exhaustive file-by-file documentation of all divergences from upstream opencode 
 **Stats (as of 2026-02-18):** 352 shared src files — 118 modified, 34 added, 0 removed.
 Tests: 4 new files, 35 modified files. 884 pass / 29 skip / 0 fail.
 
+**v1.0.31 additions:** `session/prompt.ts` (pending clickability + agent null-checks), `tool/task.ts`
+(conditional todo deny), `session/llm.ts` (agent name in hooks), `plugin/index.ts` (config hook
+robustness), `packages/ui/src/context/marked.tsx` (table rendering fix).
+
+**v1.0.32 additions:** `agent/agent.ts` (`effort` → `variant` alias), `packages/app/src/context/local.tsx`
+(derived model resolution), `packages/app/src/pages/session.tsx` (removed sync effects),
+`packages/app/src/pages/session/session-model-helpers.ts` (NEW — pure model helper),
+`packages/app/src/components/session-context-usage.tsx` (cached token display).
+
 > **Sync rule:** Orchestra-Only files (Category 1) must NEVER be overwritten.
 > All other categories must be re-applied as patches after upstream merges.
 
@@ -28,6 +37,13 @@ or waits for an explicit `finish_task` call (`false`, for orchestrators).
 `orchestrator`, `investigator`, `auditor`, `web-search`, `docs`
 
 Each agent has `mode: "subagent"`, a description, `singleShot` value, and a custom prompt.
+
+**v1.0.32 addition (line 357):** `effort` accepted as an alias for `variant` when merging agent
+config overrides from `oco.jsonc`:
+```ts
+item.variant = value.variant ?? value.effort ?? item.variant
+```
+Allows `effort: "high"` in existing configs to continue working without renaming the key.
 
 ---
 
@@ -106,6 +122,21 @@ subagent tool parts for metadata display.
 - `finish_task: true` injected into tools for the orchestrator prompt (line 308).
 - DCP primary tools intentionally NOT denied for depth-1 orchestrators (line 310 comment).
 
+**v1.0.31 addition (lines 69–74):** `hasTodoWritePermission` and `hasTodoReadPermission` checks
+added alongside the existing `hasTaskPermission` pattern. Previously `todowrite` and `todoread`
+were unconditionally denied for all spawned child sessions. Now the deny rule is omitted when
+the agent config explicitly grants that permission:
+```ts
+const hasTodoWritePermission = agent.permission.some(
+  (rule) => rule.permission === "todowrite" && rule.action === "allow",
+)
+const hasTodoReadPermission = agent.permission.some(
+  (rule) => rule.permission === "todoread" && rule.action === "allow",
+)
+```
+Applied at lines 130–148 when building the child session permission array, matching the
+pre-existing `hasTaskPermission` conditional-deny pattern.
+
 ---
 
 ### `tool/registry.ts` — Modified
@@ -143,6 +174,10 @@ const client = wrapClientForDepthAwareness(rawClient)  // line 33
 ```
 
 Wraps the raw SDK client before passing it to plugins, enabling depth-aware DCP behavior.
+
+**v1.0.31 addition:** `init()` now wraps each `hook.config?.(config)` call in a try/catch so that
+a single broken plugin cannot abort initialization for all remaining plugins. See Category 3 for
+the full bug-fix entry.
 
 ---
 
@@ -242,6 +277,54 @@ optionally switching to a specific agent's default model.
 
 Lines 236–258: migration step backfills `agentID` sidecar files for legacy sessions that stored
 `agentID` inline in session JSON. Reads each session's JSON, extracts `agentID`, writes sidecar.
+
+---
+
+### `session/prompt.ts` — Modified (OCO additions)
+
+**v1.0.31 — Subagent pending clickability (line 783):** The `metadata` callback guard inside
+`resolveTools()` was extended to accept `"pending"` in addition to `"running"`:
+```ts
+if (match && ["running", "pending"].includes(match.state.status)) {
+```
+The old check only matched `"running"`, which meant pending subtask tool parts never received
+metadata updates and were not interactive in the UI. The expanded check lets the UI render
+pending subtasks as clickable before the subagent session fully starts.
+
+**v1.0.31 — Agent null-checks (multiple locations):** Explicit null-checks added after every
+`Agent.get()` call. When the agent is not found, a `Bus.publish(Session.Event.Error, ...)` event
+is fired with a message listing available agents, then an error is thrown. Affected call sites:
+- Line 431: `taskAgent` null-check in the pending-subtask handling path
+- Lines 583–592: `agent` null-check in the normal processing loop
+- Lines 989–998: `agent` null-check in `createUserMessage()`
+
+All three follow the same pattern:
+```ts
+const available = await Agent.list()
+  .then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
+const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+const error = new NamedError.Unknown({ message: `Agent not found: "${name}".${hint}` })
+Bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
+throw error
+```
+
+---
+
+### `session/llm.ts` — Modified (plugin hook agent name)
+
+**v1.0.31 (lines 122 and 140):** Both `Plugin.trigger()` calls in `stream()` were updated to
+pass `input.agent.name` (a string) instead of `input.agent` (the full `Agent.Info` object):
+
+```ts
+// chat.params hook (line 122):
+agent: input.agent.name,
+
+// chat.headers hook (line 140):
+agent: input.agent.name,
+```
+
+Plugin hooks declare `agent` as `string` in the `@opencode-ai/plugin` SDK type, so passing the
+full object caused a type mismatch and could confuse plugins that stringify the value.
 
 ---
 
@@ -481,6 +564,46 @@ The `?? start(sessionID)` ensures a fresh start if resume fails.
 
 ---
 
+### `plugin/index.ts` — Plugin config hook robustness
+
+**v1.0.31 (lines 146–151):** Each `hook.config?.(config)` call inside `Plugin.init()` is now
+wrapped in a try/catch:
+```ts
+try {
+  await hook.config?.(config)
+} catch (error) {
+  log.error("plugin config hook failed", { error })
+}
+```
+Previously a thrown exception in one plugin's config hook would bubble out of the loop, leaving
+all remaining plugins uninitialized. The try/catch isolates each failure so the rest of the
+plugin stack still loads.
+
+---
+
+### `packages/ui/src/context/marked.tsx` — Desktop table rendering fix
+
+**v1.0.31 — `renderMathExpressions` rewrite (lines 453–502):** The math expression renderer was
+rewritten from a regex-based HTML-splitting approach to a `DOMParser` + `TreeWalker` text-node
+strategy. The old implementation applied `$...$` regexes directly over raw HTML strings, which
+corrupted table element tags (e.g. `<td class="...">`) when they contained `$` characters.
+
+The new approach:
+1. Parses the HTML string into a live DOM: `new DOMParser().parseFromString(html, "text/html")`.
+2. Walks only text nodes via `document.createTreeWalker(body, NodeFilter.SHOW_TEXT)`.
+3. Skips any text node whose ancestor matches:
+   ```ts
+   const mathSkippedAncestorSelector =
+     "pre, code, kbd, table, thead, tbody, tfoot, tr, th, td, caption"
+   ```
+4. Replaces math-bearing text nodes in-place with a `DocumentFragment` built from rendered KaTeX.
+5. Serializes back to a string with `body.innerHTML`.
+
+Because `<table>` and all its descendants are in the skip-ancestor list, table HTML is never
+touched by the math regex, eliminating the corruption.
+
+---
+
 ## Category 4: Features
 
 ### `cli/cmd/tui/routes/session/header.tsx` — Cache token display
@@ -527,6 +650,100 @@ function normalizeSkillFile(file: string): string | undefined
 - Each file validated: null bytes, absolute paths, protocol URIs rejected.
 - URL boundary check: resolved URL must share `origin` and `pathname` prefix with `skillBase`.
 - Destination path boundary check: `isWithin(root, dest)`.
+
+---
+
+### `packages/app/src/context/local.tsx` — Desktop model resolution revamp
+
+**v1.0.32 rewrite:** The `model` state block inside `useLocal` was reworked from imperative
+effect-based sync to fully derived computation. Model state no longer lives in a reactive store
+that gets reset by `agent.set()` or `agent.move()` — those methods now only update the agent
+selection and leave the model untouched.
+
+A single `resolved` memo (lines 148–170) derives the active model by calling the pure helper
+`resolveSessionModelSelection()`:
+```ts
+const resolved = createMemo(() =>
+  resolveSessionModelSelection({
+    session,         // ephemeral per-session override (set by model.set())
+    messages,        // last-user-message model fallback
+    revertMessageID,
+    agent: currentAgent
+      ? { model: currentAgent.model, variant: currentAgent.variant }
+      : undefined,
+    fallback: fallbackModel(),
+    isModelValid,
+  })
+)
+```
+
+Priority order: **session override → last user message model → agent default → fallback**.
+
+`fallbackModel` is a separate memo (lines 125–127) over `providers.connected()`. The
+`model.session.set()` helper (line 237) lets external callers push a `SessionModelState`
+into the ephemeral store directly, replacing the old `syncSessionModel` effect pattern.
+
+---
+
+### `packages/app/src/pages/session.tsx` — Removed model sync effects
+
+**v1.0.32:** The `syncSessionModel` and `resetSessionModel` `createEffect` blocks and the
+`resetSessionModelToken` signal were removed entirely. These effects previously watched session
+navigation events and imperatively pushed model state into `local.model`. Under the new derived
+model in `local.tsx`, the `resolved` memo recomputes automatically whenever the session route or
+message data changes, making the effects redundant.
+
+---
+
+### `packages/app/src/pages/session/session-model-helpers.ts` — NEW FILE
+
+Pure helper for resolving the active model/variant selection for a desktop session. Replaces the
+inline `syncSessionModel`/`resetSessionModel` imperative effects that were removed from
+`session.tsx`.
+
+**Exported functions:**
+
+`resolveSessionModelSelection(input)` (lines 52–78) — returns `{ model, variant }` using a
+strict priority chain:
+1. Pending session override (`session.source !== "submit"` and override differs from last message)
+2. Last user message's `model` + `variant`
+3. Agent default `model` + `variant`
+4. Global fallback model
+
+Input type:
+```ts
+type ResolveSessionModelSelectionInput = {
+  session?: SessionModelState        // ephemeral override from model.set()
+  messages?: Message[]               // session history for last-user-message lookup
+  revertMessageID?: string           // skip messages at or after this ID
+  agent?: { model?, variant? }       // agent default
+  fallback?: ModelKey                // global fallback
+  isModelValid?: (model) => boolean  // provider connectivity guard
+}
+```
+
+`getLastUserMessage(messages, revertMessageID)` (lines 41–50) — scans history in reverse,
+skipping any user message at or after `revertMessageID`.
+
+---
+
+### `packages/app/src/components/session-context-usage.tsx` — Desktop cached token display
+
+**v1.0.32 (lines 92–97):** A conditional cache-read row is added inside the context usage
+tooltip, rendered only when `cacheRead > 0`:
+```tsx
+<Show when={ctx().cacheRead > 0}>
+  <div class="flex items-center gap-2">
+    <span class="text-text-invert-strong">
+      {ctx().cacheRead.toLocaleString(language.intl())}
+    </span>
+    <span class="text-text-invert-base">cached</span>
+  </div>
+</Show>
+```
+Displays the cache-read token count (e.g. `"69,211 cached"`) in the tooltip below the total and
+usage-percentage rows. `cacheRead` is sourced from `getSessionContextMetrics()` via the `metrics`
+memo already present in the component.
 
 ---
 

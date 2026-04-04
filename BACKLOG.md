@@ -20,6 +20,30 @@ Tracked items for future work. Ordered by priority.
 
 ---
 
+## 1.1.0 Candidates
+
+### Per-Agent Todo Lists
+
+Shared PM-level todo list plus per-session ephemeral todo lists. The PM would maintain a persistent cross-session task list; individual sessions get their own scoped list. Blocked until Fix 3 from `oco-1.1.0-upstream-sync.md` ships (the `todowrite` deny in `task.ts` must be made conditional on agent permission config before per-agent grants can work).
+
+### Effect Service Refactor (Upstream v1.3.x Sync)
+
+Upstream v1.3.x refactored significant portions of the session pipeline onto the Effect service abstraction. Tracking for a targeted sync once upstream stabilizes. **Not included in the 1.1.0 spec** — the changes are too large and invasive to cherry-pick safely alongside the surgical 1.1.0 fixes. Revisit after 1.1.0 ships.
+
+### TUI Plugin System Adoption (Deferred)
+
+Upstream introduced a TUI plugin hook system. Adoption deferred — the OCO TUI already diverges heavily (sibling nav, agent cycle lock, effectiveAgent memo) and merging the plugin surface without breaking those would require a dedicated sync pass. Noted here as a future tracking item.
+
+### Cross-Process Session Sync: TUI ↔ Desktop (Deferred)
+
+When both TUI and Desktop are open against the same server, session state is broadcast to both via SSE, but the TUI and Desktop each maintain independent local ephemeral state (selected model, agent, etc.). True cross-process sync would require reconciling those independently. **Deferred** — the intended usage model is one active client per server instance. If a user opens both, they should expect minor UI divergence. Revisit only if this becomes a reported pain point.
+
+### Prompt Repetition Experiment (Scrapped)
+
+Explored whether repeating key instructions mid-context improves recall for non-reasoning models. Scrapped for now — initial results were inconsistent and the added token cost is hard to justify without a controlled eval. Research reference for future revisit: *"Prompt Repetition Improves Non-Reasoning LLMs"*, Leviathan et al., Google Research, Dec 2025.
+
+---
+
 ## Upstream Tracking
 
 - [x] ~~When upstream opencode adopts `@ai-sdk/anthropic` v3.x, port their implementation and reconcile with our fork changes.~~ Done — we upgraded independently to AI SDK 6.x.

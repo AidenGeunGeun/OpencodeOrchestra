@@ -380,10 +380,12 @@ These files contain fork-only logic. During upstream syncs, merge carefully:
 - `cli/cmd/tui/routes/session/sidebar.tsx` — OpenCodeOrchestra branding
 - `cli/cmd/tui/context/local.tsx` — `model.clear()` method
 - `storage/json-migration.ts` — agentID sidecar backfill
+- `packages/app/src/context/local.tsx` — per-session ephemeral model override store; derived model/variant resolution from last user message (1.0.32)
+- `packages/app/src/pages/session.tsx` — `syncSessionModel` / `resetSessionModel` effects removed; model derived from message history (1.0.32)
 
 ## Upstream Divergences (preserve on sync)
 
-Changes to non-Orchestra files that differ from upstream opencode 1.2.5 (`ai` 5.0.124 → 6.0.90).
+Changes to non-Orchestra files that differ from upstream opencode 1.2.27 (`ai` 5.0.124 → 6.0.90).
 Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-file details.
 
 ### Summary Table
@@ -393,6 +395,7 @@ Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-
 | AI SDK 6.x migration | `package.json`, `session/index.ts`, `session/processor.ts`, `session/prompt.ts`, `provider/transform.ts`, `provider/provider.ts`, +26 more | `ai` 5→6, token semantics, finish reason normalization |
 | Bug fixes | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts` | SIGHUP zombie, reasoning display, text-delta guard |
 | Features | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts` | 1M context, cache display, skill path validation |
+| v1.0.32 desktop | `packages/app/src/context/local.tsx`, `packages/app/src/pages/session.tsx`, `packages/opencode/src/agent/agent.ts` | Model/variant derived from last user message; `effort` aliased to `variant` in agent config |
 | Config (external) | `oco.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
 
 ### AI SDK 6.x — Package Versions
@@ -461,6 +464,21 @@ Also: `ProviderTransform.providerOptions()` (line 818) added for gateway-aware p
   `agentID` sidecar awareness. Replaces `setTitle()` / `setPermission()` for most callers.
 - `session/prompt.ts`: `LoopInput` changed to `z.union([Identifier, { sessionID, resume_existing }])`
   for more flexible invocation; `Session.setPermission` calls replaced with `Session.update()` draft pattern.
+
+### v1.0.32 — Desktop Model Resolution Revamp
+
+**Problem:** The desktop app used competing effects and an agent-keyed ephemeral store to track the current model, causing the model to reset to the agent default on every session or project navigation.
+
+**Fix:** Model resolution is now a pure derivation in `packages/app/src/context/local.tsx`:
+
+1. Check `ephemeral.session[sessionID]?.model` — user changed model in UI before sending (only persisted state).
+2. Fall back to the last user message's `model`/`variant` — source of truth for sessions with history.
+3. Fall back to `agent.current()?.model` — agent configured default for brand-new sessions.
+4. Fall back to `fallbackModel()` — system default.
+
+`syncSessionModel` and `resetSessionModel` effects in `packages/app/src/pages/session.tsx` are removed. `ephemeral.model[agentName]` per-agent store is removed. `session-model-helpers.ts` is emptied/removed.
+
+**Also in v1.0.32:** `packages/opencode/src/agent/agent.ts` now treats `effort` as an alias for `variant` in agent config resolution (`item.variant = value.variant ?? value.effort ?? item.variant`). This means `effort: "max"` in `oco.jsonc` correctly surfaces as the "max" variant in the desktop thinking effort selector.
 
 ### Package-Specific Auth Notes
 
