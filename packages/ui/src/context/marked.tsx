@@ -376,11 +376,14 @@ registerCustomTheme("OpenCode", () => {
   } as unknown as ThemeRegistrationResolved)
 })
 
+const displayMathRegex = /\$\$([\s\S]*?)\$\$/g
+const inlineMathRegex = /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g
+const mathSkippedAncestorSelector = "pre, code, kbd, table, thead, tbody, tfoot, tr, th, td, caption"
+
 function renderMathInText(text: string): string {
   let result = text
 
   // Display math: $$...$$
-  const displayMathRegex = /\$\$([\s\S]*?)\$\$/g
   result = result.replace(displayMathRegex, (_, math) => {
     try {
       return katex.renderToString(math, {
@@ -393,7 +396,6 @@ function renderMathInText(text: string): string {
   })
 
   // Inline math: $...$
-  const inlineMathRegex = /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g
   result = result.replace(inlineMathRegex, (_, math) => {
     try {
       return katex.renderToString(math, {
@@ -408,19 +410,95 @@ function renderMathInText(text: string): string {
   return result
 }
 
-function renderMathExpressions(html: string): string {
-  // Split on code/pre/kbd tags to avoid processing their contents
-  const codeBlockPattern = /(<(?:pre|code|kbd)[^>]*>[\s\S]*?<\/(?:pre|code|kbd)>)/gi
-  const parts = html.split(codeBlockPattern)
+function appendRenderedMath(document: Document, fragment: DocumentFragment, text: string): boolean {
+  const rendered = renderMathInText(text)
 
-  return parts
-    .map((part, i) => {
-      // Odd indices are the captured code blocks - leave them alone
-      if (i % 2 === 1) return part
-      // Process math only in non-code parts
-      return renderMathInText(part)
-    })
-    .join("")
+  if (rendered === text) {
+    fragment.append(text)
+    return false
+  }
+
+  const template = document.createElement("template")
+  template.innerHTML = rendered
+  fragment.append(template.content)
+  return true
+}
+
+function appendInlineMath(document: Document, fragment: DocumentFragment, text: string): boolean {
+  let hasRenderedMath = false
+  let lastIndex = 0
+
+  for (const match of text.matchAll(new RegExp(inlineMathRegex))) {
+    const start = match.index ?? 0
+    if (start > lastIndex) {
+      fragment.append(text.slice(lastIndex, start))
+    }
+
+    hasRenderedMath = appendRenderedMath(document, fragment, match[0]) || hasRenderedMath
+    lastIndex = start + match[0].length
+  }
+
+  if (lastIndex === 0) {
+    fragment.append(text)
+    return false
+  }
+
+  if (lastIndex < text.length) {
+    fragment.append(text.slice(lastIndex))
+  }
+
+  return hasRenderedMath
+}
+
+function renderMathExpressions(html: string): string {
+  const document = new DOMParser().parseFromString(html, "text/html")
+  const { body } = document
+  const treeWalker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+
+  let currentNode = treeWalker.nextNode()
+  while (currentNode) {
+    if (
+      currentNode instanceof Text &&
+      currentNode.textContent?.includes("$") &&
+      !currentNode.parentElement?.closest(mathSkippedAncestorSelector)
+    ) {
+      textNodes.push(currentNode)
+    }
+
+    currentNode = treeWalker.nextNode()
+  }
+
+  for (const textNode of textNodes) {
+    const text = textNode.textContent
+    if (!text) continue
+
+    const fragment = document.createDocumentFragment()
+    let hasRenderedMath = false
+    let lastIndex = 0
+
+    for (const match of text.matchAll(new RegExp(displayMathRegex))) {
+      const start = match.index ?? 0
+      if (start > lastIndex) {
+        hasRenderedMath = appendInlineMath(document, fragment, text.slice(lastIndex, start)) || hasRenderedMath
+      }
+
+      hasRenderedMath = appendRenderedMath(document, fragment, match[0]) || hasRenderedMath
+      lastIndex = start + match[0].length
+    }
+
+    if (lastIndex === 0) {
+      hasRenderedMath = appendInlineMath(document, fragment, text)
+      if (!hasRenderedMath) continue
+    } else if (lastIndex < text.length) {
+      hasRenderedMath = appendInlineMath(document, fragment, text.slice(lastIndex)) || hasRenderedMath
+    }
+
+    if (!hasRenderedMath) continue
+    textNode.replaceWith(fragment)
+  }
+
+  return body.innerHTML
 }
 
 async function highlightCodeBlocks(html: string): Promise<string> {

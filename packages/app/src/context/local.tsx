@@ -1,5 +1,6 @@
 import { createStore } from "solid-js/store"
 import { batch, createMemo } from "solid-js"
+import { useParams } from "@solidjs/router"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
@@ -9,6 +10,7 @@ import { useModels } from "@/context/models"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 
 export type ModelKey = { providerID: string; modelID: string }
+type SessionModelState = { model?: ModelKey; variant?: string }
 
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
@@ -16,6 +18,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const sdk = useSDK()
     const sync = useSync()
     const providers = useProviders()
+    const params = useParams()
     const connected = createMemo(() => new Set(providers.connected().map((provider) => provider.id)))
 
     function isModelValid(model: ModelKey) {
@@ -31,7 +34,8 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       }
     }
 
-    let setModel: (model: ModelKey | undefined, options?: { recent?: boolean }) => void = () => undefined
+    let setModel: (model: ModelKey | undefined, options?: { recent?: boolean; variant?: string }) => void = () =>
+      undefined
 
     const agent = (() => {
       const list = createMemo(() => sync.data.agent.filter((x) => x.mode !== "subagent" && !x.hidden))
@@ -60,10 +64,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (!value) return
           setStore("current", value.name)
           if (!value.model) return
-          setModel({
-            providerID: value.model.providerID,
-            modelID: value.model.modelID,
-          })
+          setModel(
+            {
+              providerID: value.model.providerID,
+              modelID: value.model.modelID,
+            },
+            { variant: value.variant },
+          )
           if (value.variant)
             models.variant.set({ providerID: value.model.providerID, modelID: value.model.modelID }, value.variant)
         },
@@ -80,10 +87,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           if (!value) return
           setStore("current", value.name)
           if (!value.model) return
-          setModel({
-            providerID: value.model.providerID,
-            modelID: value.model.modelID,
-          })
+          setModel(
+            {
+              providerID: value.model.providerID,
+              modelID: value.model.modelID,
+            },
+            { variant: value.variant },
+          )
           if (value.variant)
             models.variant.set({ providerID: value.model.providerID, modelID: value.model.modelID }, value.variant)
         },
@@ -92,12 +102,28 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const model = (() => {
       const models = useModels()
+      const currentSessionID = createMemo(() => params.id)
 
       const [ephemeral, setEphemeral] = createStore<{
         model: Record<string, ModelKey | undefined>
+        session: Record<string, SessionModelState | undefined>
       }>({
         model: {},
+        session: {},
       })
+
+      const sameModel = (left: ModelKey | undefined, right: ModelKey | undefined) =>
+        !!left && !!right && left.providerID === right.providerID && left.modelID === right.modelID
+
+      const sessionState = (sessionID: string | undefined) => {
+        if (!sessionID) return undefined
+        return ephemeral.session[sessionID]
+      }
+
+      const setSessionState = (sessionID: string | undefined, value: SessionModelState | undefined) => {
+        if (!sessionID) return
+        setEphemeral("session", sessionID, value)
+      }
 
       const resolveConfigured = () => {
         const configured = sync.data.config.model
@@ -133,12 +159,41 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return resolveConfigured() ?? resolveRecent() ?? resolveDefault()
       })
 
+      const resolveVariantForModel = (key: ModelKey | undefined, currentAgent = agent.current()) => {
+        if (!key) return undefined
+        const model = models.find(key)
+        if (!model) return undefined
+        return resolveModelVariant({
+          variants: Object.keys(model.variants ?? {}),
+          selected: models.variant.get({ providerID: model.provider.id, modelID: model.id }),
+          configured: getConfiguredAgentVariant({
+            agent: currentAgent
+              ? {
+                  model: currentAgent.model,
+                  variant: currentAgent.variant,
+                }
+              : undefined,
+            model: {
+              providerID: model.provider.id,
+              modelID: model.id,
+              variants: model.variants,
+            },
+          }),
+        })
+      }
+
       const current = createMemo(() => {
         const a = agent.current()
-        if (!a) return undefined
+        const sessionID = currentSessionID()
         const key = getFirstValidModel(
-          () => ephemeral.model[a.name],
-          () => a.model,
+          () => {
+            const model = sessionState(sessionID)?.model
+            if (!model) return undefined
+            if (!isModelValid(model)) return undefined
+            return model
+          },
+          () => (sessionID || !a ? undefined : ephemeral.model[a.name]),
+          () => a?.model,
           fallbackModel,
         )
         if (!key) return undefined
@@ -170,11 +225,20 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         })
       }
 
-      const set = (model: ModelKey | undefined, options?: { recent?: boolean }) => {
+      const set = (model: ModelKey | undefined, options?: { recent?: boolean; variant?: string }) => {
         batch(() => {
           const currentAgent = agent.current()
           const next = model ?? fallbackModel()
           if (currentAgent) setEphemeral("model", currentAgent.name, next)
+          setSessionState(
+            currentSessionID(),
+            next
+              ? {
+                  model: next,
+                  variant: options?.variant ?? resolveVariantForModel(next, currentAgent),
+                }
+              : undefined,
+          )
           if (model) models.setVisibility(model, true)
           if (options?.recent && model) models.recent.push(model)
         })
@@ -195,6 +259,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         setVisibility(model: ModelKey, visible: boolean) {
           models.setVisibility(model, visible)
         },
+        session: {
+          current(sessionID: string | undefined) {
+            return sessionState(sessionID)
+          },
+          set(sessionID: string, value: SessionModelState | undefined) {
+            setSessionState(sessionID, value)
+          },
+        },
         variant: {
           configured() {
             const a = agent.current()
@@ -208,7 +280,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           selected() {
             const m = current()
             if (!m) return undefined
-            return models.variant.get({ providerID: m.provider.id, modelID: m.id })
+            const sessionID = currentSessionID()
+            const key = { providerID: m.provider.id, modelID: m.id }
+            const session = sessionState(sessionID)
+            if (sameModel(session?.model, key)) return session?.variant
+            if (sessionID) return undefined
+            return models.variant.get(key)
           },
           current() {
             return resolveModelVariant({
@@ -226,7 +303,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           set(value: string | undefined) {
             const m = current()
             if (!m) return
-            models.variant.set({ providerID: m.provider.id, modelID: m.id }, value)
+            const key = { providerID: m.provider.id, modelID: m.id }
+            batch(() => {
+              models.variant.set(key, value)
+              setSessionState(currentSessionID(), { model: key, variant: value })
+            })
           },
           cycle() {
             const variants = this.list()

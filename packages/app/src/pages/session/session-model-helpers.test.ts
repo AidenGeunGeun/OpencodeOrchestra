@@ -34,6 +34,11 @@ describe("syncSessionModel", () => {
           current() {
             return { id: "claude-sonnet-4", provider: { id: "anthropic" } }
           },
+          session: {
+            set(sessionID, value) {
+              calls.push(["session", sessionID, value])
+            },
+          },
           variant: {
             set(value) {
               calls.push(["variant", value])
@@ -47,6 +52,7 @@ describe("syncSessionModel", () => {
     expect(calls).toEqual([
       ["agent", "build"],
       ["model", { providerID: "anthropic", modelID: "claude-sonnet-4" }],
+      ["session", "session", { model: { providerID: "anthropic", modelID: "claude-sonnet-4" }, variant: "high" }],
       ["variant", "high"],
     ])
   })
@@ -71,6 +77,11 @@ describe("syncSessionModel", () => {
           current() {
             return { id: "gpt-5", provider: { id: "openai" } }
           },
+          session: {
+            set(sessionID, value) {
+              calls.push(["session", sessionID, value])
+            },
+          },
           variant: {
             set(value) {
               calls.push(["variant", value])
@@ -84,6 +95,50 @@ describe("syncSessionModel", () => {
     expect(calls).toEqual([
       ["agent", "build"],
       ["model", { providerID: "anthropic", modelID: "claude-sonnet-4" }],
+      ["session", "session", { model: { providerID: "anthropic", modelID: "claude-sonnet-4" }, variant: "high" }],
+    ])
+  })
+
+  test("stores per-session state without changing the selected agent for locked sessions", () => {
+    const calls: unknown[] = []
+
+    syncSessionModel(
+      {
+        agent: {
+          current() {
+            return undefined
+          },
+          set(value) {
+            calls.push(["agent", value])
+          },
+        },
+        model: {
+          set(value) {
+            calls.push(["model", value])
+          },
+          current() {
+            return { id: "claude-sonnet-4", provider: { id: "anthropic" } }
+          },
+          session: {
+            set(sessionID, value) {
+              calls.push(["session", sessionID, value])
+            },
+          },
+          variant: {
+            set(value) {
+              calls.push(["variant", value])
+            },
+          },
+        },
+      },
+      message({ agent: "task", variant: "low" }),
+      { lockedAgent: "task" },
+    )
+
+    expect(calls).toEqual([
+      ["model", { providerID: "anthropic", modelID: "claude-sonnet-4" }],
+      ["session", "session", { model: { providerID: "anthropic", modelID: "claude-sonnet-4" }, variant: "low" }],
+      ["variant", "low"],
     ])
   })
 })
@@ -108,6 +163,9 @@ describe("resetSessionModel", () => {
         },
         current() {
           return undefined
+        },
+        session: {
+          set() {}
         },
         variant: {
           set(value) {
@@ -141,6 +199,9 @@ describe("resetSessionModel", () => {
         },
         current() {
           return undefined
+        },
+        session: {
+          set() {}
         },
         variant: {
           set(value) {

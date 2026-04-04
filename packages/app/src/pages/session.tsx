@@ -572,6 +572,8 @@ export default function Page() {
     if (path) file.load(path)
   })
 
+  let resetSessionModelToken = 0
+
   createEffect(
     on(
       () => lastUserMessage()?.id,
@@ -589,7 +591,12 @@ export default function Page() {
       (next, prev) => {
         if (!prev) return
         if (next.dir === prev.dir && next.id === prev.id) return
-        if (!next.id) resetSessionModel(local)
+        const token = ++resetSessionModelToken
+        if (next.id) return
+        queueMicrotask(() => {
+          if (token !== resetSessionModelToken) return
+          if (!params.id) resetSessionModel(local)
+        })
       },
       { defer: true },
     ),

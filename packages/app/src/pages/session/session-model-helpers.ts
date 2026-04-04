@@ -19,6 +19,17 @@ type Local = {
           provider: { id: string }
         }
       | undefined
+    session: {
+      set(
+        sessionID: string,
+        value:
+          | {
+              model?: UserMessage["model"]
+              variant?: string
+            }
+          | undefined,
+      ): void
+    }
     variant: {
       set(value: string | undefined): void
     }
@@ -38,6 +49,7 @@ export const syncSessionModel = (local: Local, msg: UserMessage, opts?: { locked
   batch(() => {
     if (!opts?.lockedAgent) local.agent.set(msg.agent)
     local.model.set(msg.model)
+    local.model.session.set(msg.sessionID, { model: msg.model, variant: msg.variant })
   })
 
   const model = local.model.current()
