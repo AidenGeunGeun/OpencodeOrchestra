@@ -69,29 +69,54 @@ Use this release path. It is the one that has actually been validated in this re
    ```
    **IMPORTANT**: Never use `git push --tags`. The repo has inherited upstream tags and that will create noise or fail.
 
-4. Treat GitHub Actions like this:
-   - `desktop-build` is the important one for public desktop artifacts.
-   - `cli-release` and `test` can be cancelled when doing the manual local-asset release path described below.
+4. **Build philosophy: build everything possible locally, use CI only for Linux.**
+   macOS is the dev machine — local builds are faster, immediately installable, and don't burn CI minutes.
+   Only Linux desktop artifacts (`.deb`, `.rpm`, `.AppImage`) require CI because cross-compiling Linux Tauri on macOS is impractical.
+
+   After pushing the tag:
+   - **Cancel** the `cli-release` workflow — CLI binaries are built locally and uploaded manually.
+   - **Cancel** the `test` workflow — run tests locally if needed.
+   - **Cancel the macOS runner** inside `desktop-build` — we build macOS desktop locally. Only the **Linux runner** inside `desktop-build` should be allowed to finish.
 
 5. Build the local release artifacts yourself:
-   - CLI matrix:
+   - CLI matrix (all platforms including Windows, cross-compiled by Bun):
      ```sh
      # workdir: packages/opencode
      bun run script/build.ts
      ```
-   - macOS desktop:
+   - macOS desktop (prod config, Apple Silicon):
      ```sh
      # workdir: packages/desktop
      bunx tauri build --config src-tauri/tauri.prod.conf.json
      ```
 
-6. After updating the system `oco` binary on macOS, always re-sign it or macOS will kill it:
+6. Install the fresh builds locally on this machine:
+   - **TUI (CLI):**
+     ```sh
+     cp packages/opencode/dist/@skybluejacket/oco-darwin-arm64/bin/oco ~/.local/bin/oco
+     ~/.local/bin/oco --version   # verify
+     ```
+   - **Desktop prod app:**
+     1. Quit the running OpenCodeOrchestra app.
+     2. Replace `/Applications/OpenCodeOrchestra.app` with the freshly built `.app`:
+        ```sh
+        cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra.app" /Applications/
+        ```
+     3. Re-open the app and confirm the version in the title bar or About screen.
+   - **Desktop Dev app** (optional, for side-by-side testing):
+     ```sh
+     # build with default tauri.conf.json (product name: "OpenCodeOrchestra Dev")
+     bunx tauri build
+     cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra Dev.app" /Applications/
+     ```
+
+7. After updating the system `oco` binary on macOS, always re-sign it or macOS will kill it:
    ```bash
    codesign -f -s - ~/.local/bin/oco
    ```
    This applies any time a new binary is copied to PATH on macOS.
 
-7. Package and upload the local assets manually:
+8. Package and upload the local assets manually:
    - Package these exact CLI artifacts from `packages/opencode/dist/@skybluejacket/`:
      - `oco-darwin-arm64/bin/oco` -> `oco-darwin-arm64.tar.gz`
      - `oco-darwin-x64/bin/oco` -> `oco-darwin-x64.tar.gz`
@@ -102,12 +127,12 @@ Use this release path. It is the one that has actually been validated in this re
      - `packages/desktop/src-tauri/target/release/bundle/dmg/OpenCodeOrchestra_<version>_aarch64.dmg`
    - Create the GitHub release with `gh release create ...` or edit the existing release with `gh release upload ...`.
 
-7. Let the **Linux** `desktop-build` job finish and attach the Linux desktop artifacts:
+9. Let the **Linux** `desktop-build` job finish and attach the Linux desktop artifacts:
     - `OpenCodeOrchestra_<version>_amd64.deb`
     - `OpenCodeOrchestra-<version>-1.x86_64.rpm`
     - `OpenCodeOrchestra_<version>_amd64.AppImage` (if AppImage step succeeds — it is `continue-on-error` so `.deb`/`.rpm` upload regardless)
 
-8. Final verification checklist:
+10. Final verification checklist:
     - release page exists at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>`
     - assets include:
       - macOS desktop `.dmg`
