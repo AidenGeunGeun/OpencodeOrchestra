@@ -453,6 +453,29 @@ function appendInlineMath(document: Document, fragment: DocumentFragment, text: 
 function renderMathExpressions(html: string): string {
   const document = new DOMParser().parseFromString(html, "text/html")
   const { body } = document
+
+  // Handle comrak's math_dollars output: <span data-math-style="inline|display">...</span>
+  // These come from the native Rust parser when math_dollars extension is enabled.
+  // The content has backslashes preserved (unlike plain markdown text nodes).
+  const mathSpans = body.querySelectorAll<HTMLElement>("span[data-math-style]")
+  for (const span of mathSpans) {
+    const mathContent = span.textContent ?? ""
+    const isDisplay = span.getAttribute("data-math-style") === "display"
+    try {
+      const rendered = katex.renderToString(mathContent, {
+        displayMode: isDisplay,
+        throwOnError: false,
+      })
+      const template = document.createElement("template")
+      template.innerHTML = rendered
+      span.replaceWith(template.content)
+    } catch {
+      // leave span as-is on error
+    }
+  }
+
+  // Also handle any remaining $...$ / $$...$$ in plain text nodes
+  // (fallback for non-native parser paths or mixed content)
   const treeWalker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
   const textNodes: Text[] = []
 
