@@ -197,6 +197,7 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 | Workflow | File | Trigger | What it does |
 |----------|------|---------|-------------|
 | `test` | `test.yml` | Push to `main`, manual | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest` |
+| `cli-release` | `cli-release.yml` | Tag push `oco-v*`, manual | Builds CLI binaries for all platforms, uploads to GitHub Release |
 | `desktop-build` | `desktop-build.yml` | Tag push `oco-v*`, manual | Builds Tauri desktop app on macOS + Linux, uploads to GitHub Release |
 
 ### Setup Action
@@ -208,7 +209,7 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 | Name | Runner | Rust Target | Output |
 |------|--------|-------------|--------|
 | macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin` | `.dmg`, `.app.tar.gz` |
-| Linux (x86_64) | `ubuntu-latest` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+| Linux (x86_64) | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
 
 The build steps: checkout → setup Bun → setup Rust → install Linux deps (if Linux) → build sidecar binary → copy sidecar to Tauri sidecars dir → `bunx tauri build --config src-tauri/tauri.prod.conf.json` → upload to GitHub Release.
 
@@ -221,9 +222,9 @@ Release artifact upload only runs on tag pushes (not manual `workflow_dispatch` 
 `packages/desktop/` is a **Tauri v2** app (Rust backend + SolidJS frontend). It wraps the same `packages/app` SPA in a native window and bundles the `oco` CLI binary as a sidecar.
 
 - **Entry**: `packages/desktop/src/index.tsx` — creates `Platform` with Tauri APIs (clipboard, file dialogs, notifications, deep links, updater)
-- **Sidecar**: The `oco` CLI binary bundled at `src-tauri/sidecars/opencode-cli-<rust-target>`, launched at startup to provide the API server
-- **Dev config**: `src-tauri/tauri.conf.json` (product name "OpenCode Dev")
-- **Prod config**: `src-tauri/tauri.prod.conf.json` (product name "OpenCode Orchestra", identifier `ai.opencode.orchestra`)
+- **Sidecar**: The `oco` CLI binary bundled at `src-tauri/sidecars/oco-<rust-target>`, launched at startup to provide the API server
+- **Dev config**: `src-tauri/tauri.conf.json` (product name "OpenCodeOrchestra Dev", identifier `ai.opencode.orchestra.dev`)
+- **Prod config**: `src-tauri/tauri.prod.conf.json` (product name "OpenCodeOrchestra", identifier `ai.opencode.orchestra`)
 
 ### Updater Behavior
 
@@ -407,6 +408,10 @@ These files contain fork-only logic. During upstream syncs, merge carefully:
 - `storage/json-migration.ts` — agentID sidecar backfill
 - `packages/app/src/context/local.tsx` — per-session ephemeral model override store; derived model/variant resolution from last user message (1.0.32)
 - `packages/app/src/pages/session.tsx` — `syncSessionModel` / `resetSessionModel` effects removed; model derived from message history (1.0.32)
+- `packages/app/src/pages/session/session-model-helpers.ts` — `resolveSessionModelSelection()` pure helper for model derivation (1.0.32)
+- `packages/desktop/src-tauri/src/markdown.rs` — comrak `math_dollars = true` to preserve `\\` in LaTeX matrix environments (1.0.33)
+- `packages/ui/src/context/marked.tsx` — `renderMathExpressions` handles `span[data-math-style]` from comrak math extension (1.0.33)
+- `packages/ui/src/components/markdown.tsx` — DOMPurify config includes `svg: true, svgFilters: true` to allow KaTeX SVG output (1.0.34)
 
 ## Upstream Divergences (preserve on sync)
 
@@ -421,6 +426,8 @@ Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-
 | Bug fixes | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts` | SIGHUP zombie, reasoning display, text-delta guard |
 | Features | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts` | 1M context, cache display, skill path validation |
 | v1.0.32 desktop | `packages/app/src/context/local.tsx`, `packages/app/src/pages/session.tsx`, `packages/opencode/src/agent/agent.ts` | Model/variant derived from last user message; `effort` aliased to `variant` in agent config |
+| v1.0.33 KaTeX matrix | `packages/desktop/src-tauri/src/markdown.rs`, `packages/ui/src/context/marked.tsx` | comrak `math_dollars` extension preserves `\\`; `renderMathExpressions` handles `span[data-math-style]` |
+| v1.0.34 KaTeX SVG | `packages/ui/src/components/markdown.tsx` | DOMPurify `svg: true` allows `\sqrt`, `\widehat`, `\overbrace` and other SVG-rendered symbols |
 | Config (external) | `oco.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
 
 ### AI SDK 6.x — Package Versions
@@ -501,7 +508,7 @@ Also: `ProviderTransform.providerOptions()` (line 818) added for gateway-aware p
 3. Fall back to `agent.current()?.model` — agent configured default for brand-new sessions.
 4. Fall back to `fallbackModel()` — system default.
 
-`syncSessionModel` and `resetSessionModel` effects in `packages/app/src/pages/session.tsx` are removed. `ephemeral.model[agentName]` per-agent store is removed. `session-model-helpers.ts` is emptied/removed.
+`syncSessionModel` and `resetSessionModel` effects in `packages/app/src/pages/session.tsx` are removed. `ephemeral.model[agentName]` per-agent store is removed. `packages/app/src/pages/session/session-model-helpers.ts` exists and exports `resolveSessionModelSelection()` and `getLastUserMessage()` — it is NOT removed, it is the pure model resolution helper used by `local.tsx`.
 
 **Also in v1.0.32:** `packages/opencode/src/agent/agent.ts` now treats `effort` as an alias for `variant` in agent config resolution (`item.variant = value.variant ?? value.effort ?? item.variant`). This means `effort: "max"` in `oco.jsonc` correctly surfaces as the "max" variant in the desktop thinking effort selector.
 
@@ -577,9 +584,7 @@ When you discover non-obvious behavior, fix a subtle bug, or establish a convent
 | `packages/plugin/package.json` | `version` |
 | `packages/util/package.json` | `version` |
 | `sdks/vscode/package.json` | `version` |
-| `packages/desktop/src-tauri/Cargo.toml` | `version` |
-
-The `bun run release` script handles this automatically. If bumping manually, check every file. Tauri reads its version from `packages/desktop/package.json` (via `"version": "../package.json"` in `tauri.conf.json`).
+The `bun run release` script bumps all `package.json` files automatically. **`Cargo.toml` is NOT auto-bumped** by the release script — Tauri reads its version directly from `packages/desktop/package.json` at build time, so `Cargo.toml` version staying behind is harmless. If bumping manually, update only the `package.json` files listed above.
 
 ### SSE Event System (Server ↔ Desktop)
 

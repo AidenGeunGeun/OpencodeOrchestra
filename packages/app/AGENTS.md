@@ -4,7 +4,7 @@
 
 ## Local Dev
 
-- `opencode dev web` proxies `https://app.opencode.ai`, so local UI/CSS changes will not show there.
+- `bun dev web` (i.e., `oco dev web`) proxies `https://app.opencode.ai`, so local UI/CSS changes will not show there.
 - For local UI changes, run the backend and app dev servers separately.
 - Backend (from `packages/opencode`): `bun run --conditions=browser ./src/index.ts serve --port 4096`
 - App (from `packages/app`): `bun dev -- --port 4444`
@@ -54,9 +54,9 @@ Sessions can have an `agentID` field (set for subagent sessions). When viewing a
 - **Display**: Show `session.agentID` in the agent selector, not `local.agent.current()`
 - **Disable**: Lock the selector — don't allow cycling
 - **Submit**: Use `session.agentID` for the `agent` field in prompt/command requests
-- **Model sync**: Skip `local.agent.set()` in `syncSessionModel` when `agentID` is present
+- **Model sync**: Model resolution is derived from the last user message's model field — `syncSessionModel` no longer exists. Session model is derived in `context/local.tsx` via `resolveSessionModelSelection()` from `session-model-helpers.ts`.
 
-The TUI does this via `effectiveAgent()` in `prompt/index.tsx` and lock checks in `app.tsx`. Desktop mirrors this in `prompt-input.tsx` (selector), `submit.ts` (submission), `session-model-helpers.ts` (model sync), and `use-session-commands.tsx` (cycling).
+The TUI does this via `effectiveAgent()` in `prompt/index.tsx` and lock checks in `app.tsx`. Desktop mirrors this in `prompt-input.tsx` (selector), `submit.ts` (submission), `use-session-commands.tsx` (cycling), and `context/local.tsx` + `session-model-helpers.ts` (model derivation).
 
 If this is broken, the Desktop shows "build" for all sessions and model/thinking changes get applied to the wrong agent.
 

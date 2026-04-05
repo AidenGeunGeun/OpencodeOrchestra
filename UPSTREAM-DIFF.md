@@ -1,6 +1,6 @@
-# UPSTREAM-DIFF.md — OpenCodeOrchestra vs opencode 1.2.5
+# UPSTREAM-DIFF.md — OpenCodeOrchestra vs opencode 1.2.27
 
-Exhaustive file-by-file documentation of all divergences from upstream opencode 1.2.5.
+Exhaustive file-by-file documentation of all divergences from upstream opencode 1.2.27.
 
 **Stats (as of 2026-02-18):** 352 shared src files — 118 modified, 34 added, 0 removed.
 Tests: 4 new files, 35 modified files. 884 pass / 29 skip / 0 fail.
@@ -13,6 +13,11 @@ robustness), `packages/ui/src/context/marked.tsx` (table rendering fix).
 (derived model resolution), `packages/app/src/pages/session.tsx` (removed sync effects),
 `packages/app/src/pages/session/session-model-helpers.ts` (NEW — pure model helper),
 `packages/app/src/components/session-context-usage.tsx` (cached token display).
+
+**v1.0.33 additions:** `packages/desktop/src-tauri/src/markdown.rs` (comrak `math_dollars = true`),
+`packages/ui/src/context/marked.tsx` (added `span[data-math-style]` handling in `renderMathExpressions`).
+
+**v1.0.34 additions:** `packages/ui/src/components/markdown.tsx` (DOMPurify `svg: true, svgFilters: true`).
 
 > **Sync rule:** Orchestra-Only files (Category 1) must NEVER be overwritten.
 > All other categories must be re-applied as patches after upstream merges.
@@ -581,26 +586,43 @@ plugin stack still loads.
 
 ---
 
-### `packages/ui/src/context/marked.tsx` — Desktop table rendering fix
+### `packages/ui/src/context/marked.tsx` — Desktop math rendering
 
-**v1.0.31 — `renderMathExpressions` rewrite (lines 453–502):** The math expression renderer was
-rewritten from a regex-based HTML-splitting approach to a `DOMParser` + `TreeWalker` text-node
-strategy. The old implementation applied `$...$` regexes directly over raw HTML strings, which
-corrupted table element tags (e.g. `<td class="...">`) when they contained `$` characters.
+**v1.0.31 — `renderMathExpressions` rewrite:** The math expression renderer was rewritten from a
+regex-based HTML-splitting approach to a `DOMParser` + `TreeWalker` text-node strategy. The old
+implementation applied `$...$` regexes directly over raw HTML strings, which corrupted table
+element tags (e.g. `<td class="...">`) when they contained `$` characters.
 
 The new approach:
 1. Parses the HTML string into a live DOM: `new DOMParser().parseFromString(html, "text/html")`.
 2. Walks only text nodes via `document.createTreeWalker(body, NodeFilter.SHOW_TEXT)`.
-3. Skips any text node whose ancestor matches:
-   ```ts
-   const mathSkippedAncestorSelector =
-     "pre, code, kbd, table, thead, tbody, tfoot, tr, th, td, caption"
-   ```
+3. Skips any text node whose ancestor matches `"pre, code, kbd, table, thead, tbody, tfoot, tr, th, td, caption"`.
 4. Replaces math-bearing text nodes in-place with a `DocumentFragment` built from rendered KaTeX.
 5. Serializes back to a string with `body.innerHTML`.
 
-Because `<table>` and all its descendants are in the skip-ancestor list, table HTML is never
-touched by the math regex, eliminating the corruption.
+**v1.0.33 — comrak `span[data-math-style]` handling:** When the native Rust parser (comrak) has
+`math_dollars = true`, it wraps math content in `<span data-math-style="inline|display">` instead
+of leaving `$...$` delimiters in text. `renderMathExpressions` now first queries
+`body.querySelectorAll("span[data-math-style]")` and renders each span's `textContent` with KaTeX
+(using `displayMode` based on the attribute value), then falls back to the text-node scan for any
+remaining `$...$` patterns.
+
+### `packages/desktop/src-tauri/src/markdown.rs` — comrak math extension (v1.0.33)
+
+**`parse_markdown()` function:** Added `options.extension.math_dollars = true` to the comrak
+options. Without this, comrak treated `$$...$$` as plain text and processed `\\` (LaTeX matrix row
+separator) as a Markdown backslash escape, reducing it to `\`. This corrupted KaTeX commands like
+`\begin{bmatrix}2\\1\end{bmatrix}` into `\begin{bmatrix}2\1\end{bmatrix}`, where `\1` is
+undefined in KaTeX (shown in red). With the extension enabled, comrak recognises math blocks and
+outputs them as `<span data-math-style="...">` with the content verbatim.
+
+### `packages/ui/src/components/markdown.tsx` — DOMPurify SVG allow-list (v1.0.34)
+
+**`config` object (lines 30–35):** Added `svg: true` and `svgFilters: true` to `USE_PROFILES`.
+Without these, DOMPurify stripped all `<svg>` elements from KaTeX output. KaTeX renders `\sqrt`,
+`\widehat`, `\widetilde`, `\overbrace`, `\underbrace`, and extensible arrows using inline SVG —
+all were silently removed, leaving only the content inside the radical/hat/brace with no symbol.
+The fix allows SVG through while keeping `<style>` and `<script>` forbidden.
 
 ---
 
