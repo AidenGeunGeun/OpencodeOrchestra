@@ -188,7 +188,7 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 - Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `investigator.txt`, `auditor.txt`, `web-search.txt`, `docs.txt`, `compaction.txt`
 - Do not modify internal-only prompt files unless the task explicitly calls for it: `explore.txt`, `summary.txt`, `title.txt`
 - Verify synced prompts with `diff -u ~/.config/oco/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` before building.
-- Bundle shipped skills from `~/.config/oco/skill/agents-md/` and `~/.config/oco/skill/skill-creator/` into `config/skills/` for release-ready installs.
+- Bundle shipped skills from `~/.config/oco/skills/agents-md/` and `~/.config/oco/skills/skill-creator/` into `config/skills/` for release-ready installs.
 
 ## CI / CD
 

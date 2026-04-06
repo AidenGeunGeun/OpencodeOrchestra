@@ -46,19 +46,19 @@ A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x
 
 mkdir -p \
   ~/.config/oco/prompts \
-  ~/.config/oco/skill/agents-md/references \
-  ~/.config/oco/skill/skill-creator/references
+  ~/.config/oco/skills/agents-md/references \
+  ~/.config/oco/skills/skill-creator/references
 
 curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/oco.jsonc -o ~/.config/oco/oco.jsonc
 for f in pm orchestrator investigator auditor web-search docs compaction; do
   curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/oco/prompts/${f}.txt
 done
 
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skills/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skills/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skills/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skills/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skills/skill-creator/references/schemas.md
 
 oco auth login
 oco

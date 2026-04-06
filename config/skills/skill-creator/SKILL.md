@@ -43,7 +43,7 @@ Proactively ask about edge cases, example inputs/outputs, success criteria, and 
 Check existing skills for patterns:
 
 ```bash
-ls ~/.config/oco/skill/
+ls ~/.config/oco/skills/
 ```
 
 Read similar skills if they exist — they're useful references for conventions and structure.
@@ -275,7 +275,7 @@ Test the updated description by loading the skill list and checking which querie
 
 ```bash
 # Quick check: does the description contain relevant keywords?
-grep -i "keyword" ~/.config/oco/skill/<name>/SKILL.md
+grep -i "keyword" ~/.config/oco/skills/<name>/SKILL.md
 ```
 
 Present before/after descriptions to the user with your reasoning.
@@ -288,8 +288,8 @@ Once the skill is finalized, make sure it's properly installed:
 
 ```bash
 # Verify the skill directory exists and is well-formed
-ls ~/.config/oco/skill/<skill-name>/
-cat ~/.config/oco/skill/<skill-name>/SKILL.md | head -10
+ls ~/.config/oco/skills/<skill-name>/
+cat ~/.config/oco/skills/<skill-name>/SKILL.md | head -10
 
 # Verify the skill appears in available skills
 # (the user can check this by starting a new conversation)
@@ -297,7 +297,7 @@ cat ~/.config/oco/skill/<skill-name>/SKILL.md | head -10
 
 **OCO skill locations** (in priority order):
 - Project-local: `.oco/skills/<name>/SKILL.md`
-- Global: `~/.config/oco/skill/<name>/SKILL.md`
+- Global: `~/.config/oco/skills/<name>/SKILL.md`
 - Claude-compatible: `.claude/skills/<name>/SKILL.md`
 - Agent-compatible: `.agents/skills/<name>/SKILL.md`
 

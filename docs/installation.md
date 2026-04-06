@@ -57,8 +57,8 @@ If both directories already exist and `~/.local/share/oco/` already has data, sk
 ```bash
 mkdir -p \
   ~/.config/oco/prompts \
-  ~/.config/oco/skill/agents-md/references \
-  ~/.config/oco/skill/skill-creator/references
+  ~/.config/oco/skills/agents-md/references \
+  ~/.config/oco/skills/skill-creator/references
 ```
 
 - Fetch the main config file:
@@ -78,11 +78,11 @@ done
 - Fetch the bundled skills:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skills/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skills/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skills/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skills/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skills/skill-creator/references/schemas.md
 ```
 
 ### Step 5: Configure Provider Authentication
@@ -109,7 +109,7 @@ Tell the user what was just installed:
 - **Web-Search**: searches the web and returns evidence with citations.
 - **Docs**: updates documentation files.
 - **Compaction**: internal agent for context compression (hidden, automatic).
-- **Bundled skills**: `agents-md` and `skill-creator` are installed into `~/.config/oco/skill/`.
+- **Bundled skills**: `agents-md` and `skill-creator` are installed into `~/.config/oco/skills/`.
 
 Suggest a first task: ask the PM to investigate a codebase and draft a spec before implementing anything. That exercises the full hierarchy.
 
@@ -152,8 +152,8 @@ Suggest a first task: ask the PM to investigate a codebase and draft a spec befo
 ```bash
 mkdir -p \
   ~/.config/oco/prompts \
-  ~/.config/oco/skill/agents-md/references \
-  ~/.config/oco/skill/skill-creator/references
+  ~/.config/oco/skills/agents-md/references \
+  ~/.config/oco/skills/skill-creator/references
 
 curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/oco.jsonc -o ~/.config/oco/oco.jsonc
 
@@ -161,11 +161,11 @@ for f in pm orchestrator investigator auditor web-search docs compaction; do
   curl -fsSL "https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/prompts/${f}.txt" -o ~/.config/oco/prompts/${f}.txt
 done
 
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skill/agents-md/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skill/agents-md/references/examples.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skill/agents-md/references/detection-patterns.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skill/skill-creator/SKILL.md
-curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skill/skill-creator/references/schemas.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/SKILL.md -o ~/.config/oco/skills/agents-md/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/examples.md -o ~/.config/oco/skills/agents-md/references/examples.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/agents-md/references/detection-patterns.md -o ~/.config/oco/skills/agents-md/references/detection-patterns.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/SKILL.md -o ~/.config/oco/skills/skill-creator/SKILL.md
+curl -fsSL https://raw.githubusercontent.com/AidenGeunGeun/OpencodeOrchestra/main/config/skills/skill-creator/references/schemas.md -o ~/.config/oco/skills/skill-creator/references/schemas.md
 ```
 
 5. Authenticate and launch:
@@ -198,7 +198,7 @@ Then install the config files using the curl commands from Option A step 4, or c
 mkdir -p ~/.config/oco/prompts ~/.config/oco/skill
 cp config/oco.jsonc ~/.config/oco/oco.jsonc
 cp config/prompts/*.txt ~/.config/oco/prompts/
-cp -R config/skills/* ~/.config/oco/skill/
+cp -R config/skills/* ~/.config/oco/skills/
 ```
 
 ## How to Update
@@ -246,7 +246,7 @@ sudo dpkg -i <new-file>.deb
 - `oco --version` reports `1.0.x` (must start with `1.0.` — any other prefix means you have the upstream opencode binary, not OCO)
 - `~/.config/oco/oco.jsonc` exists
 - `~/.config/oco/prompts/` contains 7 `.txt` files
-- `~/.config/oco/skill/agents-md/` and `~/.config/oco/skill/skill-creator/` exist
+- `~/.config/oco/skills/agents-md/` and `~/.config/oco/skills/skill-creator/` exist
 - `oco` opens without errors
 - The default session starts with the `build` agent (the PM)
 

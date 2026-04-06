@@ -141,7 +141,7 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 ## Adding Skills And Commands
 
-- Skills go in `~/.config/oco/skill/<name>/SKILL.md`. Each skill is a directory with a `SKILL.md` file that describes when and how the skill should be loaded.
+- Skills go in `~/.config/oco/skills/<name>/SKILL.md`. Each skill is a directory with a `SKILL.md` file that describes when and how the skill should be loaded.
 - Commands go in `~/.config/oco/command/<name>.md`. Each command is a markdown file that defines a slash command template.
 - OCO does not change the skill or command model — it changes the agent hierarchy and workflow.
 
