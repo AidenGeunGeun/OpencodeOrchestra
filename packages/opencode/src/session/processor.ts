@@ -28,6 +28,34 @@ export namespace SessionProcessor {
     return "unknown"
   }
 
+  function shouldContinueParent(messages: MessageV2.WithParts[]) {
+    let lastUser: (MessageV2.WithParts & { info: MessageV2.User }) | undefined
+    let lastAssistant: (MessageV2.WithParts & { info: MessageV2.Assistant }) | undefined
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (!lastUser && message.info.role === "user") lastUser = message as MessageV2.WithParts & { info: MessageV2.User }
+      if (!lastAssistant && message.info.role === "assistant")
+        lastAssistant = message as MessageV2.WithParts & { info: MessageV2.Assistant }
+      if (lastUser && lastAssistant) break
+    }
+
+    if (!lastUser || !lastAssistant) return false
+    if (lastAssistant.info.id < lastUser.info.id) return false
+    if (
+      lastAssistant.info.finish &&
+      !["tool-calls", "unknown"].includes(normalizeFinishReason(lastAssistant.info.finish))
+    )
+      return false
+
+    const toolParts = lastAssistant.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool")
+    if (toolParts.length === 0) return false
+    if (!toolParts.some((part) => part.state.status === "completed")) return false
+    if (toolParts.some((part) => part.state.status === "pending" || part.state.status === "running"))
+      return false
+    return true
+  }
+
   export type Info = Awaited<ReturnType<typeof create>>
   export type Result = Awaited<ReturnType<Info["process"]>>
 
@@ -199,6 +227,34 @@ export namespace SessionProcessor {
                     })
 
                     delete toolcalls[value.toolCallId]
+
+                    if (match.tool === "finish_task") {
+                      try {
+                        const session = await Session.get(input.sessionID)
+                        const parentID = session.parentID
+                        if (!parentID) break
+
+                        const parentStatus = SessionStatus.get(parentID)
+                        if (parentStatus.type !== "idle") break
+
+                        const parentMessages = await Session.messages({ sessionID: parentID })
+                        if (!shouldContinueParent(parentMessages)) break
+
+                        const { SessionPrompt } = await import("./prompt")
+                        void SessionPrompt.loop(parentID).catch((error) => {
+                          log.error("failed to continue idle parent after finish_task", {
+                            sessionID: input.sessionID,
+                            parentID,
+                            error,
+                          })
+                        })
+                      } catch (error) {
+                        log.error("failed to schedule parent continuation after finish_task", {
+                          sessionID: input.sessionID,
+                          error,
+                        })
+                      }
+                    }
                   }
                   break
                 }
