@@ -217,7 +217,24 @@ export namespace ProviderTransform {
 
   function unsupportedParts(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
     return msgs.map((msg) => {
-      if (msg.role !== "user" || !Array.isArray(msg.content)) return msg
+      if (!Array.isArray(msg.content)) return msg
+
+      // Strip unsupported media from tool result outputs
+      if (msg.role === "tool") {
+        const filtered = msg.content.map((part) => {
+          if (part.type !== "tool-result" || part.output.type !== "content") return part
+          const filteredValue = part.output.value.filter((item) => {
+            if (item.type !== "media" && item.type !== "file-data") return true
+            const modality = mimeToModality((item as any).mediaType ?? "")
+            if (!modality) return true
+            return !!model.capabilities.input[modality]
+          })
+          return { ...part, output: { ...part.output, value: filteredValue } }
+        })
+        return { ...msg, content: filtered }
+      }
+
+      if (msg.role !== "user") return msg
 
       const filtered = msg.content.map((part) => {
         if (part.type !== "file" && part.type !== "image") return part
