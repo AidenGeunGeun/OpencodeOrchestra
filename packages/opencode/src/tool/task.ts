@@ -15,7 +15,7 @@ import { Log } from "../util/log"
 
 const log = Log.create({ service: "task" })
 
-const parameters = z.object({
+export const TaskToolParameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
   prompt: z.string().describe("The task for the agent to perform"),
   subagent_type: z.string().describe("The type of specialized agent to use for this task"),
@@ -28,160 +28,296 @@ const parameters = z.object({
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
-export const TaskTool = Tool.define("task", async (ctx) => {
-  const agents = await Agent.list().then((x) => x.filter((a) => a.mode !== "primary"))
+export type TaskToolParams = z.infer<typeof TaskToolParameters>
 
-  // Filter agents by permissions if agent provided
-  const caller = ctx?.agent
-  const accessibleAgents = caller
-    ? agents.filter((a) => PermissionNext.evaluate("task", a.name, caller.permission).action !== "deny")
-    : agents
+type ToolStatus = "completed" | "error" | "pending" | "running"
+type TaskPermissionFlags = {
+  hasTaskPermission: boolean
+  hasTodoWritePermission: boolean
+  hasTodoReadPermission: boolean
+}
+type TaskModel = {
+  modelID: string
+  providerID: string
+}
+type TaskSummaryPart = {
+  id: string
+  tool: string
+  state: {
+    status: ToolStatus
+    title: string | undefined
+  }
+}
 
-  const description = DESCRIPTION.replace(
+export type PreparedTaskSession = {
+  session: Session.Info
+  agent: Agent.Info
+  promptParts: Awaited<ReturnType<typeof SessionPrompt.resolvePromptParts>>
+  toolsOverlay: Record<string, boolean>
+  model: TaskModel
+  singleShot: boolean
+  depth: number
+  cleanup: () => void
+}
+
+type PrepareTaskSessionOptions = {
+  async?: boolean
+}
+
+export async function listAccessibleTaskAgents(caller?: Agent.Info) {
+  const agents = await Agent.list().then((items) => items.filter((item) => item.mode !== "primary"))
+
+  if (!caller) return agents
+
+  return agents.filter((item) => PermissionNext.evaluate("task", item.name, caller.permission).action !== "deny")
+}
+
+export async function renderTaskDescription(template: string, caller?: Agent.Info) {
+  const agents = await listAccessibleTaskAgents(caller)
+  return template.replace(
     "{agents}",
-    accessibleAgents
-      .map((a) => `- ${a.name}: ${a.description ?? "This subagent should only be called manually by the user."}`)
+    agents
+      .map((item) => `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`)
       .join("\n"),
   )
+}
+
+async function calculateDepth(sessionID: string): Promise<number> {
+  let depth = 0
+  let currentID: string | undefined = sessionID
+  while (currentID) {
+    const session: Awaited<ReturnType<typeof Session.get>> | undefined = await Session.get(currentID).catch(() => undefined)
+    if (!session?.parentID) break
+    currentID = session.parentID
+    depth++
+  }
+  return depth
+}
+
+function getTaskPermissionFlags(agent: Agent.Info): TaskPermissionFlags {
+  return {
+    hasTaskPermission: agent.permission.some((rule) => rule.permission === "task"),
+    hasTodoWritePermission: agent.permission.some(
+      (rule) => rule.permission === "todowrite" && rule.action === "allow",
+    ),
+    hasTodoReadPermission: agent.permission.some(
+      (rule) => rule.permission === "todoread" && rule.action === "allow",
+    ),
+  }
+}
+
+function buildChildSessionPermissions(flags: TaskPermissionFlags, config: Awaited<ReturnType<typeof Config.get>>) {
+  return [
+    ...(flags.hasTodoWritePermission
+      ? []
+      : [
+          {
+            permission: "todowrite" as const,
+            pattern: "*" as const,
+            action: "deny" as const,
+          },
+        ]),
+    ...(flags.hasTodoReadPermission
+      ? []
+      : [
+          {
+            permission: "todoread" as const,
+            pattern: "*" as const,
+            action: "deny" as const,
+          },
+        ]),
+    ...(flags.hasTaskPermission
+      ? []
+      : [
+          {
+            permission: "task" as const,
+            pattern: "*" as const,
+            action: "deny" as const,
+          },
+        ]),
+    ...(config.experimental?.primary_tools?.map((tool) => ({
+      pattern: "*",
+      action: "allow" as const,
+      permission: tool,
+    })) ?? []),
+  ]
+}
+
+function buildTaskToolsOverlay(
+  flags: TaskPermissionFlags,
+  config: Awaited<ReturnType<typeof Config.get>>,
+  input: { singleShot: boolean; async: boolean },
+) {
+  return {
+    ...(flags.hasTodoWritePermission ? {} : { todowrite: false }),
+    ...(flags.hasTodoReadPermission ? {} : { todoread: false }),
+    ...(!input.singleShot ? { finish_task: true } : {}),
+    ...(flags.hasTaskPermission ? {} : { task: false }),
+    ...(input.singleShot
+      ? Object.fromEntries((config.experimental?.primary_tools ?? []).map((tool) => [tool, false]))
+      : {}),
+    ...(input.async ? { async_task: false } : {}),
+  }
+}
+
+async function getTaskModel(ctx: Tool.Context, agent: Agent.Info): Promise<TaskModel> {
+  const message = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
+  if (message.info.role !== "assistant") throw new Error("Not an assistant message")
+
+  return agent.model ?? {
+    modelID: message.info.modelID,
+    providerID: message.info.providerID,
+  }
+}
+
+async function getTaskSummary(sessionID: string): Promise<TaskSummaryPart[]> {
+  const messages = await Session.messages({ sessionID })
+  return messages
+    .filter((message) => message.info.role === "assistant")
+    .flatMap((message) => message.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool"))
+    .map((part) => ({
+      id: part.id,
+      tool: part.tool,
+      state: {
+        status: part.state.status,
+        title: part.state.status === "completed" ? part.state.title : undefined,
+      },
+    }))
+}
+
+export async function prepareTaskSession(
+  params: TaskToolParams,
+  ctx: Tool.Context,
+  options: PrepareTaskSessionOptions = {},
+): Promise<PreparedTaskSession> {
+  const config = await Config.get()
+
+  if (!ctx.extra?.bypassAgentCheck) {
+    await ctx.ask({
+      permission: "task",
+      patterns: [params.subagent_type],
+      always: ["*"],
+      metadata: {
+        description: params.description,
+        subagent_type: params.subagent_type,
+      },
+    })
+  }
+
+  const agent = await Agent.get(params.subagent_type)
+  if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
+
+  const permissionFlags = getTaskPermissionFlags(agent)
+  const currentDepth = await calculateDepth(ctx.sessionID)
+  const childDepth = (() => {
+    if (currentDepth === 0 && params.subagent_type === "orchestrator") {
+      return 1
+    }
+    if (currentDepth === 0) {
+      return 2
+    }
+    return currentDepth + 1
+  })()
+  const singleShot = childDepth >= 2 ? true : (agent.singleShot ?? true)
+
+  log.info("spawning subagent", {
+    agent: agent.name,
+    parentDepth: currentDepth,
+    childDepth,
+    singleShot,
+    agentConfig: agent.singleShot,
+  })
+
+  const session = await iife(async () => {
+    if (params.task_id) {
+      const found = await Session.get(params.task_id).catch(() => {})
+      if (found) {
+        if (options.async && found.async !== true) {
+          return Session.update(found.id, (draft) => {
+            draft.async = true
+          })
+        }
+        return found
+      }
+    }
+
+    return Session.create({
+      parentID: ctx.sessionID,
+      agentID: agent.name,
+      title: params.description + ` (@${agent.name}${options.async ? " async" : ""} subagent)`,
+      permission: buildChildSessionPermissions(permissionFlags, config),
+      async: options.async,
+    })
+  })
+
+  const model = await getTaskModel(ctx, agent)
+
+  ctx.metadata({
+    title: params.description,
+    metadata: {
+      sessionId: session.id,
+      model,
+    },
+  })
+
+  // For async tasks the tool returns immediately, so ctx.abort fires when the parent
+  // loop ends naturally — NOT when the user cancels. Wiring it to child cancel would
+  // kill the child on every normal turn completion. Skip the listener for async children;
+  // explicit user cancellation is handled by the cascade in SessionPrompt.cancel().
+  if (options.async) {
+    const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+    return {
+      session,
+      agent,
+      promptParts,
+      toolsOverlay: buildTaskToolsOverlay(permissionFlags, config, { singleShot, async: true }),
+      model,
+      singleShot,
+      depth: childDepth,
+      cleanup: () => {},
+    }
+  }
+
+  const cancel = () => {
+    SessionPrompt.cancel(session.id)
+  }
+  ctx.abort.addEventListener("abort", cancel)
+
+  try {
+    const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+
+    return {
+      session,
+      agent,
+      promptParts,
+      toolsOverlay: buildTaskToolsOverlay(permissionFlags, config, {
+        singleShot,
+        async: false,
+      }),
+      model,
+      singleShot,
+      depth: childDepth,
+      cleanup: () => ctx.abort.removeEventListener("abort", cancel),
+    }
+  } catch (error) {
+    ctx.abort.removeEventListener("abort", cancel)
+    throw error
+  }
+}
+
+export const TaskTool = Tool.define("task", async (ctx) => {
+  const description = await renderTaskDescription(DESCRIPTION, ctx?.agent)
+
   return {
     description,
-    parameters,
-    async execute(params: z.infer<typeof parameters>, ctx) {
-      const config = await Config.get()
+    parameters: TaskToolParameters,
+    async execute(params: TaskToolParams, ctx) {
+      const prepared = await prepareTaskSession(params, ctx)
+      using _ = defer(prepared.cleanup)
 
-      // Skip permission check when user explicitly invoked via @ or command subtask
-      if (!ctx.extra?.bypassAgentCheck) {
-        await ctx.ask({
-          permission: "task",
-          patterns: [params.subagent_type],
-          always: ["*"],
-          metadata: {
-            description: params.description,
-            subagent_type: params.subagent_type,
-          },
-        })
-      }
-
-      const agent = await Agent.get(params.subagent_type)
-      if (!agent) throw new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`)
-
-      const hasTaskPermission = agent.permission.some((rule) => rule.permission === "task")
-      const hasTodoWritePermission = agent.permission.some(
-        (rule) => rule.permission === "todowrite" && rule.action === "allow",
-      )
-      const hasTodoReadPermission = agent.permission.some(
-        (rule) => rule.permission === "todoread" && rule.action === "allow",
-      )
-      
-      // OpenCodeOrchestra: Calculate current depth by traversing parentID chain
-      // PM (depth 0) → Orchestrator (depth 1) → Subagent (depth 2+)
-      async function calculateDepth(sessionID: string): Promise<number> {
-        let depth = 0
-        let currentID: string | undefined = sessionID
-        while (currentID) {
-          const sess: Awaited<ReturnType<typeof Session.get>> | undefined = 
-            await Session.get(currentID).catch(() => undefined)
-          if (!sess?.parentID) break
-          currentID = sess.parentID
-          depth++
-        }
-        return depth
-      }
-      
-      const currentDepth = await calculateDepth(ctx.sessionID)
-      // OpenCodeOrchestra: Depth hierarchy enforcement
-      // - PM (depth 0) spawns orchestrator → depth 1
-      // - PM (depth 0) spawns non-orchestrator → depth 2 (skip depth 1)
-      // - Orchestrator (depth 1) spawns anything → depth 2+
-      const childDepth = (() => {
-        if (currentDepth === 0 && params.subagent_type === "orchestrator") {
-          return 1 // Only orchestrator resides at depth 1
-        }
-        if (currentDepth === 0) {
-          return 2 // PM's non-orchestrator sub-agents skip to depth 2
-        }
-        return currentDepth + 1 // Normal increment for orchestrator's sub-agents
-      })()
-      
-      // OpenCodeOrchestra: Determine completion mode based on agent config
-      // singleShot: true (default) → auto-return first response (subagents)
-      // singleShot: false → wait for finish_task signal (orchestrators)
-      // ENFORCED: depth 2+ is ALWAYS singleShot regardless of agent config
-      const isSingleShot = childDepth >= 2 ? true : (agent.singleShot ?? true)
-      
-      log.info("spawning subagent", {
-        agent: agent.name,
-        parentDepth: currentDepth,
-        childDepth,
-        singleShot: isSingleShot,
-        agentConfig: agent.singleShot,
-      })
-
-      const session = await iife(async () => {
-        if (params.task_id) {
-          const found = await Session.get(params.task_id).catch(() => {})
-          if (found) return found
-        }
-
-        return await Session.create({
-          parentID: ctx.sessionID,
-          agentID: agent.name, // OpenCodeOrchestra: Store agent type for subagent sessions
-          title: params.description + ` (@${agent.name} subagent)`,
-          permission: [
-            ...(hasTodoWritePermission
-              ? []
-              : [
-                  {
-                    permission: "todowrite" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(hasTodoReadPermission
-              ? []
-              : [
-                  {
-                    permission: "todoread" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(hasTaskPermission
-              ? []
-              : [
-                  {
-                    permission: "task" as const,
-                    pattern: "*" as const,
-                    action: "deny" as const,
-                  },
-                ]),
-            ...(config.experimental?.primary_tools?.map((t) => ({
-              pattern: "*",
-              action: "allow" as const,
-              permission: t,
-            })) ?? []),
-          ],
-        })
-      })
-      const msg = await MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID })
-      if (msg.info.role !== "assistant") throw new Error("Not an assistant message")
-
-      const model = agent.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
-
-      ctx.metadata({
-        title: params.description,
-        metadata: {
-          sessionId: session.id,
-          model,
-        },
-      })
-
-      type ToolStatus = "completed" | "error" | "pending" | "running"
+      const { session, agent, promptParts, toolsOverlay, model, singleShot } = prepared
       const messageID = Identifier.ascending("message")
-      const parts: Record<string, { id: string; tool: string; state: { status: ToolStatus; title: string | undefined } }> = {}
+      const parts: Record<string, TaskSummaryPart> = {}
       const unsub = Bus.subscribe(MessageV2.Event.PartUpdated, async (evt) => {
         if (evt.properties.part.sessionID !== session.id) return
         if (evt.properties.part.messageID === messageID) return
@@ -205,18 +341,9 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         })
       })
 
-      function cancel() {
-        SessionPrompt.cancel(session.id)
-      }
-      ctx.abort.addEventListener("abort", cancel)
-      using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
-      const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
-
-      // OpenCodeOrchestra: Handle based on singleShot mode
-      if (isSingleShot) {
-        // Single-shot mode (subagents): await first response and return
+      if (singleShot) {
         log.info("executing single-shot subagent", { agent: agent.name, sessionID: session.id })
-        
+
         const result = await SessionPrompt.prompt({
           messageID,
           sessionID: session.id,
@@ -225,29 +352,13 @@ export const TaskTool = Tool.define("task", async (ctx) => {
             providerID: model.providerID,
           },
           agent: agent.name,
-          tools: {
-            ...(hasTodoWritePermission ? {} : { todowrite: false }),
-            ...(hasTodoReadPermission ? {} : { todoread: false }),
-            ...(hasTaskPermission ? {} : { task: false }),
-            ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
-          },
+          tools: toolsOverlay,
           parts: promptParts,
         })
         unsub()
-        
-        const messages = await Session.messages({ sessionID: session.id })
-        const summary = messages
-          .filter((x) => x.info.role === "assistant")
-          .flatMap((msg) => msg.parts.filter((x: any) => x.type === "tool") as MessageV2.ToolPart[])
-          .map((part) => ({
-            id: part.id,
-            tool: part.tool,
-            state: {
-              status: part.state.status,
-              title: part.state.status === "completed" ? part.state.title : undefined,
-            },
-          }))
-        const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+
+        const summary = await getTaskSummary(session.id)
+        const text = result.parts.findLast((part) => part.type === "text")?.text ?? ""
 
         const output = [
           `task_id: ${session.id} (for resuming to continue this task if needed)`,
@@ -266,104 +377,82 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           },
           output,
         }
-      } else {
-        // Persistent mode (orchestrators): wait for finish_task signal
-        log.info("executing persistent orchestrator", { agent: agent.name, sessionID: session.id })
-        
-        // Result from finish_task tool (received via Bus event)
-        interface FinishTaskResult {
-          status: "completed" | "failed" | "cancelled"
-          summary: string
-          learnings?: string[]
-        }
+      }
 
-        // Set up finish_task listener
-        const finishTaskPromise = new Promise<FinishTaskResult>((resolve, reject) => {
-          const finishUnsub = Bus.subscribe(MessageV2.Event.PartUpdated, async (evt) => {
-            if (evt.properties.part.sessionID !== session.id) return
-            if (evt.properties.part.type !== "tool") return
-            if (evt.properties.part.tool !== "finish_task") return
-            if (evt.properties.part.state.status !== "completed") return
-            
-            log.info("finish_task signal received", { sessionID: session.id })
-            finishUnsub()
-            
-            // Get data from the tool's metadata (set by finish_task tool)
-            const part = evt.properties.part as MessageV2.ToolPart
-            const metadata = part.state.status === "completed" ? part.state.metadata : undefined
-            
-            resolve({
-              status: (metadata?.status as FinishTaskResult["status"]) ?? "completed",
-              summary: (metadata?.summary as string) ?? "Task completed",
-              learnings: metadata?.learnings as string[] | undefined,
-            })
-          })
-          
-          // Also reject on abort
-          ctx.abort.addEventListener("abort", () => {
-            finishUnsub()
-            reject(new Error("Task aborted"))
+      log.info("executing persistent orchestrator", { agent: agent.name, sessionID: session.id })
+
+      interface FinishTaskResult {
+        status: "completed" | "failed" | "cancelled"
+        summary: string
+        learnings?: string[]
+      }
+
+      const finishTaskPromise = new Promise<FinishTaskResult>((resolve, reject) => {
+        const finishUnsub = Bus.subscribe(MessageV2.Event.PartUpdated, async (evt) => {
+          if (evt.properties.part.sessionID !== session.id) return
+          if (evt.properties.part.type !== "tool") return
+          if (evt.properties.part.tool !== "finish_task") return
+          if (evt.properties.part.state.status !== "completed") return
+
+          log.info("finish_task signal received", { sessionID: session.id })
+          finishUnsub()
+
+          const part = evt.properties.part as MessageV2.ToolPart
+          const metadata = part.state.status === "completed" ? part.state.metadata : undefined
+
+          resolve({
+            status: (metadata?.status as FinishTaskResult["status"]) ?? "completed",
+            summary: (metadata?.summary as string) ?? "Task completed",
+            learnings: metadata?.learnings as string[] | undefined,
           })
         })
 
-        // Start the orchestrator prompt loop (fire and DON'T wait for completion)
-        // The orchestrator will call finish_task when ready
-        SessionPrompt.prompt({
-          messageID,
-          sessionID: session.id,
-          model: {
-            modelID: model.modelID,
-            providerID: model.providerID,
-          },
-          agent: agent.name,
-          tools: {
-            ...(hasTodoWritePermission ? {} : { todowrite: false }),
-            ...(hasTodoReadPermission ? {} : { todoread: false }),
-            finish_task: true, // Enable finish_task for orchestrators
-            ...(hasTaskPermission ? {} : { task: false }),
-            // primary_tools (compress plugin) intentionally NOT denied for depth-1 orchestrators
-          },
-          parts: promptParts,
-        }).catch((error) => {
-          log.error("orchestrator prompt failed", { error: String(error), sessionID: session.id })
+        ctx.abort.addEventListener("abort", () => {
+          finishUnsub()
+          reject(new Error("Task aborted"))
         })
+      })
 
-        // Wait for finish_task signal
-        log.info("waiting for finish_task signal", { sessionID: session.id })
-        const result = await finishTaskPromise
-        unsub()
-        
-        const messages = await Session.messages({ sessionID: session.id })
-        const summary = messages
-          .filter((x) => x.info.role === "assistant")
-          .flatMap((msg) => msg.parts.filter((x: any) => x.type === "tool") as MessageV2.ToolPart[])
-          .map((part) => ({
-            id: part.id,
-            tool: part.tool,
-            state: {
-              status: part.state.status,
-              title: part.state.status === "completed" ? part.state.title : undefined,
-            },
-          }))
+      SessionPrompt.prompt({
+        messageID,
+        sessionID: session.id,
+        model: {
+          modelID: model.modelID,
+          providerID: model.providerID,
+        },
+        agent: agent.name,
+        tools: toolsOverlay,
+        parts: promptParts,
+      }).catch((error) => {
+        log.error("orchestrator prompt failed", { error: String(error), sessionID: session.id })
+      })
 
-        return {
-          title: `${params.description} (${result.status})`,
-          metadata: {
-            summary,
-            sessionId: session.id,
-            model,
-          },
-          output: `[${result.status.toUpperCase()}] ${result.summary}` + 
-            (result.learnings?.length ? 
-              "\n\nLearnings:\n" + result.learnings.map(l => `- ${l}`).join("\n") : "") +
-            "\n\n" + [
-              `task_id: ${session.id} (for resuming to continue this task if needed)`,
-              "",
-              "<task_result>",
-              `[${result.status.toUpperCase()}] ${result.summary}`,
-              "</task_result>",
-            ].join("\n"),
-        }
+      log.info("waiting for finish_task signal", { sessionID: session.id })
+      const result = await finishTaskPromise
+      unsub()
+
+      const summary = await getTaskSummary(session.id)
+
+      return {
+        title: `${params.description} (${result.status})`,
+        metadata: {
+          summary,
+          sessionId: session.id,
+          model,
+        },
+        output:
+          `[${result.status.toUpperCase()}] ${result.summary}` +
+          (result.learnings?.length
+            ? "\n\nLearnings:\n" + result.learnings.map((learning) => `- ${learning}`).join("\n")
+            : "") +
+          "\n\n" +
+          [
+            `task_id: ${session.id} (for resuming to continue this task if needed)`,
+            "",
+            "<task_result>",
+            `[${result.status.toUpperCase()}] ${result.summary}`,
+            "</task_result>",
+          ].join("\n"),
       }
     },
   }

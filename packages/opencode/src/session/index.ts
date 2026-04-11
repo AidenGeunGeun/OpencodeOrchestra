@@ -67,8 +67,16 @@ export namespace Session {
     return ["session_agent", Instance.project.id, sessionID]
   }
 
+  function sessionAsyncKey(sessionID: string) {
+    return ["session_async", Instance.project.id, sessionID]
+  }
+
   async function getAgentID(sessionID: string) {
     return Storage.read<string>(sessionAgentKey(sessionID)).catch(() => undefined)
+  }
+
+  async function getAsync(sessionID: string) {
+    return Storage.read<boolean>(sessionAsyncKey(sessionID)).catch(() => undefined)
   }
 
   async function setAgentID(sessionID: string, agentID: string | undefined) {
@@ -77,6 +85,14 @@ export namespace Session {
       return
     }
     await Storage.remove(sessionAgentKey(sessionID)).catch(() => {})
+  }
+
+  async function setAsync(sessionID: string, value: boolean | undefined) {
+    if (value) {
+      await Storage.write(sessionAsyncKey(sessionID), value)
+      return
+    }
+    await Storage.remove(sessionAsyncKey(sessionID)).catch(() => {})
   }
 
   function scopedConditions() {
@@ -197,6 +213,7 @@ export namespace Session {
       for (let j = messages[i].parts.length - 1; j >= 0; j--) {
         const part = messages[i].parts[j]
         if (part.type !== "tool") continue
+        if (part.tool === "async_task") continue
         if (part.tool !== "task") continue
         if (part.state.status !== "pending" && part.state.status !== "running") continue
         messageIndex = i
@@ -351,6 +368,7 @@ export namespace Session {
       parentID: Identifier.schema("session").optional(),
       // OpenCodeOrchestra: Store agent type for subagent sessions
       agentID: z.string().optional(),
+      async: z.boolean().optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -437,6 +455,7 @@ export namespace Session {
       .object({
         parentID: Identifier.schema("session").optional(),
         agentID: z.string().optional(), // OpenCodeOrchestra: Store agent type for subagent sessions
+        async: z.boolean().optional(),
         title: z.string().optional(),
         permission: Info.shape.permission,
       })
@@ -445,6 +464,7 @@ export namespace Session {
       return createNext({
         parentID: input?.parentID,
         agentID: input?.agentID, // OpenCodeOrchestra: Pass agent type
+        async: input?.async,
         directory: Instance.directory,
         title: input?.title,
         permission: input?.permission,
@@ -501,6 +521,7 @@ export namespace Session {
     title?: string
     parentID?: string
     agentID?: string // OpenCodeOrchestra: Store agent type for subagent sessions
+    async?: boolean
     directory: string
     permission?: PermissionNext.Ruleset
   }) {
@@ -513,6 +534,7 @@ export namespace Session {
       directory: input.directory,
       parentID: input.parentID,
       agentID: input.agentID, // OpenCodeOrchestra: Store agent type
+      async: input.async,
       title: input.title ?? createDefaultTitle(!!input.parentID),
       permission: input.permission,
       time: {
@@ -530,6 +552,7 @@ export namespace Session {
       )
     })
     await setAgentID(result.id, result.agentID)
+    await setAsync(result.id, result.async)
     const cfg = await Config.get()
     if (!result.parentID && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto"))
       share(result.id).catch(() => {
@@ -553,6 +576,7 @@ export namespace Session {
     if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
     const info = fromRow(row)
     info.agentID = await getAgentID(id)
+    info.async = await getAsync(id)
     return info
   })
 
@@ -573,6 +597,7 @@ export namespace Session {
       const info = fromRow(row)
       Database.effect(async () => {
         info.agentID = await getAgentID(id)
+        info.async = await getAsync(id)
         Bus.publish(Event.Updated, { info })
       })
     })
@@ -589,6 +614,7 @@ export namespace Session {
       const info = fromRow(row)
       Database.effect(async () => {
         info.agentID = await getAgentID(id)
+        info.async = await getAsync(id)
         Bus.publish(Event.Updated, { info })
       })
     })
@@ -596,12 +622,14 @@ export namespace Session {
 
   export async function update(id: string, editor: (session: Info) => void, options?: { touch?: boolean }) {
     const existingAgentID = await getAgentID(id)
+    const existingAsync = await getAsync(id)
     const result = Database.use((db) => {
       const existing = db.select().from(SessionTable).where(scopedID(id)).get()
       if (!existing) throw new NotFoundError({ message: `Session not found: ${id}` })
 
       const draft = fromRow(existing)
       draft.agentID = existingAgentID
+      draft.async = existingAsync
       editor(draft)
       if (options?.touch !== false) {
         draft.time.updated = Date.now()
@@ -610,9 +638,11 @@ export namespace Session {
       const row = db.update(SessionTable).set(toRow(draft)).where(scopedID(id)).returning().get()
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
       const info = fromRow(row)
+      info.agentID = draft.agentID
+      info.async = draft.async
       Database.effect(async () => {
         await setAgentID(id, draft.agentID)
-        info.agentID = draft.agentID
+        await setAsync(id, draft.async)
         Bus.publish(Event.Updated, {
           info,
         })
@@ -756,6 +786,7 @@ export namespace Session {
     for (const row of rows) {
       const info = fromRow(row)
       info.agentID = await getAgentID(info.id)
+      info.async = await getAsync(info.id)
       yield info
     }
   }
@@ -773,6 +804,7 @@ export namespace Session {
     for (const row of rows) {
       const info = fromRow(row)
       info.agentID = await getAgentID(info.id)
+      info.async = await getAsync(info.id)
       result.push(info)
     }
     return result
@@ -794,6 +826,7 @@ export namespace Session {
         )
       })
       await setAgentID(sessionID, undefined)
+      await setAsync(sessionID, undefined)
     } catch (e) {
       log.error(e)
     }

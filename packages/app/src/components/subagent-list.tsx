@@ -229,6 +229,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
         context,
         hydrating: sync.data.message[session.id] === undefined,
         agentID: (session as Session & { agentID?: string }).agentID,
+        isAsync: (session as Session & { async?: boolean }).async === true,
       }
     }),
   )
@@ -243,10 +244,9 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     return <Icon name="check-small" size="small" class="text-icon-success-base" />
   }
 
-  const statusLabel = (status: "running" | "completed" | "failed") => {
-    if (status === "running") return "Running"
-    if (status === "failed") return "Failed"
-    return "Completed"
+  const statusLabel = (status: "running" | "completed" | "failed", isAsync: boolean) => {
+    const base = status === "running" ? "Running" : status === "failed" ? "Failed" : "Completed"
+    return isAsync ? `Async ${base.toLowerCase()}` : base
   }
 
   return (
@@ -280,9 +280,14 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
                               {item.agentID}
                             </div>
                           </Show>
+                          <Show when={item.isAsync}>
+                            <div class="shrink-0 rounded-full border border-border-weak-base bg-background-stronger px-2 py-0.5 text-11-medium uppercase tracking-[0.08em] text-text-dimmer">
+                              Async
+                            </div>
+                          </Show>
                         </div>
                         <div class="mt-1 flex items-center gap-2 text-11-regular text-text-weak">
-                          <span>{statusLabel(item.status)}</span>
+                          <span>{statusLabel(item.status, item.isAsync)}</span>
                           <Show when={item.hydrating && !item.context}>
                             <span>Syncing context...</span>
                           </Show>

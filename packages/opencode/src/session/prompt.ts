@@ -267,17 +267,32 @@ export namespace SessionPrompt {
     return s[sessionID].abort.signal
   }
 
-  export function cancel(sessionID: string) {
+  export function cancel(sessionID: string, input?: { cascadeAsyncChildren?: boolean }) {
     log.info("cancel", { sessionID })
     const s = state()
     const match = s[sessionID]
-    if (!match) {
-      SessionStatus.set(sessionID, { type: "idle" })
-      return
+    if (match) {
+      match.abort.abort()
+      delete s[sessionID]
     }
-    match.abort.abort()
-    delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
+    if (input?.cascadeAsyncChildren ?? true) {
+      void Session.children(sessionID)
+        .then((children) => {
+          for (const child of children) {
+            if (child.async !== true) continue
+            const status = SessionStatus.get(child.id)
+            if (status.type !== "busy" && status.type !== "retry") continue
+            cancel(child.id)
+          }
+        })
+        .catch((error) => {
+          log.error("failed to cascade async child cancellation", {
+            sessionID,
+            error: String(error),
+          })
+        })
+    }
     return
   }
 
@@ -300,7 +315,7 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID))
+    using _ = defer(() => cancel(sessionID, { cascadeAsyncChildren: false }))
 
     let structuredOutput: unknown | undefined
 
@@ -333,7 +348,7 @@ export namespace SessionPrompt {
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(normalizeFinishReason(lastAssistant.finish)) &&
-        lastUser.id < lastAssistant.id
+        lastAssistant.parentID === lastUser.id
       ) {
         log.info("exiting loop", { sessionID })
         break
@@ -1538,7 +1553,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     using _ = defer(() => {
       const callbacks = state()[input.sessionID]?.callbacks ?? []
       if (callbacks.length === 0) {
-        cancel(input.sessionID)
+        cancel(input.sessionID, { cascadeAsyncChildren: false })
       } else {
         loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
           log.error("session loop failed to resume after shell command", { sessionID: input.sessionID, error })
