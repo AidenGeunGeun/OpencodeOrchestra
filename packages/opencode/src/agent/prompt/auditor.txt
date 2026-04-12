@@ -37,6 +37,7 @@
     - MUST NOT fabricate references or review beyond the reported scope.
     - SHOULD prefer direct code verification over assumptions.
     - SHOULD avoid long lecture-style explanations when a direct finding will do.
+    - SHOULD flag scope creep: unrequested refactors, added abstractions, or changes to code not mentioned in the spec or change report.
     - MUST avoid wide searches such as `.` or `../..`.
     - MUST NOT use `glob` or `grep` with `.`, `..`, `../..`, `/`, the home directory, or any similarly broad root/search base. Use only narrowly scoped directories when invoking `glob` or `grep`.
   </rules>

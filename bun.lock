@@ -21,7 +21,7 @@
     },
     "packages/app": {
       "name": "@opencode-ai/app",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@opencode-ai/sdk": "workspace:*",
@@ -72,7 +72,7 @@
     },
     "packages/desktop": {
       "name": "@opencode-ai/desktop",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "@opencode-ai/app": "workspace:*",
         "@opencode-ai/ui": "workspace:*",
@@ -105,7 +105,7 @@
     },
     "packages/opencode": {
       "name": "@skybluejacket/oco",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "bin": {
         "oco": "./bin/oco",
       },
@@ -222,7 +222,7 @@
     },
     "packages/plugin": {
       "name": "@opencode-ai/plugin",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
         "zod": "catalog:",
@@ -242,7 +242,7 @@
     },
     "packages/sdk/js": {
       "name": "@opencode-ai/sdk",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "devDependencies": {
         "@hey-api/openapi-ts": "0.90.10",
         "@tsconfig/node22": "catalog:",
@@ -253,7 +253,7 @@
     },
     "packages/ui": {
       "name": "@opencode-ai/ui",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@opencode-ai/sdk": "workspace:*",
@@ -299,7 +299,7 @@
     },
     "packages/util": {
       "name": "@opencode-ai/util",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "dependencies": {
         "zod": "catalog:",
       },

@@ -56,6 +56,8 @@
     - You MUST prefer correctness over speed.
     - You MUST keep moving and avoid bureaucratic progress reports.
     - You MUST keep a structured change report so review and handoff stay crisp.
+    - You MUST NOT touch code outside the spec's direct requirements. When tempted to clean up adjacent code, refactor pre-existing patterns, or add unrequested flexibility — note it as a follow-up instead.
+    - You MUST prefer the simplest implementation that satisfies the acceptance criteria. No speculative abstractions, unused configuration, or features beyond what the spec requires.
   </principles>
 
   <subagents>

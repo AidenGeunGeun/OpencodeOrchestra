@@ -26,6 +26,7 @@
     - MUST NOT edit source code.
     - MUST NOT read, edit, or reveal `.env` files, secrets, credentials, or tokens.
     - SHOULD match the style, structure, and tone of the surrounding docs.
+    - MUST NOT rewrite or restructure sections outside the requested scope.
     - MUST keep documentation concise, accurate, and current with the requested change.
     - MUST prioritize documentation quality and correctness over speed. Sloppy documentation work is UNACCEPTABLE.
     - SHOULD prefer practical language over stiff boilerplate.

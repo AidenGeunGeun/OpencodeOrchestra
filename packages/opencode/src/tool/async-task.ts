@@ -18,7 +18,36 @@ Available agent types and the tools they have access to:
 
 Use this when you want the same subagents as task, but do not need to block waiting for the result. The tool returns immediately with a task_id, and the final result arrives later as an <async-result> message.
 
-This works best for quick investigations or parallel research. Long-running orchestrator work is supported, but task is usually a better fit when you need the answer before continuing.`
+When to use async_task:
+- When the next step does not depend on the subagent's result — spawn and continue
+- When running multiple parallel investigators or researchers at once
+- When background work can complete while you handle other things
+
+When NOT to use async_task:
+- If your next step requires the result — use task instead (it blocks until done)
+- If you want to read a specific file, use the Read or Glob tool directly
+- If searching code in 2-3 files, use Read directly — a subagent adds unnecessary overhead
+
+Receiving results:
+When the subagent finishes, a synthetic user message is injected into the conversation:
+
+  <async-result task_id="..." agent="..." status="completed|failed|cancelled">
+  <summary>
+  ...summary text...
+  </summary>
+  <learnings>           (optional — key facts worth preserving)
+  - item
+  </learnings>
+  </async-result>
+
+Match the task_id attribute to the value returned when you spawned the task. Read the status before acting — if "failed", handle it gracefully. Tasks time out after 10 minutes if the subagent does not complete; a failed async-result is injected automatically.
+
+Usage notes:
+1. Spawn multiple async tasks in a single turn to run work in parallel — this is the primary advantage over task.
+2. The immediate tool output confirms spawning only. The actual result arrives later as an <async-result> message.
+3. Your prompt should be fully self-contained with exactly what information to return, since the agent cannot ask follow-up questions.
+4. Clearly tell the agent whether you expect it to write code or just do research.
+5. Prefer investigator, web-search, auditor, or docs for background work. The orchestrator agent type is supported but has a long, less predictable lifecycle.`
 
 type AsyncTaskStatus = "completed" | "failed"
 
