@@ -65,9 +65,25 @@ export namespace AsyncResult {
   }
 
   async function hasAssistantResponse(sessionID: string, messageID: string) {
+    let newestAssistant:
+      | {
+          id: string
+          created: number
+        }
+      | undefined
     for await (const item of MessageV2.stream(sessionID)) {
-      if (item.info.role === "assistant" && item.info.parentID === messageID) return true
-      if (item.info.role === "user" && item.info.id === messageID) return false
+      if (item.info.role === "assistant" && newestAssistant === undefined) {
+        newestAssistant = {
+          id: item.info.id,
+          created: item.info.time.created,
+        }
+      }
+      if (item.info.role !== "user" || item.info.id !== messageID) continue
+      return (
+        newestAssistant !== undefined &&
+        (newestAssistant.created > item.info.time.created ||
+          (newestAssistant.created === item.info.time.created && newestAssistant.id > item.info.id))
+      )
     }
     return false
   }

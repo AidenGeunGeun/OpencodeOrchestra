@@ -100,8 +100,9 @@
 
     **When to use `task` instead:**
     - The result is a prerequisite for your next decision (e.g., you need codebase structure before writing a spec).
-    - You are delegating to an orchestrator — its long lifecycle makes async delivery unpredictable.
     - You need to ensure the work is complete before reporting back to the user.
+
+    **You MUST NOT use `async_task` with the `orchestrator` subagent_type.** Orchestrators run for minutes to hours. If the app closes while one is running in the background, the result is silently discarded with no recovery. Always use `task` for orchestrators so the PM-Orchestrator link is durable.
 
     **Receiving results:**
     Async results arrive as `<async-result>` messages with `task_id`, `agent`, and `status` attributes. Match `task_id` to correlate with the original spawn. Multiple concurrent async tasks each deliver their own independent `<async-result>`.

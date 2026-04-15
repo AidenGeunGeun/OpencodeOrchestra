@@ -27,6 +27,7 @@ When NOT to use async_task:
 - If your next step requires the result — use task instead (it blocks until done)
 - If you want to read a specific file, use the Read or Glob tool directly
 - If searching code in 2-3 files, use Read directly — a subagent adds unnecessary overhead
+- NEVER use async_task with the orchestrator subagent_type — orchestrators run for minutes to hours and if the app closes the result is silently lost; always use task for orchestrators
 
 Receiving results:
 When the subagent finishes, a synthetic user message is injected into the conversation:
@@ -47,7 +48,7 @@ Usage notes:
 2. The immediate tool output confirms spawning only. The actual result arrives later as an <async-result> message.
 3. Your prompt should be fully self-contained with exactly what information to return, since the agent cannot ask follow-up questions.
 4. Clearly tell the agent whether you expect it to write code or just do research.
-5. Prefer investigator, web-search, auditor, or docs for background work. The orchestrator agent type is supported but has a long, less predictable lifecycle.`
+5. Prefer investigator, web-search, auditor, or docs for background work. Never use orchestrator with async_task.`
 
 type AsyncTaskStatus = "completed" | "failed"
 
