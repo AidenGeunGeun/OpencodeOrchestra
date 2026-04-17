@@ -45,9 +45,47 @@ Guide for AI coding agents working in this repository.
 - Version source of truth: `packages/opencode/package.json` (release script bumps all 8 packages)
 - Local `oco` launcher: `packages/opencode/bin/oco` → resolves `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`
 
+### Pre-Release Validation (MANDATORY)
+
+**Never run `bun run release` without validating the change locally first.** The validation strategy depends on the risk profile of the change:
+
+| Change type | Validation path |
+|-------------|----------------|
+| **Low-risk, additive, non-breaking** (new model ID, dep bump with identical API, config tweak, test-only) | Validate against the **prod** desktop app. Build a fresh `OpenCodeOrchestra.app`, replace `/Applications/OpenCodeOrchestra.app`, launch, test. |
+| **High-risk, breaking, or architectural** (SDK major bump, server protocol change, session/storage change, sidecar model change) | Validate against the **Dev** desktop app first (`OpenCodeOrchestra Dev.app`, identifier `ai.opencode.orchestra.dev`). It runs side-by-side with the prod app and uses a separate config/state. Only promote to prod app validation once Dev is green. |
+| **TUI/CLI-only change** | Validate by replacing `~/.local/bin/oco` with the freshly built binary and re-signing. No desktop rebuild needed. |
+
+**The validation must exercise the actual failing code path.** For model/provider changes that means sending a real message to the changed model through both TUI and (if desktop-facing) the desktop app. Version string checks alone (`oco --version`) prove nothing about runtime behavior.
+
+**Do NOT manually swap the sidecar binary inside `.app/Contents/MacOS/oco`.** macOS verifies bundle seal when Tauri spawns the sidecar. Hand-swapping breaks seal and silently blocks server startup with "Could not reach Local Server" while the TUI keeps working. If you need to test a new desktop binary, rebuild the entire `.app` via `bunx tauri build` and replace the whole bundle — see "Desktop App Rebuild" below.
+
+### Desktop App Rebuild
+
+```sh
+# workdir: packages/desktop
+
+# Prod app (OpenCodeOrchestra.app) — validated, user-facing
+bunx tauri build --config src-tauri/tauri.prod.conf.json
+
+# Dev app (OpenCodeOrchestra Dev.app) — for risky changes, runs side-by-side
+bunx tauri build
+```
+
+`bunx tauri build` runs `prebuild.ts` which calls `bun run build --single` in `packages/opencode` to produce a fresh sidecar, copies it into `src-tauri/sidecars/`, then invokes the Rust/Tauri bundler. A full cold build takes ~3-5 minutes on M-series Mac; incremental Rust rebuilds are ~30-60s.
+
+Install after build:
+```sh
+# Quit the running app first
+cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra.app" /Applications/
+# Or for Dev:
+cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra Dev.app" /Applications/
+```
+
+The `.app` bundle includes its own copy of the `oco` sidecar under `Contents/MacOS/oco`. It is independent from `~/.local/bin/oco`. Updating one does not update the other.
+
 ### Release Steps
 
-Use this release path. It is the one that has actually been validated in this repo.
+Use this release path. It is the one that has actually been validated in this repo. **Pre-release validation (above) must pass before step 1.**
 
 1. Before releasing:
    - `git status --short` must be clean except for intended release changes.
