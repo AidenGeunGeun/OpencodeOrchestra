@@ -44,7 +44,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Build sidecar
         working-directory: packages/opencode
@@ -63,14 +63,6 @@ jobs:
         working-directory: packages/desktop
         run: bunx tauri build --bundles deb,rpm --config src-tauri/tauri.prod.conf.json
 
-      - name: Build desktop app (appimage)
-        if: runner.os == 'Linux'
-        working-directory: packages/desktop
-        continue-on-error: true
-        run: bunx tauri build --bundles appimage --config src-tauri/tauri.prod.conf.json
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: 1
-
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
         working-directory: packages/desktop
@@ -85,7 +77,6 @@ jobs:
             packages/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
             packages/desktop/src-tauri/target/release/bundle/deb/*.deb
             packages/desktop/src-tauri/target/release/bundle/rpm/*.rpm
-            packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
         env:

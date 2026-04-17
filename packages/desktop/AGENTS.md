@@ -47,7 +47,7 @@ Also bump `src-tauri/Cargo.toml` version — it's the Rust crate version shown i
 
 ## Desktop Builds
 
-Tag push `oco-v<version>` triggers GitHub Actions `desktop-build` workflow. Builds macOS (Apple Silicon) and Linux (x86_64). Artifacts uploaded to GitHub Release.
+Tag push `oco-v<version>` triggers GitHub Actions `desktop-build` workflow. Builds macOS (Apple Silicon) and Linux (x86_64), outputs `.dmg` + `.app.tar.gz` + `.deb` + `.rpm`, uploads to GitHub Release automatically. AppImage is not built — see root `AGENTS.md` for rationale.
 
 **No auto-updater**: `tauri.prod.conf.json` has `"createUpdaterArtifacts": false`. Users must manually download and install new .dmg releases. Enabling requires code signing + updater endpoint.
 

@@ -59,7 +59,7 @@ Guide for AI coding agents working in this repository.
 
 **Do NOT manually swap the sidecar binary inside `.app/Contents/MacOS/oco`.** macOS verifies bundle seal when Tauri spawns the sidecar. Hand-swapping breaks seal and silently blocks server startup with "Could not reach Local Server" while the TUI keeps working. If you need to test a new desktop binary, rebuild the entire `.app` via `bunx tauri build` and replace the whole bundle — see "Desktop App Rebuild" below.
 
-### Desktop App Rebuild
+### Desktop App Rebuild (local validation only)
 
 ```sh
 # workdir: packages/desktop
@@ -83,117 +83,63 @@ cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra 
 
 The `.app` bundle includes its own copy of the `oco` sidecar under `Contents/MacOS/oco`. It is independent from `~/.local/bin/oco`. Updating one does not update the other.
 
-### Release Steps
+**These rebuilds are for local validation only.** Actual release artifacts are produced by CI — see below.
 
-Use this release path. It is the one that has actually been validated in this repo. **Pre-release validation (above) must pass before step 1.**
+### Release Steps (push-and-forget)
 
-1. Before releasing:
-   - `git status --short` must be clean except for intended release changes.
-   - Delete any local packaging directory before running the release script:
-     ```sh
-     rm -rf release-assets
-     ```
-   - Never leave manually packaged `.tar.gz`, `.zip`, or checksum files in the repo root before running `bun run release`, or they may get swept into the release commit.
+The repo is wired so a single tag push produces the full matrix of release artifacts with zero manual intervention. **Pre-release validation above must pass before step 1.**
 
-2. Run the version bump and tag from repo root:
+1. Clean working tree except intended changes:
+   ```sh
+   git status --short
+   ```
+
+2. Bump version, build a local CLI binary for sanity, commit, and tag:
    ```sh
    bun run release X.Y.Z
    ```
-   This bumps package versions, runs `bun install`, typecheck, builds the current-platform CLI/frontend, deploys frontend to the XDG data dir, commits, and tags.
+   This bumps all 8 `package.json` files, runs `bun install`, typecheck, builds the current-platform CLI (for immediate local use), copies frontend to the XDG data dir, commits `release: oco-vX.Y.Z`, and tags.
 
-3. Push commits and **only the new tag**:
+3. Push `main` plus the new tag:
    ```sh
    git push origin main && git push origin oco-vX.Y.Z
    ```
-   **IMPORTANT**: Never use `git push --tags`. The repo has inherited upstream tags and that will create noise or fail.
+   **IMPORTANT**: Never `git push --tags`. The repo has inherited upstream tags and that will create noise.
 
-4. **Build philosophy: build everything possible locally, use CI only for Linux.**
-   macOS is the dev machine — local builds are faster, immediately installable, and don't burn CI minutes.
-   Only Linux desktop artifacts (`.deb`, `.rpm`, `.AppImage`) require CI because cross-compiling Linux Tauri on macOS is impractical.
+4. That's it — CI takes over from here:
+   - `cli-release.yml` builds the full CLI matrix (darwin arm64/x64, linux x64/arm64 + baseline + musl variants, windows x64) on `ubuntu-latest`, packages `.tar.gz`/`.zip`, generates `SHA256SUMS.txt`, uploads all to the GitHub Release.
+   - `desktop-build.yml` builds the macOS (Apple Silicon) `.dmg` + `.app.tar.gz` and Linux (x86_64) `.deb` + `.rpm`, uploads to the same release.
+   - `softprops/action-gh-release@v2` creates the release if it doesn't exist and appends assets as each job finishes.
 
-   After pushing the tag:
-   - **Cancel** the `cli-release` workflow — CLI binaries are built locally and uploaded manually.
-   - **Cancel** the `test` workflow — run tests locally if needed.
-   - **Cancel the macOS runner** inside `desktop-build` — we build macOS desktop locally. Only the **Linux runner** inside `desktop-build` should be allowed to finish.
-
-5. Build the local release artifacts yourself:
-   - CLI matrix (all platforms including Windows, cross-compiled by Bun):
-     ```sh
-     # workdir: packages/opencode
-     bun run script/build.ts
-     ```
-   - macOS desktop (prod config, Apple Silicon):
-     ```sh
-     # workdir: packages/desktop
-     bunx tauri build --config src-tauri/tauri.prod.conf.json
-     ```
-
-6. Install the fresh builds locally on this machine:
-   - **TUI (CLI):**
-     ```sh
-     cp packages/opencode/dist/@skybluejacket/oco-darwin-arm64/bin/oco ~/.local/bin/oco
-     ~/.local/bin/oco --version   # verify
-     ```
-   - **Desktop prod app:**
-     1. Quit the running OpenCodeOrchestra app.
-     2. Replace `/Applications/OpenCodeOrchestra.app` with the freshly built `.app`:
-        ```sh
-        cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra.app" /Applications/
-        ```
-     3. Re-open the app and confirm the version in the title bar or About screen.
-   - **Desktop Dev app** (optional, for side-by-side testing):
-     ```sh
-     # build with default tauri.conf.json (product name: "OpenCodeOrchestra Dev")
-     bunx tauri build
-     cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra Dev.app" /Applications/
-     ```
-
-7. After updating the system `oco` binary on macOS, always re-sign it or macOS will kill it:
-   ```bash
-   codesign -f -s - ~/.local/bin/oco
+5. (Optional) Install the fresh build locally for immediate use:
+   ```sh
+   cp packages/opencode/dist/@skybluejacket/oco-darwin-arm64/bin/oco ~/.local/bin/oco
+   codesign -f -s - ~/.local/bin/oco   # required on macOS or Gatekeeper kills it
+   ~/.local/bin/oco --version
    ```
-   This applies any time a new binary is copied to PATH on macOS.
 
-8. Package and upload the local assets manually:
-   - Package these exact CLI artifacts from `packages/opencode/dist/@skybluejacket/`:
-     - `oco-darwin-arm64/bin/oco` -> `oco-darwin-arm64.tar.gz`
-     - `oco-darwin-x64/bin/oco` -> `oco-darwin-x64.tar.gz`
-     - `oco-linux-x64/bin/oco` -> `oco-linux-x64.tar.gz`
-     - `oco-windows-x64/bin/oco.exe` -> `oco-windows-x64.zip`
-   - Generate `SHA256SUMS.txt` alongside them.
-   - Upload the local macOS desktop artifact:
-     - `packages/desktop/src-tauri/target/release/bundle/dmg/OpenCodeOrchestra_<version>_aarch64.dmg`
-   - Create the GitHub release with `gh release create ...` or edit the existing release with `gh release upload ...`.
+6. Final verification after CI finishes (~10-15 minutes):
+   - release page at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-vX.Y.Z`
+   - assets present:
+     - macOS desktop: `OpenCodeOrchestra_X.Y.Z_aarch64.dmg` + `.app.tar.gz`
+     - Linux desktop: `OpenCodeOrchestra_X.Y.Z_amd64.deb`, `OpenCodeOrchestra-X.Y.Z-1.x86_64.rpm`
+     - CLI: `oco-darwin-arm64.tar.gz`, `oco-darwin-x64.tar.gz`, `oco-linux-x64.tar.gz`, `oco-linux-arm64.tar.gz`, `oco-windows-x64.zip`, plus baseline and musl variants
+     - `SHA256SUMS.txt`
 
-9. Let the **Linux** `desktop-build` job finish and attach the Linux desktop artifacts:
-    - `OpenCodeOrchestra_<version>_amd64.deb`
-    - `OpenCodeOrchestra-<version>-1.x86_64.rpm`
-    - `OpenCodeOrchestra_<version>_amd64.AppImage` (if AppImage step succeeds — it is `continue-on-error` so `.deb`/`.rpm` upload regardless)
+### When to override the automation
 
-10. Final verification checklist:
-    - release page exists at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-v<version>`
-    - assets include:
-      - macOS desktop `.dmg`
-      - Linux desktop `.deb`, `.rpm` (`.AppImage` if available)
-      - CLI: macOS arm64, macOS x64, Linux x64, Windows x64
-      - `SHA256SUMS.txt`
-    - release notes explicitly say:
-      - macOS -> `.dmg`
-      - Ubuntu / Debian -> `.deb` (`sudo dpkg -i <file>.deb`)
-      - Fedora / RHEL -> `.rpm`
-      - Windows -> CLI `.zip`
-      - Linux terminal-only -> CLI `.tar.gz`
+Only reach for manual local builds + `gh release upload` when CI is broken or unreachable. The full local workflow (build matrix → package → checksum → upload) is preserved in git history — see the `oco-v1.1.3` release for the last time it was done by hand. Otherwise trust the workflows.
 
 ### Linux Desktop Notes
 
 - The `.deb` is the primary Linux desktop deliverable. Ubuntu/Debian users install it with `sudo dpkg -i <file>.deb`. The `.rpm` serves Fedora/RHEL users.
-- AppImage is attempted as a `continue-on-error` step in CI. As of 1.0.27, AppImage bundling (`linuxdeploy`) still fails on GitHub Actions even with `ubuntu-22.04` + `libfuse2` + `APPIMAGE_EXTRACT_AND_RUN=1`. The `.deb`/`.rpm` always upload regardless. AppImage is a nice-to-have, not a blocker.
-- The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) because `ubuntu-24.04` removed `libfuse2`. This is a build-time constraint only — the built `.deb`/`.rpm` run fine on Ubuntu 22.04 and 24.04.
+- **AppImage is intentionally not built.** Every attempt through v1.1.3 failed on CI (`linuxdeploy` bundling issues even with `libfuse2` + `APPIMAGE_EXTRACT_AND_RUN=1`) and the `continue-on-error` step just wasted ~5 minutes per release. `.deb` and `.rpm` cover both major Linux package managers.
+- The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) for GLIBC compatibility. This is a build-time constraint only — the built `.deb`/`.rpm` run fine on Ubuntu 22.04 and 24.04.
 - Do **not** try to build Linux desktop artifacts on macOS via Docker. x86_64 emulation on Apple Silicon is extremely slow (12GB RAM, 200% CPU, 30+ minute cold builds). Rely on the GitHub Linux runner or a native Linux machine instead.
 - If a user on Linux wants to build the desktop app locally (native x86_64), it takes ~5-10 minutes on first build, ~1-2 minutes with cached deps:
   ```bash
   # Install deps (Ubuntu/Debian)
-  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
   # Install Bun and Rust if not present
   curl -fsSL https://bun.sh/install | bash
   curl https://sh.rustup.rs -sSf | sh
