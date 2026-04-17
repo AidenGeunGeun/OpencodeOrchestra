@@ -353,16 +353,24 @@ export namespace ProviderTransform {
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
 
-  function isClaude46(id: string) {
-    return id.includes("4-6") || id.includes("4.6")
+  function claude4MinorVersion(id: string) {
+    const match = id.match(/(?:^|[^0-9])4[-.](\d{1,2})(?!\d)/)
+    if (!match) return undefined
+    return Number.parseInt(match[1], 10)
   }
 
-  function claude46Variants(id: string) {
-    const variants: Record<string, any> = {
-      low: { thinking: { type: "adaptive" }, effort: "low" },
-      medium: { thinking: { type: "adaptive" }, effort: "medium" },
-      high: { thinking: { type: "adaptive" }, effort: "high" },
+  function claudeAdaptiveVariants(id: string) {
+    const minor = claude4MinorVersion(id)
+    if (minor === undefined || minor < 6) return undefined
+
+    const efforts = [...WIDELY_SUPPORTED_EFFORTS]
+    if (minor >= 7) {
+      efforts.push("xhigh")
     }
+
+    const variants: Record<string, { thinking: { type: "adaptive" }; effort: string }> = Object.fromEntries(
+      efforts.map((effort) => [effort, { thinking: { type: "adaptive" }, effort }]),
+    )
     if (id.includes("opus")) {
       variants.max = { thinking: { type: "adaptive" }, effort: "max" }
     }
@@ -373,6 +381,7 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
+    const adaptiveClaudeVariants = claudeAdaptiveVariants(id)
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
@@ -542,9 +551,7 @@ export namespace ProviderTransform {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/anthropic
       case "@ai-sdk/google-vertex/anthropic":
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/google-vertex#anthropic-provider
-        if (isClaude46(id)) {
-          return claude46Variants(id)
-        }
+        if (adaptiveClaudeVariants) return adaptiveClaudeVariants
         return {
           high: {
             thinking: {
@@ -564,9 +571,7 @@ export namespace ProviderTransform {
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/amazon-bedrock
         // For Anthropic models on Bedrock, use reasoningConfig with budgetTokens
         if (model.api.id.includes("anthropic")) {
-          if (isClaude46(id)) {
-            return claude46Variants(id)
-          }
+          if (adaptiveClaudeVariants) return adaptiveClaudeVariants
           return {
             high: {
               reasoningConfig: {
@@ -654,9 +659,7 @@ export namespace ProviderTransform {
       case "@mymediset/sap-ai-provider":
       case "@jerome-benoit/sap-ai-provider-v2":
         if (model.api.id.includes("anthropic")) {
-          if (isClaude46(id)) {
-            return claude46Variants(id)
-          }
+          if (adaptiveClaudeVariants) return adaptiveClaudeVariants
           return {
             high: {
               thinking: {

@@ -1539,6 +1539,66 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
       expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
     })
+
+    test("claude-sonnet-4-7 includes adaptive xhigh without max", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-sonnet-4-7",
+        providerID: "anthropic",
+        api: {
+          id: "claude-sonnet-4-7",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" })
+    })
+
+    test("claude-opus-4-12 includes adaptive xhigh and max", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-opus-4-12",
+        providerID: "anthropic",
+        api: {
+          id: "claude-opus-4-12",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.xhigh).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" })
+      expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
+    })
+
+    test("claude-opus-4-20250514 keeps legacy thinking budgets", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-opus-4-20250514",
+        providerID: "anthropic",
+        api: {
+          id: "claude-opus-4-20250514",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "enabled",
+          budgetTokens: 16000,
+        },
+      })
+      expect(result.max).toEqual({
+        thinking: {
+          type: "enabled",
+          budgetTokens: 31999,
+        },
+      })
+    })
   })
 
   describe("@ai-sdk/amazon-bedrock", () => {
@@ -1593,6 +1653,94 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
       expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
+    })
+
+    test("anthropic claude-sonnet-4-7 includes adaptive xhigh", () => {
+      const model = createMockModel({
+        id: "bedrock/claude-sonnet-4-7",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-sonnet-4-7",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" })
+    })
+
+    test("anthropic claude-opus-4-20250514 keeps legacy reasoningConfig budgets", () => {
+      const model = createMockModel({
+        id: "bedrock/claude-opus-4-20250514",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-opus-4-20250514",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({
+        reasoningConfig: {
+          type: "enabled",
+          budgetTokens: 16000,
+        },
+      })
+      expect(result.max).toEqual({
+        reasoningConfig: {
+          type: "enabled",
+          budgetTokens: 31999,
+        },
+      })
+    })
+  })
+
+  describe("@mymediset/sap-ai-provider", () => {
+    test("anthropic claude-sonnet-4-7 includes adaptive xhigh", () => {
+      const model = createMockModel({
+        id: "sap/claude-sonnet-4-7",
+        providerID: "sap",
+        api: {
+          id: "anthropic.claude-sonnet-4-7",
+          url: "https://sap.example.com",
+          npm: "@mymediset/sap-ai-provider",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" })
+    })
+
+    test("anthropic claude-opus-4-20250514 keeps legacy thinking budgets", () => {
+      const model = createMockModel({
+        id: "sap/claude-opus-4-20250514",
+        providerID: "sap",
+        api: {
+          id: "anthropic.claude-opus-4-20250514",
+          url: "https://sap.example.com",
+          npm: "@mymediset/sap-ai-provider",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({
+        thinking: {
+          type: "enabled",
+          budgetTokens: 16000,
+        },
+      })
+      expect(result.max).toEqual({
+        thinking: {
+          type: "enabled",
+          budgetTokens: 31999,
+        },
+      })
     })
   })
 
