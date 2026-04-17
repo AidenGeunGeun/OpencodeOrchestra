@@ -34,7 +34,13 @@ target
 nul
 
 # Release artifacts
+release-assets/
 packages/opencode/release-assets/
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+*.app.tar.gz
 
 # Local dev files
 opencode-dev
