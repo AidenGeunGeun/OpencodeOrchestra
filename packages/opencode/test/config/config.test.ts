@@ -234,6 +234,7 @@ test("handles agent configuration", async () => {
               model: "test/model",
               temperature: 0.7,
               description: "test agent",
+              display_name: "Test Agent",
             },
           },
         }),
@@ -249,6 +250,7 @@ test("handles agent configuration", async () => {
           model: "test/model",
           temperature: 0.7,
           description: "test agent",
+          display_name: "Test Agent",
         }),
       )
     },
@@ -319,6 +321,7 @@ test("migrates mode field to agent field", async () => {
             test_mode: {
               model: "test/model",
               temperature: 0.5,
+              display_name: "PM",
             },
           },
         }),
@@ -332,6 +335,7 @@ test("migrates mode field to agent field", async () => {
       expect(config.agent?.["test_mode"]).toEqual({
         model: "test/model",
         temperature: 0.5,
+        display_name: "PM",
         mode: "primary",
         options: {},
         permission: {},

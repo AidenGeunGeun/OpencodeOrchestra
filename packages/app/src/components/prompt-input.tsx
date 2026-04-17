@@ -69,6 +69,11 @@ interface PromptInputProps {
   onSubmit?: () => void
 }
 
+type AgentOption = {
+  name: string
+  displayName: string
+}
+
 const EXAMPLES = [
   "prompt.example.1",
   "prompt.example.2",
@@ -524,7 +529,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
-  const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
+  const agentNames = createMemo<AgentOption[]>(() =>
+    local.agent.list().map((agent) => ({
+      name: agent.name,
+      displayName: agent.displayName ?? agent.name,
+    })),
+  )
+  const lockedAgentOption = createMemo<AgentOption | undefined>(() => {
+    const name = lockedAgent()
+    if (!name) return undefined
+    const agent = sync.data.agent.find((item) => item.name === name)
+    return {
+      name,
+      displayName: agent?.displayName ?? agent?.name ?? name,
+    }
+  })
+  const currentAgentOption = createMemo<AgentOption | undefined>(() => {
+    if (lockedAgentOption()) return lockedAgentOption()
+    const current = local.agent.current()?.name
+    if (!current) return undefined
+    return agentNames().find((agent) => agent.name === current)
+  })
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
@@ -1445,9 +1470,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 >
                   <Select
                     size="normal"
-                    options={lockedAgent() ? [lockedAgent()!] : agentNames()}
-                    current={lockedAgent() ?? local.agent.current()?.name ?? ""}
-                    onSelect={lockedAgent() ? undefined : local.agent.set}
+                    options={lockedAgentOption() ? [lockedAgentOption()!] : agentNames()}
+                    current={currentAgentOption()}
+                    value={(agent) => agent.name}
+                    label={(agent) => agent.displayName}
+                    onSelect={lockedAgentOption() ? undefined : (agent) => local.agent.set(agent?.name)}
                     disabled={!!lockedAgent()}
                     class="capitalize max-w-[160px]"
                     valueClass="truncate text-13-regular"

@@ -695,6 +695,7 @@ export namespace Config {
       tools: z.record(z.string(), z.boolean()).optional().describe("@deprecated Use 'permission' field instead"),
       disable: z.boolean().optional(),
       description: z.string().optional().describe("Description of when to use the agent"),
+      display_name: z.string().optional().describe("Display label for selectors and UI agent badges"),
       mode: z.enum(["subagent", "primary", "all"]).optional(),
       hidden: z
         .boolean()
@@ -728,6 +729,7 @@ export namespace Config {
         "variant",
         "prompt",
         "description",
+        "display_name",
         "temperature",
         "top_p",
         "mode",

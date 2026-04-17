@@ -1490,6 +1490,10 @@ export type AgentConfig = {
    * Description of when to use the agent
    */
   description?: string
+  /**
+   * Display label for selectors and UI agent badges
+   */
+  display_name?: string
   mode?: "subagent" | "primary" | "all"
   /**
    * Hide this subagent from the @ autocomplete menu (default: false, only applies to mode: subagent)
@@ -2228,6 +2232,7 @@ export type Command = {
 
 export type Agent = {
   name: string
+  displayName?: string
   description?: string
   mode: "subagent" | "primary" | "all"
   native?: boolean

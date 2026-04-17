@@ -33,7 +33,7 @@ export function DialogAgent() {
         return [
           {
             value: agent.name,
-            title: agent.name === "build" || agent.name === "plan" ? "PM" : agent.name,
+            title: agent.displayName ?? agent.name,
             description: agent.native ? "locked" : agent.description,
           },
         ]
@@ -43,7 +43,7 @@ export function DialogAgent() {
     return local.agent.list().map((item) => {
       return {
         value: item.name,
-        title: item.name === "build" || item.name === "plan" ? "PM" : item.name,
+        title: item.displayName ?? item.name,
         description: item.native ? "native" : item.description,
       }
     })

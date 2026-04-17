@@ -35,23 +35,27 @@ test("build agent has correct default properties", async () => {
       expect(build).toBeDefined()
       expect(build?.mode).toBe("primary")
       expect(build?.native).toBe(true)
+      expect(build?.displayName).toBe("PM")
       expect(evalPerm(build, "edit")).toBe("allow")
       expect(evalPerm(build, "bash")).toBe("allow")
     },
   })
 })
 
-test("plan agent denies edits except .oco/plans/*", async () => {
+test("plan agent is behaviorally identical to build (OCO unification)", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-       const plan = await Agent.get("plan")
+      const plan = await Agent.get("plan")
       expect(plan).toBeDefined()
-      // Wildcard is denied
-      expect(evalPerm(plan, "edit")).toBe("deny")
-      // But specific path is allowed
-      expect(PermissionNext.evaluate("edit", ".oco/plans/foo.md", plan!.permission).action).toBe("allow")
+      expect(plan?.displayName).toBe("PM")
+      // OCO unifies plan with build: no more edit restrictions.
+      // Implementation belongs to the Orchestrator, so the PM is a singular persona.
+      expect(evalPerm(plan, "edit")).toBe("allow")
+      expect(evalPerm(plan, "bash")).toBe("allow")
+      // plan_exit stays allow so plan mode can still exit cleanly
+      expect(evalPerm(plan, "plan_exit")).toBe("allow")
     },
   })
 })
@@ -80,6 +84,7 @@ test("custom agent from config creates new agent", async () => {
         my_custom_agent: {
           model: "openai/gpt-4",
           description: "My custom agent",
+          display_name: "My Agent",
           temperature: 0.5,
           top_p: 0.9,
         },
@@ -94,6 +99,7 @@ test("custom agent from config creates new agent", async () => {
       expect(custom?.model?.providerID).toBe("openai")
       expect(custom?.model?.modelID).toBe("gpt-4")
       expect(custom?.description).toBe("My custom agent")
+      expect(custom?.displayName).toBe("My Agent")
       expect(custom?.temperature).toBe(0.5)
       expect(custom?.topP).toBe(0.9)
       expect(custom?.native).toBe(false)
@@ -109,6 +115,7 @@ test("custom agent config overrides native agent properties", async () => {
          "build": {
           model: "anthropic/claude-3",
           description: "Custom build agent",
+          display_name: "Delivery Lead",
           temperature: 0.7,
           color: "#FF0000",
         },
@@ -123,6 +130,7 @@ test("custom agent config overrides native agent properties", async () => {
       expect(build?.model?.providerID).toBe("anthropic")
       expect(build?.model?.modelID).toBe("claude-3")
       expect(build?.description).toBe("Custom build agent")
+      expect(build?.displayName).toBe("Delivery Lead")
       expect(build?.temperature).toBe(0.7)
       expect(build?.color).toBe("#FF0000")
       expect(build?.native).toBe(true)

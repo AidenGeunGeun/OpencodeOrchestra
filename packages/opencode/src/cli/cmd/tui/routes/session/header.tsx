@@ -34,6 +34,12 @@ export function Header() {
   const sync = useSync()
   const session = createMemo(() => sync.session.get(route.sessionID)!)
   const messages = createMemo(() => sync.data.message[route.sessionID] ?? [])
+  const agentLabel = createMemo(() => {
+    const agentID = session()?.agentID
+    if (!agentID) return "Subagent session"
+    const agent = sync.data.agent.find((item) => item.name === agentID)
+    return agent?.displayName ?? agentID
+  })
 
   const cost = createMemo(() => {
     const total = pipe(
@@ -87,7 +93,7 @@ export function Header() {
             <box flexDirection="column" gap={1}>
               <box flexDirection={narrow() ? "column" : "row"} justifyContent="space-between" gap={narrow() ? 1 : 0}>
                 <text fg={theme.text}>
-                  <b>{session()?.agentID ?? "Subagent session"}</b>
+                  <b>{agentLabel()}</b>
                 </text>
                 <ContextInfo context={context} cost={cost} />
               </box>

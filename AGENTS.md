@@ -2,12 +2,7 @@
 
 Guide for AI coding agents working in this repository.
 
-## Communication Language
-
-- **기본 언어: 한국어** — 사용자와의 모든 대화는 한국어로 진행한다.
-- **기술 용어는 영어 유지** — `finishReason`, `providerOptions`, `streamText`, 파일 경로, 함수명, 타입명 등 코드/기술 용어는 영어 그대로 사용한다.
-- 코드 주석과 commit message는 영어로 작성한다.
-- Spec, backlog, 문서 파일 내용은 영어로 작성하되, 사용자와의 대화 중 설명은 한국어로 한다.
+Code comments, commit messages, specs, backlog, and doc file contents: English.
 
 ## Quick Reference
 

@@ -124,6 +124,21 @@ export function Prompt(props: PromptProps) {
     return session?.agentID ?? local.agent.current().name
   })
 
+  const effectiveAgentLabel = createMemo(() => {
+    if (!props.sessionID) {
+      const current = local.agent.current()
+      return current.displayName ?? current.name
+    }
+    const session = sync.session.get(props.sessionID)
+    const agentID = session?.agentID
+    if (!agentID) {
+      const current = local.agent.current()
+      return current.displayName ?? current.name
+    }
+    const agent = sync.data.agent.find((item) => item.name === agentID)
+    return agent?.displayName ?? agentID
+  })
+
   const [store, setStore] = createStore<{
     prompt: PromptInfo
     mode: "normal" | "shell"
@@ -1001,13 +1016,7 @@ export function Prompt(props: PromptProps) {
               syntaxStyle={syntax()}
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1}>
-              <text fg={highlight()}>
-                {store.mode === "shell"
-                  ? "Shell"
-                  : effectiveAgent() === "build" || effectiveAgent() === "plan"
-                    ? "PM"
-                    : Locale.titlecase(effectiveAgent())}{" "}
-              </text>
+              <text fg={highlight()}>{store.mode === "shell" ? "Shell" : effectiveAgentLabel()} </text>
               <Show when={store.mode === "normal"}>
                 <box flexDirection="row" gap={1}>
                   <text flexShrink={0} fg={keybind.leader ? theme.textMuted : theme.text}>

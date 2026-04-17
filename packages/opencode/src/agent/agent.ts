@@ -30,6 +30,7 @@ export namespace Agent {
   export const Info = z
     .object({
       name: z.string(),
+      displayName: z.string().optional(),
       description: z.string().optional(),
       mode: z.enum(["subagent", "primary", "all"]),
       native: z.boolean().optional(),
@@ -87,6 +88,7 @@ export namespace Agent {
      const result: Record<string, Info> = {
        build: {
         name: "build",
+        displayName: "PM",
         options: {},
          permission: PermissionNext.merge(
           defaults,
@@ -104,20 +106,17 @@ export namespace Agent {
        },
        plan: {
         name: "plan",
+        displayName: "PM",
         options: {},
+        // OCO: plan agent's permissions unified with build. Plan mode stays wired
+        // (plan_exit toggle still works) but is behaviorally identical to regular PM mode.
+        // Upstream's read-only-during-plan restriction is intentionally dropped — in Orchestra,
+        // implementation belongs to the Orchestrator, so the PM is a singular persona.
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
             question: "allow",
             plan_exit: "allow",
-            external_directory: {
-              [path.join(Global.Path.data, "plans", "*").replaceAll("\\", "/")]: "allow",
-            },
-            edit: {
-              "*": "deny",
-              [path.join(Global.Namespace.projectDir, "plans", "*.md").replaceAll("\\", "/")]: "allow",
-              [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md"))).replaceAll("\\", "/")]: "allow",
-            },
           }),
           user,
          ),
@@ -347,6 +346,7 @@ export namespace Agent {
       if (value.model) item.model = Provider.parseModel(value.model)
       item.prompt = value.prompt ?? item.prompt
       item.description = value.description ?? item.description
+      item.displayName = value.display_name ?? item.displayName
       item.temperature = value.temperature ?? item.temperature
       item.topP = value.top_p ?? item.topP
       item.mode = value.mode ?? item.mode
