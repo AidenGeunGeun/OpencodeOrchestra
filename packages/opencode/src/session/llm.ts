@@ -21,6 +21,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import { imageGeneration } from "@/provider/sdk/openai-compatible/src/responses/tool/image-generation"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -43,6 +44,55 @@ export namespace LLM {
 
   export type StreamOutput = StreamTextResult<ToolSet, any>
 
+  /**
+   * Canonical session-history serializer for outbound LLM requests.
+   */
+  export async function toRequestMessages(
+    messages: MessageV2.WithParts[],
+    model: Provider.Model,
+    options?: { stripMedia?: boolean },
+  ) {
+    const [{ MessageV2 }, { GeneratedImage }] = await Promise.all([
+      import("./message-v2"),
+      import("./generated-image"),
+    ])
+    const requestMessages = clone(messages)
+    const shouldStripGeneratedImageOutput =
+      options?.stripMedia === true || model.capabilities?.input?.image !== true
+
+    for (const message of requestMessages) {
+      if (message.info.role !== "assistant") continue
+
+      for (const part of message.parts) {
+        if (part.type !== "tool") continue
+        if (part.tool !== "image_generation") continue
+        if (part.state.status !== "completed") continue
+        if (part.state.time.compacted) continue
+        if (!shouldStripGeneratedImageOutput) continue
+
+        const savedPath = GeneratedImage.attachmentPath(part.state.attachments)
+        if (!savedPath) continue
+
+        part.state.output = GeneratedImage.replaceOutputWithReference(part.state.output, savedPath)
+      }
+    }
+
+    return MessageV2.toModelMessages(requestMessages, model, options)
+  }
+
+  export function shouldEnableCodexImageGenerationTool(input: {
+    auth: Auth.Info | undefined
+    config: Config.Info
+    model: Provider.Model
+  }) {
+    const isCodexOauth = input.model.providerID === "openai" && input.auth?.type === "oauth"
+    return (
+      isCodexOauth &&
+      input.config.experimental?.codex_image_generation === true &&
+      input.model.capabilities.input.image === true
+    )
+  }
+
   export async function stream(input: StreamInput) {
     const l = log
       .clone()
@@ -63,6 +113,11 @@ export namespace LLM {
       Auth.get(input.model.providerID),
     ])
     const isCodex = provider.id === "openai" && auth?.type === "oauth"
+    const codexImageGenerationEnabled = shouldEnableCodexImageGenerationTool({
+      auth,
+      config: cfg,
+      model: input.model,
+    })
 
     const system = []
     system.push(
@@ -112,7 +167,9 @@ export namespace LLM {
       mergeDeep(variant),
     )
     if (isCodex) {
-      options.instructions = SystemPrompt.instructions()
+      options.instructions = SystemPrompt.instructions({
+        codexImageGeneration: codexImageGenerationEnabled,
+      })
     }
 
     const params = await Plugin.trigger(
@@ -152,6 +209,9 @@ export namespace LLM {
       isCodex || provider.id.includes("github-copilot") ? undefined : ProviderTransform.maxOutputTokens(input.model)
 
     const tools = await resolveTools(input)
+    if (codexImageGenerationEnabled) {
+      tools.image_generation = imageGeneration()
+    }
 
     // LiteLLM and some Anthropic proxies require the tools parameter to be present
     // when message history contains tool calls, even if no tools are being used.
