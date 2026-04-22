@@ -1,7 +1,8 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { TaskTool } from "../../src/tool/task"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { createModuleMockRestorer } from "../fixture/module-mock"
 import path from "path"
 
 // Use absolute paths for mocks to ensure Bun intercepts them correctly in monorepo
@@ -12,6 +13,14 @@ const PROMPT_PATH = path.join(SRC_ROOT, "session/prompt.ts")
 const AGENT_PATH = path.join(SRC_ROOT, "agent/agent.ts")
 const CONFIG_PATH = path.join(SRC_ROOT, "config/config.ts")
 const BUS_PATH = path.join(SRC_ROOT, "bus/index.ts")
+const restoreModuleMocks = await createModuleMockRestorer([
+  SESSION_PATH,
+  MESSAGE_V2_PATH,
+  PROMPT_PATH,
+  AGENT_PATH,
+  CONFIG_PATH,
+  BUS_PATH,
+])
 
 const ctx = {
   sessionID: "test-session",
@@ -24,8 +33,12 @@ const ctx = {
 }
 
 describe("tool.task", () => {
-  beforeEach(() => {
-    mock.restore()
+  beforeEach(async () => {
+    await restoreModuleMocks()
+  })
+
+  afterEach(async () => {
+    await restoreModuleMocks()
   })
 
   test("subagent (depth 2+) is ALWAYS singleShot", async () => {

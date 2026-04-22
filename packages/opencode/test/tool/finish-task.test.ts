@@ -1,11 +1,13 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { FinishTaskTool } from "../../src/tool/finish-task"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { createModuleMockRestorer } from "../fixture/module-mock"
 import path from "path"
 
 const SRC_ROOT = path.resolve(__dirname, "../../src")
 const SESSION_PATH = path.join(SRC_ROOT, "session/index.ts")
+const restoreModuleMocks = await createModuleMockRestorer([SESSION_PATH])
 
 const ctx = {
   sessionID: "child-123",
@@ -18,8 +20,12 @@ const ctx = {
 }
 
 describe("tool.finish-task", () => {
-  beforeEach(() => {
-    mock.restore()
+  beforeEach(async () => {
+    await restoreModuleMocks()
+  })
+
+  afterEach(async () => {
+    await restoreModuleMocks()
   })
 
   test("validates required parameters", async () => {

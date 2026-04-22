@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import path from "path"
 import { SessionProcessor } from "../../src/session/processor"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
+import { createModuleMockRestorer } from "../fixture/module-mock"
 
 const SRC_ROOT = path.resolve(__dirname, "../../src")
 const CONFIG_PATH = path.join(SRC_ROOT, "config/config.ts")
@@ -11,6 +12,14 @@ const MESSAGE_V2_PATH = path.join(SRC_ROOT, "session/message-v2.ts")
 const PROMPT_PATH = path.join(SRC_ROOT, "session/prompt.ts")
 const SESSION_PATH = path.join(SRC_ROOT, "session/index.ts")
 const STATUS_PATH = path.join(SRC_ROOT, "session/status.ts")
+const restoreModuleMocks = await createModuleMockRestorer([
+  CONFIG_PATH,
+  LLM_PATH,
+  MESSAGE_V2_PATH,
+  PROMPT_PATH,
+  SESSION_PATH,
+  STATUS_PATH,
+])
 
 const assistantMessage = {
   id: "message-assistant",
@@ -100,8 +109,12 @@ function createParentMessages() {
 }
 
 describe("session.processor finish_task continuation", () => {
-  beforeEach(() => {
-    mock.restore()
+  beforeEach(async () => {
+    await restoreModuleMocks()
+  })
+
+  afterEach(async () => {
+    await restoreModuleMocks()
   })
 
   test("restarts idle parent prompt loop after finish_task", async () => {
