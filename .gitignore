@@ -46,3 +46,7 @@ packages/opencode/release-assets/
 opencode-dev
 logs/
 *.bun-build
+
+# Sprint specs — scratch work, not shipped
+specs/
+
