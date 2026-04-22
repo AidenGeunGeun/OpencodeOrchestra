@@ -63,9 +63,9 @@ console.log(`  ${current} → ${next}\n`)
 
 console.log("▸ Bumping versions in all package.json files...")
 
-const pkgFiles = await Array.fromAsync(
-  new Bun.Glob("**/package.json").scan({ absolute: true, cwd: ROOT }),
-).then((arr) => arr.filter((x) => !x.includes("node_modules") && !x.includes("dist")))
+const pkgFiles = await Array.fromAsync(new Bun.Glob("**/package.json").scan({ absolute: true, cwd: ROOT })).then(
+  (arr) => arr.filter((x) => !x.includes("node_modules") && !x.includes("dist")),
+)
 
 let bumped = 0
 for (const file of pkgFiles) {
@@ -122,7 +122,7 @@ if (fs.existsSync(path.join(frontendSource, "index.html"))) {
 console.log("\n▸ Committing and tagging...")
 const tag = `oco-v${next}`
 await $`git add -A`
-await $`git commit -m ${"release: " + tag}`
+await $`git commit -m ${"chore(release): " + tag}`
 await $`git tag ${tag}`
 console.log(`  ✓ Committed and tagged as ${tag}`)
 

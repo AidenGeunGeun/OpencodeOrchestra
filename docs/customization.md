@@ -167,6 +167,7 @@ Start disabled, then enable only after credentials and network assumptions are c
 
 - Add a new entry under `agent`.
 - Choose `mode: "subagent"` or `mode: "primary"`.
+- Set `display_name` when you want selectors and session headers to show a user-facing label instead of the runtime key.
 - Point it at a prompt file.
 - Define the minimum permissions it needs.
 - If it is meant to persist like the Orchestrator, set `single_shot: false`; otherwise leave it single-shot.
@@ -179,6 +180,7 @@ Steps:
 ```jsonc
 "agent": {
   "security-reviewer": {
+    "display_name": "Security Reviewer",
     "mode": "subagent",
     "description": "Security-focused review pass.",
     "model": "anthropic/claude-sonnet-4-6",
@@ -195,6 +197,20 @@ Steps:
 ```
 
 3. Restart `oco`. The new agent will be available as a subagent that the Orchestrator can spawn.
+
+`display_name` follows the same config convention as `single_shot`: snake_case in config, camelCase (`displayName`) at runtime and in the SDK.
+
+Example for a primary agent label override:
+
+```jsonc
+"agent": {
+  "my-agent": {
+    "display_name": "Cool Agent",
+    "mode": "primary",
+    "prompt": "{file:prompts/my-agent.txt}"
+  }
+}
+```
 
 ## Prompt Overrides
 

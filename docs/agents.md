@@ -1,16 +1,45 @@
 # Agents
 
-This document describes the seven shipped OCO agents and the configuration surface that shapes their behavior.
+This document describes the shipped OCO agents and the fields that shape their behavior.
+
+## Agent Labels
+
+- `name` is the runtime identifier used in config, prompts, and API calls.
+- `displayName` is the optional user-facing label exposed by `Agent.Info` and the SDK.
+- When `displayName` is unset, selectors and headers fall back to `name`.
+- Config uses snake_case: `display_name` maps to runtime `displayName`.
 
 ## `pm` (`build` and `plan`)
 
+- Runtime IDs: `build` and hidden `plan`
+- Display label: both ship with `displayName: "PM"`, so user-facing selectors show `PM`
 - Role: PM-facing planning and alignment layer
 - Model: `openai/gpt-5.4`
 - Why: strongest shipped default reasoning model, with named `reasoningEffort` variants via the bundled alias
 - Permissions: broad editing access, but secret-oriented file reads are denied by the global permission baseline
-- Spawned by: user entry point as `build`, with hidden `plan` mode available for plan-only sessions
-- Prompt design: both modes use `pm.txt`; `plan` behavior is further constrained by runtime session reminders and `plan_exit`
-- Configuration options: swap `model`, `prompt`, `variant`, `thinking`, `effort`, and `permission`
+- Spawned by: user entry point as `build`, with hidden `plan` retained for plan-mode and Orchestrator-delegation flows
+- Prompt design: both modes use `pm.txt`; `build` keeps `plan_enter`, `plan` keeps `plan_exit`, and both are otherwise behaviorally identical
+- Configuration options: swap `model`, `prompt`, `variant`, `thinking`, `effort`, `display_name`, and `permission`
+
+## `general`
+
+- Role: general-purpose subagent for open-ended multi-step work
+- Model: inherited or configured per install
+- Why: broad fallback when the PM or Orchestrator needs a disposable subagent that is not codebase-specific or docs-only
+- Permissions: broad access, except `todoread` and `todowrite` are denied by default
+- Spawned by: PM or Orchestrator when no more specialized subagent is a better fit
+- Prompt design: generic execution/research helper rather than a user-facing planning agent
+- Configuration options: swap model, prompt, variant, effort, `display_name`, or permissions as needed
+
+## `explore`
+
+- Role: fast codebase exploration subagent
+- Model: inherited or configured per install
+- Why: optimized for tracing files, symbols, and relationships before a heavier implementation or audit pass
+- Permissions: scoped for exploration work such as `grep`, `glob`, `list`, `bash`, `read`, `webfetch`, `websearch`, and `codesearch`
+- Spawned by: PM or Orchestrator when they need fast codebase reconnaissance
+- Prompt design: focused on search-first exploration with adjustable thoroughness
+- Configuration options: swap model, prompt, effort, `display_name`, or tool restrictions
 
 ## `orchestrator`
 

@@ -6,18 +6,18 @@ Code comments, commit messages, specs, backlog, and doc file contents: English.
 
 ## Quick Reference
 
-| Task                      | Command                                          | Where to run        |
-| ------------------------- | ------------------------------------------------ | ------------------- |
-| **Build**                 | `bun run build`                                  | `packages/opencode` |
-| **Build (single)**        | `bun run build --single`                         | `packages/opencode` |
-| **Typecheck**             | `tsgo --noEmit`                                  | `packages/opencode` |
-| **Test all**              | `bun test`                                       | `packages/opencode` |
-| **Test single file**      | `bun test path/to/file.test.ts`                  | `packages/opencode` |
-| **SDK regen**             | `bunx @hey-api/openapi-ts`                       | `packages/sdk/js`   |
-| **Build web frontend**    | `bun run --cwd packages/app build`               | repo root           |
-| **Frontend dev server**   | `bun run --cwd packages/app dev`                 | repo root           |
-| **Headless server**       | `bun dev serve --port 4096`                      | `packages/opencode` |
-| **Server + browser**      | `bun dev web --port 4096`                        | `packages/opencode` |
+| Task                    | Command                            | Where to run        |
+| ----------------------- | ---------------------------------- | ------------------- |
+| **Build**               | `bun run build`                    | `packages/opencode` |
+| **Build (single)**      | `bun run build --single`           | `packages/opencode` |
+| **Typecheck**           | `tsgo --noEmit`                    | `packages/opencode` |
+| **Test all**            | `bun test`                         | `packages/opencode` |
+| **Test single file**    | `bun test path/to/file.test.ts`    | `packages/opencode` |
+| **SDK regen**           | `bunx @hey-api/openapi-ts`         | `packages/sdk/js`   |
+| **Build web frontend**  | `bun run --cwd packages/app build` | repo root           |
+| **Frontend dev server** | `bun run --cwd packages/app dev`   | repo root           |
+| **Headless server**     | `bun dev serve --port 4096`        | `packages/opencode` |
+| **Server + browser**    | `bun dev web --port 4096`          | `packages/opencode` |
 
 - Built Linux x64 binary path: `packages/opencode/dist/@skybluejacket/oco-linux-x64/bin/oco`
 
@@ -38,17 +38,26 @@ Code comments, commit messages, specs, backlog, and doc file contents: English.
 - GitHub repo: `AidenGeunGeun/OpenCodeOrchestra`
 - Tag pattern: `oco-v<version>` (example: `oco-v1.0.12`)
 - Version source of truth: `packages/opencode/package.json` (release script bumps all 8 packages)
+- Release notes generator: `bun run script/release-notes.ts --previous <tag> --current <tag> [--output <path>]`
 - Local `oco` launcher: `packages/opencode/bin/oco` → resolves `packages/opencode/dist/@skybluejacket/oco-*/bin/oco`
+
+### Conventional Commits (HARD REQUIREMENT)
+
+- Format: `type(scope): short subject` in imperative mood
+- Allowed types: `feat`, `fix`, `perf`, `refactor`, `docs`, `chore`, `ci`, `build`, `style`, `test`
+- Common scopes: `agent`, `tui`, `desktop`, `config`, `session`, `tool`, `plugin`, `sdk`, `storage`, `app`, `ui`, `release`
+- Breaking changes: append `!` after the type or scope, for example `feat(config)!: rename display_name field`
+- Release commits created by `bun run release` use `chore(release): oco-vX.Y.Z`
 
 ### Pre-Release Validation (MANDATORY)
 
 **Never run `bun run release` without validating the change locally first.** The validation strategy depends on the risk profile of the change:
 
-| Change type | Validation path |
-|-------------|----------------|
-| **Low-risk, additive, non-breaking** (new model ID, dep bump with identical API, config tweak, test-only) | Validate against the **prod** desktop app. Build a fresh `OpenCodeOrchestra.app`, replace `/Applications/OpenCodeOrchestra.app`, launch, test. |
+| Change type                                                                                                                      | Validation path                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Low-risk, additive, non-breaking** (new model ID, dep bump with identical API, config tweak, test-only)                        | Validate against the **prod** desktop app. Build a fresh `OpenCodeOrchestra.app`, replace `/Applications/OpenCodeOrchestra.app`, launch, test.                                                                                                        |
 | **High-risk, breaking, or architectural** (SDK major bump, server protocol change, session/storage change, sidecar model change) | Validate against the **Dev** desktop app first (`OpenCodeOrchestra Dev.app`, identifier `ai.opencode.orchestra.dev`). It runs side-by-side with the prod app and uses a separate config/state. Only promote to prod app validation once Dev is green. |
-| **TUI/CLI-only change** | Validate by replacing `~/.local/bin/oco` with the freshly built binary and re-signing. No desktop rebuild needed. |
+| **TUI/CLI-only change**                                                                                                          | Validate by replacing `~/.local/bin/oco` with the freshly built binary and re-signing. No desktop rebuild needed.                                                                                                                                     |
 
 **The validation must exercise the actual failing code path.** For model/provider changes that means sending a real message to the changed model through both TUI and (if desktop-facing) the desktop app. Version string checks alone (`oco --version`) prove nothing about runtime behavior.
 
@@ -69,6 +78,7 @@ bunx tauri build
 `bunx tauri build` runs `prebuild.ts` which calls `bun run build --single` in `packages/opencode` to produce a fresh sidecar, copies it into `src-tauri/sidecars/`, then invokes the Rust/Tauri bundler. A full cold build takes ~3-5 minutes on M-series Mac; incremental Rust rebuilds are ~30-60s.
 
 Install after build:
+
 ```sh
 # Quit the running app first
 cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra.app" /Applications/
@@ -85,28 +95,35 @@ The `.app` bundle includes its own copy of the `oco` sidecar under `Contents/Mac
 The repo is wired so a single tag push produces the full matrix of release artifacts with zero manual intervention. **Pre-release validation above must pass before step 1.**
 
 1. Clean working tree except intended changes:
+
    ```sh
    git status --short
    ```
 
 2. Bump version, build a local CLI binary for sanity, commit, and tag:
+
    ```sh
    bun run release X.Y.Z
    ```
-   This bumps all 8 `package.json` files, runs `bun install`, typecheck, builds the current-platform CLI (for immediate local use), copies frontend to the XDG data dir, commits `release: oco-vX.Y.Z`, and tags.
+
+   This bumps all 8 `package.json` files, runs `bun install`, typecheck, builds the current-platform CLI (for immediate local use), copies frontend to the XDG data dir, commits `chore(release): oco-vX.Y.Z`, and tags.
 
 3. Push `main` plus the new tag:
+
    ```sh
    git push origin main && git push origin oco-vX.Y.Z
    ```
+
    **IMPORTANT**: Never `git push --tags`. The repo has inherited upstream tags and that will create noise.
 
 4. That's it — CI takes over from here:
-   - `cli-release.yml` builds the full CLI matrix (darwin arm64/x64, linux x64/arm64 + baseline + musl variants, windows x64) on `ubuntu-latest`, packages `.tar.gz`/`.zip`, generates `SHA256SUMS.txt`, uploads all to the GitHub Release.
-   - `desktop-build.yml` builds the macOS (Apple Silicon) `.dmg` + `.app.tar.gz` and Linux (x86_64) `.deb` + `.rpm`, uploads to the same release.
-   - `softprops/action-gh-release@v2` creates the release if it doesn't exist and appends assets as each job finishes.
+   - `cli-release.yml` starts with `create-release`, checks out the tagged commit with full history, resolves the previous tag, runs `script/release-notes.ts`, then creates or updates the GitHub Release body with `gh release create ... --notes-file` or `gh release edit --notes-file`.
+   - `build-cli` waits on `create-release`, builds the full CLI matrix (darwin arm64/x64, linux x64/arm64 + baseline + musl variants, windows x64), packages `.tar.gz`/`.zip`, generates `SHA256SUMS.txt`, and uploads assets with `softprops/action-gh-release@v2`.
+   - `desktop-build.yml` builds the macOS (Apple Silicon) `.dmg` + `.app.tar.gz` and Linux (x86_64) `.deb` + `.rpm`, then uploads desktop assets to the already-created release.
+   - `create-release` owns the release body. Asset-upload jobs set `generate_release_notes: false` and `append_body: false`, so reruns never duplicate notes or append extra changelog lines.
 
 5. (Optional) Install the fresh build locally for immediate use:
+
    ```sh
    cp packages/opencode/dist/@skybluejacket/oco-darwin-arm64/bin/oco ~/.local/bin/oco
    codesign -f -s - ~/.local/bin/oco   # required on macOS or Gatekeeper kills it
@@ -120,6 +137,7 @@ The repo is wired so a single tag push produces the full matrix of release artif
      - Linux desktop: `OpenCodeOrchestra_X.Y.Z_amd64.deb`, `OpenCodeOrchestra-X.Y.Z-1.x86_64.rpm`
      - CLI: `oco-darwin-arm64.tar.gz`, `oco-darwin-x64.tar.gz`, `oco-linux-x64.tar.gz`, `oco-linux-arm64.tar.gz`, `oco-windows-x64.zip`, plus baseline and musl variants
      - `SHA256SUMS.txt`
+     - categorized release notes rendered from conventional commit subjects, grouped by type then scope
 
 ### When to override the automation
 
@@ -151,6 +169,7 @@ Only reach for manual local builds + `gh release upload` when CI is broken or un
 Users coming from vanilla `opencode` (or pre-namespace-split OCO) need to migrate their chat history database. OCO stores sessions in a SQLite database, and the directory changed from `~/.local/share/opencode/` to `~/.local/share/oco/`. OCO 1.0.28+ uses `oco.db`, so migration needs to copy the old `opencode.db` file to the new filename after the directory sync.
 
 **Migration command (run before first OCO launch):**
+
 ```bash
 mkdir -p ~/.local/share/oco
 rsync -a ~/.local/share/opencode/ ~/.local/share/oco/
@@ -164,6 +183,7 @@ After migration, all previous sessions, messages, compression history, and tool 
 ### Prompt Bundling (optional)
 
 For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritative prompt source, then sync the shipped prompt set into both `config/prompts/` and `packages/opencode/src/agent/prompt/`.
+
 - Current in-use bundled sync set: `pm.txt`, `orchestrator.txt`, `investigator.txt`, `auditor.txt`, `web-search.txt`, `docs.txt`, `compaction.txt`
 - Do not modify internal-only prompt files unless the task explicitly calls for it: `explore.txt`, `summary.txt`, `title.txt`
 - Verify synced prompts with `diff -u ~/.config/oco/prompts/<name>.txt packages/opencode/src/agent/prompt/<name>.txt` before building.
@@ -173,11 +193,11 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 
 ### Workflows (`.github/workflows/`)
 
-| Workflow | File | Trigger | What it does |
-|----------|------|---------|-------------|
-| `test` | `test.yml` | Push to `main`, manual | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest` |
-| `cli-release` | `cli-release.yml` | Tag push `oco-v*`, manual | Builds CLI binaries for all platforms, uploads to GitHub Release |
-| `desktop-build` | `desktop-build.yml` | Tag push `oco-v*`, manual | Builds Tauri desktop app on macOS + Linux, uploads to GitHub Release |
+| Workflow        | File                | Trigger                   | What it does                                                                                         |
+| --------------- | ------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `test`          | `test.yml`          | Push to `main`, manual    | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest`                                          |
+| `cli-release`   | `cli-release.yml`   | Tag push `oco-v*`, manual | `create-release` renders categorized notes and owns the release body; `build-cli` uploads CLI assets |
+| `desktop-build` | `desktop-build.yml` | Tag push `oco-v*`, manual | Builds Tauri desktop app on macOS + Linux, uploads desktop assets without modifying release notes    |
 
 ### Setup Action
 
@@ -185,10 +205,10 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 
 ### Desktop Build Matrix
 
-| Name | Runner | Rust Target | Output |
-|------|--------|-------------|--------|
-| macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin` | `.dmg`, `.app.tar.gz` |
-| Linux (x86_64) | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`, `.AppImage` |
+| Name                  | Runner         | Rust Target                | Output                |
+| --------------------- | -------------- | -------------------------- | --------------------- |
+| macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin`     | `.dmg`, `.app.tar.gz` |
+| Linux (x86_64)        | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`        |
 
 The build steps: checkout → setup Bun → setup Rust → install Linux deps (if Linux) → build sidecar binary → copy sidecar to Tauri sidecars dir → `bunx tauri build --config src-tauri/tauri.prod.conf.json` → upload to GitHub Release.
 
@@ -232,12 +252,12 @@ When a remote (non-loopback) HTTP server is set as default, the desktop app auto
 
 `packages/desktop/scripts/utils.ts` maps Rust target triples to build output names:
 
-| Rust Target | Build Output (`ocBinary`) |
-|-------------|--------------------------|
-| `aarch64-apple-darwin` | `@skybluejacket/oco-darwin-arm64` |
-| `x86_64-apple-darwin` | `@skybluejacket/oco-darwin-x64-baseline` |
-| `x86_64-unknown-linux-gnu` | `@skybluejacket/oco-linux-x64-baseline` |
-| `aarch64-unknown-linux-gnu` | `@skybluejacket/oco-linux-arm64` |
+| Rust Target                 | Build Output (`ocBinary`)                |
+| --------------------------- | ---------------------------------------- |
+| `aarch64-apple-darwin`      | `@skybluejacket/oco-darwin-arm64`        |
+| `x86_64-apple-darwin`       | `@skybluejacket/oco-darwin-x64-baseline` |
+| `x86_64-unknown-linux-gnu`  | `@skybluejacket/oco-linux-x64-baseline`  |
+| `aarch64-unknown-linux-gnu` | `@skybluejacket/oco-linux-arm64`         |
 
 ### User Setup (MacBook via Tailscale)
 
@@ -263,16 +283,16 @@ The intended workflow: `oco serve` runs on the gaming laptop (Arch Linux), MacBo
 
 Monorepo with `packages/*` workspaces. Eight active packages:
 
-| Package              | Description                                                          |
-| -------------------- | -------------------------------------------------------------------- |
-| `packages/opencode`  | Core CLI, Bun/Hono API server, TUI, agents, tools, providers, storage |
-| `packages/app`       | SolidJS SPA web frontend served by the opencode server               |
-| `packages/ui`        | Shared UI component library and theme system used by packages/app    |
-| `packages/sdk`       | Generated JS/TS client SDK (`@opencode-ai/sdk`)                      |
-| `packages/plugin`    | Plugin system (copilot, codex, client-wrapper)                       |
-| `packages/desktop`   | Tauri v2 native desktop app wrapping the SolidJS frontend            |
-| `packages/script`    | Build and utility scripts                                            |
-| `packages/util`      | Shared runtime utilities (encode, error, path, binary, retry, …)     |
+| Package             | Description                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| `packages/opencode` | Core CLI, Bun/Hono API server, TUI, agents, tools, providers, storage |
+| `packages/app`      | SolidJS SPA web frontend served by the opencode server                |
+| `packages/ui`       | Shared UI component library and theme system used by packages/app     |
+| `packages/sdk`      | Generated JS/TS client SDK (`@opencode-ai/sdk`)                       |
+| `packages/plugin`   | Plugin system (copilot, codex, client-wrapper)                        |
+| `packages/desktop`  | Tauri v2 native desktop app wrapping the SolidJS frontend             |
+| `packages/script`   | Build and utility scripts                                             |
+| `packages/util`     | Shared runtime utilities (encode, error, path, binary, retry, …)      |
 
 The core is `packages/opencode/src/`:
 
@@ -357,13 +377,13 @@ The server picks up `packages/app/dist/` automatically when run from the monorep
 
 These are fork-only additions to the upstream WebUI, built for multi-agent orchestration visibility:
 
-| Feature | Files | Description |
-|---------|-------|-------------|
-| **Breadcrumbs** | `packages/app/src/pages/session/session-breadcrumb.tsx`, `session.tsx` | Shows `PM › Orchestrator › Investigator` ancestry path. Clickable to navigate up. Uses direct SDK fetch to hydrate parent sessions. |
-| **Permission Overlay** | `packages/app/src/components/permission-overlay.tsx`, `layout.tsx` | Floating badge + drawer showing ALL pending permissions across the session tree. Approve/deny from any depth. |
-| **Context Health** | `packages/ui/src/components/context-health.tsx` | Per-session token usage vs model max. Color-coded (green/yellow/red). Shown in breadcrumbs, task cards, subagent list. |
-| **Subagent Sidebar** | `packages/app/src/components/subagent-list.tsx`, `session-side-panel.tsx` | Right panel tab listing child sessions with title, agent type badge, status, context health. SSE real-time updates. |
-| **Clickable Task Cards** | `packages/ui/src/components/message-part.tsx`, `basic-tool.tsx` | Task tool calls render as cards with context health + click-to-navigate into the subagent session. |
+| Feature                  | Files                                                                     | Description                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Breadcrumbs**          | `packages/app/src/pages/session/session-breadcrumb.tsx`, `session.tsx`    | Shows `PM › Orchestrator › Investigator` ancestry path. Clickable to navigate up. Uses direct SDK fetch to hydrate parent sessions. |
+| **Permission Overlay**   | `packages/app/src/components/permission-overlay.tsx`, `layout.tsx`        | Floating badge + drawer showing ALL pending permissions across the session tree. Approve/deny from any depth.                       |
+| **Context Health**       | `packages/ui/src/components/context-health.tsx`                           | Per-session token usage vs model max. Color-coded (green/yellow/red). Shown in breadcrumbs, task cards, subagent list.              |
+| **Subagent Sidebar**     | `packages/app/src/components/subagent-list.tsx`, `session-side-panel.tsx` | Right panel tab listing child sessions with title, agent type badge, status, context health. SSE real-time updates.                 |
+| **Clickable Task Cards** | `packages/ui/src/components/message-part.tsx`, `basic-tool.tsx`           | Task tool calls render as cards with context health + click-to-navigate into the subagent session.                                  |
 
 These files are additive (new files or surgical edits) and should be re-applied after any upstream frontend sync.
 
@@ -399,30 +419,30 @@ Must be re-applied after any upstream merge. See `UPSTREAM-DIFF.md` for file-by-
 
 ### Summary Table
 
-| Category | Files affected | Key change |
-|----------|---------------|------------|
-| AI SDK 6.x migration | `package.json`, `session/index.ts`, `session/processor.ts`, `session/prompt.ts`, `provider/transform.ts`, `provider/provider.ts`, +26 more | `ai` 5→6, token semantics, finish reason normalization |
-| Bug fixes | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts` | SIGHUP zombie, reasoning display, text-delta guard |
-| Features | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts` | 1M context, cache display, skill path validation |
-| v1.0.32 desktop | `packages/app/src/context/local.tsx`, `packages/app/src/pages/session.tsx`, `packages/opencode/src/agent/agent.ts` | Model/variant derived from last user message; `effort` aliased to `variant` in agent config |
-| v1.0.33 KaTeX matrix | `packages/desktop/src-tauri/src/markdown.rs`, `packages/ui/src/context/marked.tsx` | comrak `math_dollars` extension preserves `\\`; `renderMathExpressions` handles `span[data-math-style]` |
-| v1.0.34 KaTeX SVG | `packages/ui/src/components/markdown.tsx` | DOMPurify `svg: true` allows `\sqrt`, `\widehat`, `\overbrace` and other SVG-rendered symbols |
-| Config (external) | `oco.jsonc`, `prompts/compaction.txt` | Flat thinking options, expanded compaction prompt |
+| Category             | Files affected                                                                                                                             | Key change                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| AI SDK 6.x migration | `package.json`, `session/index.ts`, `session/processor.ts`, `session/prompt.ts`, `provider/transform.ts`, `provider/provider.ts`, +26 more | `ai` 5→6, token semantics, finish reason normalization                                                  |
+| Bug fixes            | `cli/cmd/tui/thread.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `session/processor.ts`         | SIGHUP zombie, reasoning display, text-delta guard                                                      |
+| Features             | `provider/provider.ts`, `cli/cmd/tui/routes/session/header.tsx`, `cli/cmd/tui/routes/session/sidebar.tsx`, `skill/discovery.ts`            | 1M context, cache display, skill path validation                                                        |
+| v1.0.32 desktop      | `packages/app/src/context/local.tsx`, `packages/app/src/pages/session.tsx`, `packages/opencode/src/agent/agent.ts`                         | Model/variant derived from last user message; `effort` aliased to `variant` in agent config             |
+| v1.0.33 KaTeX matrix | `packages/desktop/src-tauri/src/markdown.rs`, `packages/ui/src/context/marked.tsx`                                                         | comrak `math_dollars` extension preserves `\\`; `renderMathExpressions` handles `span[data-math-style]` |
+| v1.0.34 KaTeX SVG    | `packages/ui/src/components/markdown.tsx`                                                                                                  | DOMPurify `svg: true` allows `\sqrt`, `\widehat`, `\overbrace` and other SVG-rendered symbols           |
+| Config (external)    | `oco.jsonc`, `prompts/compaction.txt`                                                                                                      | Flat thinking options, expanded compaction prompt                                                       |
 
 ### AI SDK 6.x — Package Versions
 
 Upgraded in `packages/opencode/package.json`:
 
-| Package | Upstream 1.2.5 | OCO |
-|---------|---------------|-----|
-| `ai` | 5.0.124 | 6.0.90 |
-| `@ai-sdk/anthropic` | 2.0.62 | 3.0.45 |
-| `@ai-sdk/amazon-bedrock` | 3.0.79 | 4.0.61 |
-| `@ai-sdk/openai` | 2.0.89 | 3.0.29 |
-| `@ai-sdk/google` | 2.0.52 | 3.0.29 |
-| `@ai-sdk/google-vertex` | 3.0.103 | 4.0.59 |
-| `@ai-sdk/gateway` | 2.0.30 | 3.0.49 |
-| `@ai-sdk/azure` | 2.0.91 | 3.0.30 |
+| Package                  | Upstream 1.2.5 | OCO    |
+| ------------------------ | -------------- | ------ |
+| `ai`                     | 5.0.124        | 6.0.90 |
+| `@ai-sdk/anthropic`      | 2.0.62         | 3.0.45 |
+| `@ai-sdk/amazon-bedrock` | 3.0.79         | 4.0.61 |
+| `@ai-sdk/openai`         | 2.0.89         | 3.0.29 |
+| `@ai-sdk/google`         | 2.0.52         | 3.0.29 |
+| `@ai-sdk/google-vertex`  | 3.0.103        | 4.0.59 |
+| `@ai-sdk/gateway`        | 2.0.30         | 3.0.49 |
+| `@ai-sdk/azure`          | 2.0.91         | 3.0.30 |
 
 Also added `provider/sdk/openai-compatible/src/` (new OpenAI-compatible provider SDK directory).
 
@@ -435,6 +455,7 @@ Upstream 1.2.5 used `excludesCachedTokens = !!(metadata.anthropic || metadata.be
 conditionally subtract cache — no longer needed in 6.x.
 
 **Now:**
+
 - `normalizeTokenCount()` (line 692): local helper handling `{ total: number }` objects from AI SDK 6.x.
 - `cacheReadInputTokens = normalizeTokenCount(usage.cachedInputTokens)` (line 701)
 - `cacheWriteInputTokens` from `providerMetadata.anthropic.cacheCreationInputTokens` (line 702)
@@ -456,6 +477,7 @@ Upstream 1.2.5 compared `finishReason` directly as a string; this breaks under A
 ### AI SDK 6.x — Claude 4.6 Adaptive Thinking (`provider/transform.ts`)
 
 Two new private helpers (lines 339–353):
+
 - `isClaude46(id)` — returns `true` if model ID contains `"4-6"` or `"4.6"`.
 - `claude46Variants(id)` — returns variant map with `{ thinking: { type: "adaptive" }, effort }`.
   Opus models additionally get an `"max"` effort tier.
@@ -513,6 +535,7 @@ reasoning is auto-stripped by providers before returning usage.
 ### Feature — Skill Path Validation (`skill/discovery.ts`)
 
 Added defensive validation for URL-based skill loading:
+
 - `normalizeSkillName(name)`: rejects names with chars outside `[a-zA-Z0-9._-]` and `"."` / `".."`.
 - `normalizeSkillFile(file)`: rejects null bytes, absolute paths, protocol URIs; normalizes separators.
 - `isWithin(root, candidate)`: path traversal guard — rejects paths escaping the cache root.
@@ -524,12 +547,14 @@ Upstream had no validation; a malicious `index.json` could write files outside t
 ### Bug Fix — Zombie Process on Terminal Close (`cli/cmd/tui/thread.ts`)
 
 Lines 131–136: `SIGHUP` handler added:
+
 ```ts
 process.on("SIGHUP", async () => {
   await client?.call("shutdown", undefined).catch(() => {})
   process.exit(0)
 })
 ```
+
 Lines 191–193: `finally` block calls `client?.call("shutdown")` as safety net.
 `client` declaration hoisted outside `try` to be accessible in `finally`.
 
@@ -538,10 +563,10 @@ leaves an orphan worker process holding the TCP port.
 
 ### External Config (not in `src/`)
 
-| File | Change |
-|------|--------|
-| `oco.jsonc` | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
-| `~/.config/oco/prompts/compaction.txt` | Expanded ~71 -> ~100 lines; adds self-review pass and proactive enrichment rules. |
+| File                                   | Change                                                                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `oco.jsonc`                            | Flat thinking options (`thinking`, `effort`, `reasoningEffort` directly on agents instead of `variant` system). Adaptive thinking for Claude 4.6. 1M context model definitions (`claude-sonnet-4-6-1m`, `claude-opus-4-6-1m`). |
+| `~/.config/oco/prompts/compaction.txt` | Expanded ~71 -> ~100 lines; adds self-review pass and proactive enrichment rules.                                                                                                                                              |
 
 ## Conventions & Lessons Learned
 
@@ -553,16 +578,17 @@ When you discover non-obvious behavior, fix a subtle bug, or establish a convent
 
 **All packages MUST share the same version number.** When bumping the version, update ALL of these:
 
-| File | Field |
-|------|-------|
+| File                             | Field     |
+| -------------------------------- | --------- |
 | `packages/opencode/package.json` | `version` |
-| `packages/desktop/package.json` | `version` |
-| `packages/app/package.json` | `version` |
-| `packages/sdk/js/package.json` | `version` |
-| `packages/ui/package.json` | `version` |
-| `packages/plugin/package.json` | `version` |
-| `packages/util/package.json` | `version` |
-| `sdks/vscode/package.json` | `version` |
+| `packages/desktop/package.json`  | `version` |
+| `packages/app/package.json`      | `version` |
+| `packages/sdk/js/package.json`   | `version` |
+| `packages/ui/package.json`       | `version` |
+| `packages/plugin/package.json`   | `version` |
+| `packages/util/package.json`     | `version` |
+| `sdks/vscode/package.json`       | `version` |
+
 The `bun run release` script bumps all `package.json` files automatically. **`Cargo.toml` is NOT auto-bumped** by the release script — Tauri reads its version directly from `packages/desktop/package.json` at build time, so `Cargo.toml` version staying behind is harmless. If bumping manually, update only the `package.json` files listed above.
 
 ### SSE Event System (Server ↔ Desktop)
@@ -634,13 +660,13 @@ Prefer `Bun.file()`, `Bun.write()`, `Bun.build()` over Node equivalents.
 
 ## Naming Conventions
 
-| Category          | Convention    | Examples                                    |
-| ----------------- | ------------- | ------------------------------------------- |
-| Files/directories | `kebab-case`  | `agent.ts`, `bus-event.ts`, `tool/`         |
-| Variables/funcs   | `camelCase`   | `calculateDepth`, `defaultModel`            |
-| Types/interfaces  | `PascalCase`  | `Info`, `Context`, `Logger`                 |
-| Error classes     | `PascalCase`  | `RejectedError`, `BusyError`, `NotFound`    |
-| Constants         | `UPPER_CASE`  | `MAX_DEPTH`                                 |
+| Category          | Convention   | Examples                                 |
+| ----------------- | ------------ | ---------------------------------------- |
+| Files/directories | `kebab-case` | `agent.ts`, `bus-event.ts`, `tool/`      |
+| Variables/funcs   | `camelCase`  | `calculateDepth`, `defaultModel`         |
+| Types/interfaces  | `PascalCase` | `Info`, `Context`, `Logger`              |
+| Error classes     | `PascalCase` | `RejectedError`, `BusyError`, `NotFound` |
+| Constants         | `UPPER_CASE` | `MAX_DEPTH`                              |
 
 **Prefer single-word names.** Only use multi-word if truly necessary.
 
@@ -677,11 +703,13 @@ Follow this pattern for new modules.
 ## AI SDK 6.x Token Semantics (Verified 2026-02-18)
 
 Anthropic raw API returns three separate fields:
+
 - `input_tokens` — uncached input only
 - `cache_creation_input_tokens` — newly cached (cache write)
 - `cache_read_input_tokens` — cache hit (cache read)
 
 AI SDK 6.x maps these as:
+
 - `usage.inputTokens` = **total** (`input_tokens + cache_creation + cache_read`)
 - `usage.cachedInputTokens` = `cache_read_input_tokens` only
 - `providerMetadata.anthropic.cacheCreationInputTokens` = cache write only
@@ -689,10 +717,11 @@ AI SDK 6.x maps these as:
 Verified with raw log: `inputTokens(56298) = raw_input(3) + cache_write(166) + cache_read(56129)`.
 
 **In `getUsage()` (`session/index.ts` lines 712–713`):**
+
 ```ts
-const adjustedInputTokens =
-  normalizeTokenCount(input.usage.inputTokens) - cacheReadInputTokens - cacheWriteInputTokens
+const adjustedInputTokens = normalizeTokenCount(input.usage.inputTokens) - cacheReadInputTokens - cacheWriteInputTokens
 ```
+
 → equals Anthropic's raw `input_tokens` (uncached only).
 DB stores `tokens.input` as this adjusted value. TUI reconstructs display total as `input + cache.read + cache.write + output`.
 

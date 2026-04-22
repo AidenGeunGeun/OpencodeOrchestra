@@ -78,6 +78,7 @@ jobs:
             packages/desktop/src-tauri/target/release/bundle/deb/*.deb
             packages/desktop/src-tauri/target/release/bundle/rpm/*.rpm
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          generate_release_notes: false
+          append_body: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
