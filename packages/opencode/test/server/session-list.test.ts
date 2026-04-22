@@ -24,17 +24,25 @@ describe("session.list", () => {
           fn: async () => Session.create({}),
         })
 
-        const response = await app.request(`/session?directory=${encodeURIComponent(normalizedProjectRoot)}`)
-        expect(response.status).toBe(200)
+        try {
+          const response = await app.request(`/session?directory=${encodeURIComponent(normalizedProjectRoot)}`)
+          expect(response.status).toBe(200)
 
-        const body = (await response.json()) as unknown[]
-        const ids = body
-          .map((s) => (typeof s === "object" && s && "id" in s ? (s as { id: string }).id : undefined))
-          .filter((x): x is string => typeof x === "string")
+          const body = (await response.json()) as unknown[]
+          const ids = body
+            .map((s) => (typeof s === "object" && s && "id" in s ? (s as { id: string }).id : undefined))
+            .filter((x): x is string => typeof x === "string")
 
-        expect(ids).toContain(first.id)
-        expect(ids).not.toContain(second.id)
+          expect(ids).toContain(first.id)
+          expect(ids).not.toContain(second.id)
+        } finally {
+          await Session.remove(first.id)
+          await Instance.provide({
+            directory: otherDir,
+            fn: async () => Session.remove(second.id),
+          })
+        }
       },
     })
-  })
+  }, 10000)
 })

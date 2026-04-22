@@ -76,6 +76,7 @@ delete process.env["DEEPSEEK_API_KEY"]
 delete process.env["FIREWORKS_API_KEY"]
 delete process.env["CEREBRAS_API_KEY"]
 delete process.env["SAMBANOVA_API_KEY"]
+delete process.env["OPENCODE_SERVER_PASSWORD"]
 
 // Now safe to import from src/
 const { Log } = await import("../src/util/log")
