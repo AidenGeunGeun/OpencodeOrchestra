@@ -8,12 +8,15 @@ import PROMPT_BEAST from "./prompt/beast.txt"
 import PROMPT_GEMINI from "./prompt/gemini.txt"
 
 import PROMPT_CODEX from "./prompt/codex_header.txt"
+import PROMPT_CODEX_IMAGE_GENERATION from "./prompt/codex_image_generation.txt"
 import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider/provider"
 
 export namespace SystemPrompt {
-  export function instructions() {
-    return PROMPT_CODEX.trim()
+  export function instructions(options?: { codexImageGeneration?: boolean }) {
+    return [PROMPT_CODEX.trim(), options?.codexImageGeneration ? PROMPT_CODEX_IMAGE_GENERATION.trim() : undefined]
+      .filter(Boolean)
+      .join("\n\n")
   }
 
   export function provider(model: Provider.Model) {

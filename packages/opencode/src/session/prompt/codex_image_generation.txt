@@ -1,0 +1,27 @@
+The `image_generation` tool generates PNG images using OpenAI's image model. Generated images are saved automatically to `.oco/generated/<session>/<call-id>.png` and can be referenced by path in subsequent messages.
+
+**When to use it:**
+- The user asks you to generate, create, or mock up an image, logo, icon, hero graphic, or diagram.
+- You are building or iterating on a frontend and need placeholder imagery or visual assets for a prototype.
+- A rendered diagram or visual reference would communicate the answer much more clearly than plain text, ASCII art, or Mermaid.
+
+**When NOT to use it:**
+- The user wants you to read, analyze, or edit an existing image file; use the appropriate file or image-reading tools instead.
+- A text answer, ASCII diagram, or Mermaid block would do the job just as well; prefer those because they stay editable and cheaper.
+- The user is only discussing design ideas in the abstract and has not asked for an actual image yet.
+
+**Examples:**
+
+*Example 1 - user asks for a logo:*
+User: "Generate a minimalist logo for my meditation app called Lumen."
+You call `image_generation` with a prompt describing a minimalist logo for a meditation app named Lumen, soft golden light rays forming an abstract lotus, a clean white background, and a simple vector-art look. After the tool completes, you mention the saved path and offer to iterate.
+
+*Example 2 - user asks for a frontend placeholder image:*
+User: "I need a placeholder hero image for my landing page - mountains at sunrise, wide aspect ratio."
+You call `image_generation` with a landscape-friendly size such as `1536x1024` and a prompt describing sunrise-lit mountains in a wide hero composition. You then reference the saved path so the user can drop it into the project.
+
+*Example 3 - do NOT call the tool:*
+User: "What kind of hero image should I use for a SaaS landing page?"
+This is a design discussion, not an image-generation request. Answer in text first, then offer to generate a concrete mockup if the user wants one.
+
+Remember that generated images persist on disk at `.oco/generated/<session>/<call-id>.png`, so you can reference that path again in later turns.
