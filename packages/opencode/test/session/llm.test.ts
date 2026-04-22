@@ -13,6 +13,11 @@ const AUTH_PATH = path.join(SRC_ROOT, "auth/index.ts")
 
 const streamText = mock(() => Promise.resolve({ ok: true }))
 const pluginCalls: Array<{ hook: string; input: Record<string, unknown> }> = []
+let currentConfig: Record<string, unknown> = { experimental: {} }
+let currentProvider = { id: "anthropic", options: {} }
+let currentAuth: Record<string, unknown> | undefined
+const IMAGE_GUIDANCE_MARKER =
+  "The `image_generation` tool generates PNG images using OpenAI's image model."
 
 mock.module("ai", () => ({
   streamText,
@@ -23,7 +28,7 @@ mock.module("ai", () => ({
 mock.module(PROVIDER_PATH, () => ({
   Provider: {
     getLanguage: mock(() => Promise.resolve({})),
-    getProvider: mock(() => Promise.resolve({ id: "anthropic", options: {} })),
+    getProvider: mock(() => Promise.resolve(currentProvider)),
   },
 }))
 
@@ -43,7 +48,7 @@ mock.module(TRANSFORM_PATH, () => ({
 
 mock.module(CONFIG_PATH, () => ({
   Config: {
-    get: mock(() => Promise.resolve({ experimental: {} })),
+    get: mock(() => Promise.resolve(currentConfig)),
   },
 }))
 
@@ -60,7 +65,9 @@ mock.module(PLUGIN_PATH, () => ({
 mock.module(SYSTEM_PATH, () => ({
   SystemPrompt: {
     provider: mock(() => ["provider prompt"]),
-    instructions: mock(() => "instructions"),
+    instructions: mock((options?: { codexImageGeneration?: boolean }) =>
+      options?.codexImageGeneration ? `instructions\n\n${IMAGE_GUIDANCE_MARKER}` : "instructions",
+    ),
   },
 }))
 
@@ -72,7 +79,7 @@ mock.module(PERMISSION_PATH, () => ({
 
 mock.module(AUTH_PATH, () => ({
   Auth: {
-    get: mock(() => Promise.resolve(undefined)),
+    get: mock(() => Promise.resolve(currentAuth)),
   },
 }))
 
@@ -82,7 +89,45 @@ describe("session.llm", () => {
   beforeEach(() => {
     pluginCalls.length = 0
     streamText.mockClear()
+    currentConfig = { experimental: {} }
+    currentProvider = { id: "anthropic", options: {} }
+    currentAuth = undefined
   })
+
+  function createStreamInput(overrides: Record<string, unknown> = {}) {
+    return {
+      user: { id: "message_123", tools: {} } as any,
+      sessionID: "session_123",
+      model: {
+        id: "claude-3-7-sonnet",
+        providerID: "anthropic",
+        api: { id: "claude-3-7-sonnet" },
+        options: {},
+        headers: {},
+        capabilities: {
+          temperature: true,
+          input: { image: false },
+        },
+      } as any,
+      agent: {
+        name: "orchestrator",
+        mode: "subagent",
+        permission: [],
+        options: {},
+      } as any,
+      system: [],
+      abort: new AbortController().signal,
+      messages: [],
+      tools: {},
+      ...overrides,
+    }
+  }
+
+  async function streamAndCapture(overrides: Record<string, unknown> = {}) {
+    await LLM.stream(createStreamInput(overrides) as any)
+    const calls = streamText.mock.calls as unknown as Array<[Record<string, any>]>
+    return calls.at(-1)?.[0] ?? {}
+  }
 
   test("hasToolCalls returns false for empty messages array", () => {
     expect(LLM.hasToolCalls([])).toBe(false)
@@ -175,28 +220,7 @@ describe("session.llm", () => {
   })
 
   test("passes the agent name string to chat plugin hooks", async () => {
-    await LLM.stream({
-      user: { id: "message_123", tools: {} } as any,
-      sessionID: "session_123",
-      model: {
-        id: "claude-3-7-sonnet",
-        providerID: "anthropic",
-        api: { id: "claude-3-7-sonnet" },
-        options: {},
-        headers: {},
-        capabilities: { temperature: true },
-      } as any,
-      agent: {
-        name: "orchestrator",
-        mode: "subagent",
-        permission: [],
-        options: {},
-      } as any,
-      system: [],
-      abort: new AbortController().signal,
-      messages: [],
-      tools: {},
-    })
+    await LLM.stream(createStreamInput() as any)
 
     expect(streamText).toHaveBeenCalledTimes(1)
 
@@ -205,5 +229,104 @@ describe("session.llm", () => {
 
     expect(paramsCall?.input.agent).toBe("orchestrator")
     expect(headersCall?.input.agent).toBe("orchestrator")
+  })
+
+  test("adds image_generation tool and guidance for Codex OAuth image-capable models when flag is on", async () => {
+    currentProvider = { id: "openai", options: {} }
+    currentAuth = { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000 }
+    currentConfig = { experimental: { codex_image_generation: true } }
+
+    const request = await streamAndCapture({
+      model: {
+        id: "gpt-5.4",
+        providerID: "openai",
+        api: { id: "gpt-5.4" },
+        options: {},
+        headers: {},
+        capabilities: {
+          temperature: false,
+          input: { image: true },
+        },
+      },
+    })
+
+    expect(request.tools.image_generation).toMatchObject({
+      type: "provider",
+      id: "openai.image_generation",
+      args: {},
+    })
+    expect(request.activeTools).toContain("image_generation")
+    expect(request.providerOptions.instructions).toContain(IMAGE_GUIDANCE_MARKER)
+  })
+
+  test("keeps image_generation tool and guidance out when the flag is off", async () => {
+    currentProvider = { id: "openai", options: {} }
+    currentAuth = { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000 }
+
+    const request = await streamAndCapture({
+      model: {
+        id: "gpt-5.4",
+        providerID: "openai",
+        api: { id: "gpt-5.4" },
+        options: {},
+        headers: {},
+        capabilities: {
+          temperature: false,
+          input: { image: true },
+        },
+      },
+    })
+
+    expect(request.tools.image_generation).toBeUndefined()
+    expect(request.activeTools).not.toContain("image_generation")
+    expect(request.providerOptions.instructions).not.toContain(IMAGE_GUIDANCE_MARKER)
+  })
+
+  test("keeps image_generation tool and guidance out for API-key OpenAI auth", async () => {
+    currentProvider = { id: "openai", options: {} }
+    currentAuth = { type: "api", key: "sk-test" }
+    currentConfig = { experimental: { codex_image_generation: true } }
+
+    const request = await streamAndCapture({
+      model: {
+        id: "gpt-5.4",
+        providerID: "openai",
+        api: { id: "gpt-5.4" },
+        options: {},
+        headers: {},
+        capabilities: {
+          temperature: false,
+          input: { image: true },
+        },
+      },
+    })
+
+    expect(request.tools.image_generation).toBeUndefined()
+    expect(request.activeTools).not.toContain("image_generation")
+    expect(request.providerOptions.instructions).toBeUndefined()
+  })
+
+  test("keeps image_generation tool and guidance out for Codex models without image input", async () => {
+    currentProvider = { id: "openai", options: {} }
+    currentAuth = { type: "oauth", access: "token", refresh: "refresh", expires: Date.now() + 60_000 }
+    currentConfig = { experimental: { codex_image_generation: true } }
+
+    const request = await streamAndCapture({
+      model: {
+        id: "gpt-5.3-codex-spark",
+        providerID: "openai",
+        api: { id: "gpt-5.3-codex-spark" },
+        options: {},
+        headers: {},
+        capabilities: {
+          temperature: false,
+          input: { image: false },
+        },
+      },
+    })
+
+    expect(request.tools.image_generation).toBeUndefined()
+    expect(request.activeTools).not.toContain("image_generation")
+    expect(request.providerOptions.instructions).not.toContain(IMAGE_GUIDANCE_MARKER)
   })
 })

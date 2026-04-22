@@ -54,6 +54,7 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { ContextHealth } from "./context-health"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
+import { generatedImageMissingText, generatedToolImageAttachments } from "./generated-tool-attachments"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -132,6 +133,7 @@ export interface MessageProps {
   parts: PartType[]
   actions?: UserActions
   showAssistantCopyPartID?: string | null
+  showGeneratedToolAttachments?: boolean
   interrupted?: boolean
   showReasoningSummaries?: boolean
 }
@@ -149,6 +151,7 @@ export interface MessagePartProps {
   hideDetails?: boolean
   defaultOpen?: boolean
   showAssistantCopyPartID?: string | null
+  showGeneratedToolAttachments?: boolean
   turnDurationMs?: number
 }
 
@@ -501,6 +504,7 @@ function partDefaultOpen(part: PartType, shell = false, edit = false) {
 export function AssistantParts(props: {
   messages: AssistantMessage[]
   showAssistantCopyPartID?: string | null
+  showGeneratedToolAttachments?: boolean
   turnDurationMs?: number
   working?: boolean
   showReasoningSummaries?: boolean
@@ -585,6 +589,7 @@ export function AssistantParts(props: {
                         part={item()!}
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
+                        showGeneratedToolAttachments={props.showGeneratedToolAttachments}
                         turnDurationMs={props.turnDurationMs}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
@@ -723,6 +728,7 @@ export function Message(props: MessageProps) {
             message={assistantMessage() as AssistantMessage}
             parts={props.parts}
             showAssistantCopyPartID={props.showAssistantCopyPartID}
+            showGeneratedToolAttachments={props.showGeneratedToolAttachments}
             showReasoningSummaries={props.showReasoningSummaries}
           />
         )}
@@ -735,6 +741,7 @@ export function AssistantMessageDisplay(props: {
   message: AssistantMessage
   parts: PartType[]
   showAssistantCopyPartID?: string | null
+  showGeneratedToolAttachments?: boolean
   showReasoningSummaries?: boolean
 }) {
   const emptyTools: ToolPart[] = []
@@ -795,6 +802,7 @@ export function AssistantMessageDisplay(props: {
                       part={item()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
+                      showGeneratedToolAttachments={props.showGeneratedToolAttachments}
                     />
                   </Show>
                 )
@@ -905,6 +913,82 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   )
 }
 
+function MessageAttachmentItem(props: {
+  file: FilePart
+  slotPrefix: "user-message" | "tool-message"
+  missingText?: string
+}) {
+  const dialog = useDialog()
+  const i18n = useI18n()
+  const [failed, setFailed] = createSignal(false)
+  const isImage = createMemo(() => props.file.mime.startsWith("image/") && !!props.file.url)
+
+  createEffect(() => {
+    props.file.url
+    setFailed(false)
+  })
+
+  const openImagePreview = () => {
+    if (!isImage() || failed()) return
+    dialog.show(() => <ImagePreview src={props.file.url} alt={props.file.filename} />)
+  }
+
+  const slot = (name: string) => `${props.slotPrefix}-${name}`
+
+  return (
+    <div
+      data-slot={slot("attachment")}
+      data-type={failed() && props.missingText ? "missing" : isImage() ? "image" : "file"}
+      onClick={openImagePreview}
+    >
+      <Show
+        when={!(failed() && props.missingText)}
+        fallback={<div data-slot={slot("attachment-missing")}>{props.missingText}</div>}
+      >
+        <Show
+          when={isImage()}
+          fallback={
+            <div data-slot={slot("attachment-icon")}>
+              <Icon name="folder" />
+            </div>
+          }
+        >
+          <img
+            data-slot={slot("attachment-image")}
+            src={props.file.url}
+            alt={props.file.filename ?? i18n.t("ui.message.attachment.alt")}
+            onError={() => setFailed(true)}
+          />
+        </Show>
+      </Show>
+    </div>
+  )
+}
+
+function MessageAttachments(props: {
+  files: FilePart[]
+  slotPrefix: "user-message" | "tool-message"
+  missingText?: (file: FilePart) => string
+}) {
+  const slot = (name: string) => `${props.slotPrefix}-${name}`
+
+  return (
+    <Show when={props.files.length > 0}>
+      <div data-slot={slot("attachments")}>
+        <For each={props.files}>
+          {(file) => (
+            <MessageAttachmentItem
+              file={file}
+              slotPrefix={props.slotPrefix}
+              missingText={props.missingText?.(file)}
+            />
+          )}
+        </For>
+      </div>
+    </Show>
+  )
+}
+
 export function UserMessageDisplay(props: {
   message: UserMessage
   parts: PartType[]
@@ -912,7 +996,6 @@ export function UserMessageDisplay(props: {
   interrupted?: boolean
 }) {
   const data = useData()
-  const dialog = useDialog()
   const i18n = useI18n()
   const [copied, setCopied] = createSignal(false)
   const [busy, setBusy] = createSignal<"fork" | "revert" | undefined>()
@@ -970,10 +1053,6 @@ export function UserMessageDisplay(props: {
     return items.filter((x) => !!x).join("\u00A0\u00B7\u00A0")
   })
 
-  const openImagePreview = (url: string, alt?: string) => {
-    dialog.show(() => <ImagePreview src={url} alt={alt} />)
-  }
-
   const handleCopy = async () => {
     const content = text()
     if (!content) return
@@ -1000,38 +1079,7 @@ export function UserMessageDisplay(props: {
 
   return (
     <div data-component="user-message" data-interrupted={props.interrupted ? "" : undefined}>
-      <Show when={attachments().length > 0}>
-        <div data-slot="user-message-attachments">
-          <For each={attachments()}>
-            {(file) => (
-              <div
-                data-slot="user-message-attachment"
-                data-type={file.mime.startsWith("image/") ? "image" : "file"}
-                onClick={() => {
-                  if (file.mime.startsWith("image/") && file.url) {
-                    openImagePreview(file.url, file.filename)
-                  }
-                }}
-              >
-                <Show
-                  when={file.mime.startsWith("image/") && file.url}
-                  fallback={
-                    <div data-slot="user-message-attachment-icon">
-                      <Icon name="folder" />
-                    </div>
-                  }
-                >
-                  <img
-                    data-slot="user-message-attachment-image"
-                    src={file.url}
-                    alt={file.filename ?? i18n.t("ui.message.attachment.alt")}
-                  />
-                </Show>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
+      <MessageAttachments files={attachments()} slotPrefix="user-message" />
       <Show when={text()}>
         <>
           <div data-slot="user-message-body">
@@ -1165,6 +1213,7 @@ export function Part(props: MessagePartProps) {
         hideDetails={props.hideDetails}
         defaultOpen={props.defaultOpen}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
+        showGeneratedToolAttachments={props.showGeneratedToolAttachments}
         turnDurationMs={props.turnDurationMs}
       />
     </Show>
@@ -1249,6 +1298,8 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const part = () => props.part as ToolPart
   if (part().tool === "todowrite" || part().tool === "todoread") return null
 
+  const toolAttachments = createMemo(() => generatedToolImageAttachments(part(), props.showGeneratedToolAttachments))
+
   const hideQuestion = createMemo(
     () => part().tool === "question" && (part().state.status === "pending" || part().state.status === "running"),
   )
@@ -1318,6 +1369,11 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             />
           </Match>
         </Switch>
+        <MessageAttachments
+          files={toolAttachments()}
+          slotPrefix="tool-message"
+          missingText={generatedImageMissingText}
+        />
       </div>
     </Show>
   )
