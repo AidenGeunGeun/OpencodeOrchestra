@@ -25,6 +25,7 @@ import { imageGeneration } from "@/provider/sdk/openai-compatible/src/responses/
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
+  const GENERATED_IMAGE_UNAVAILABLE = "<generated image unavailable>"
 
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -71,13 +72,31 @@ export namespace LLM {
         if (!shouldStripGeneratedImageOutput) continue
 
         const savedPath = GeneratedImage.attachmentPath(part.state.attachments)
-        if (!savedPath) continue
-
-        part.state.output = GeneratedImage.replaceOutputWithReference(part.state.output, savedPath)
+        part.state.output = savedPath
+          ? GeneratedImage.replaceOutputWithReference(part.state.output, savedPath)
+          : replaceGeneratedImageOutputWithPlaceholder(part.state.output)
       }
     }
 
     return MessageV2.toModelMessages(requestMessages, model, options)
+  }
+
+  function replaceGeneratedImageOutputWithPlaceholder(output: string) {
+    const fallback = JSON.stringify({ result: GENERATED_IMAGE_UNAVAILABLE })
+
+    try {
+      const parsed = JSON.parse(output)
+      if (!parsed || typeof parsed !== "object" || typeof (parsed as { result?: unknown }).result !== "string") {
+        return fallback
+      }
+
+      return JSON.stringify({
+        ...(parsed as Record<string, unknown>),
+        result: GENERATED_IMAGE_UNAVAILABLE,
+      })
+    } catch {
+      return fallback
+    }
   }
 
   export function shouldEnableCodexImageGenerationTool(input: {

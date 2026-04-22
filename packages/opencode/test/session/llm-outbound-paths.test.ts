@@ -221,7 +221,7 @@ describe("session outbound request paths", () => {
     expect(serialized).not.toContain(USER_UPLOAD_DATA_URL)
   })
 
-  test("title generation strips generated-image base64 for text-only models without stripping user media", async () => {
+  test("title generation strips generated-image base64 even for image-capable models", async () => {
     await using tmp = await tmpdir()
     const { history, savedPath } = createHistory(tmp.path)
 
@@ -264,7 +264,7 @@ describe("session outbound request paths", () => {
       return undefined
     }
     ;(ProviderNamespace as any).getModel = async (_providerID: string, modelID: string) => {
-      if (modelID === "title-model") return createModel("title-model", { imageInput: false })
+      if (modelID === "title-model") return createModel("title-model", { imageInput: true })
       throw new Error(STOP_AFTER_TITLE)
     }
     ;(MessageV2 as any).filterCompacted = async () => history
@@ -296,7 +296,8 @@ describe("session outbound request paths", () => {
 
     const serialized = JSON.stringify(capturedMessages)
     expect(serialized).toContain(`<see attached file: ${savedPath}>`)
-    expect(serialized).toContain(USER_UPLOAD_DATA_URL)
     expect(serialized).not.toContain(PNG_BASE64)
+    expect(serialized).not.toContain(USER_UPLOAD_DATA_URL)
+    expect(serialized).toContain("[Attached image/png: upload.png]")
   }, 15000)
 })

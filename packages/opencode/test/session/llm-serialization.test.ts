@@ -4,6 +4,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 
 const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII="
 const USER_UPLOAD_DATA_URL = "data:image/png;base64,Zm9v"
+const UNAVAILABLE_PLACEHOLDER = '{"result":"<generated image unavailable>"}'
 
 function createModel(options?: { imageInput?: boolean }) {
   return {
@@ -197,20 +198,41 @@ describe("session.llm request serialization", () => {
     expect(serialized).not.toContain(`<see attached file: ${savedPath}>`)
   })
 
-  test("leaves attachment-less image-generation outputs untouched on both capability paths", async () => {
+  test("replaces attachment-less image-generation outputs with a placeholder when stripping is required", async () => {
+    const { history, output } = createHistory({ withAttachment: false })
+
+    const textOnlyMessages = await LLM.toRequestMessages(history, createModel({ imageInput: false }))
+    const stripForcedMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }), {
+      stripMedia: true,
+    })
+
+    expect(getSerializedToolResult(textOnlyMessages).output).toEqual({
+      type: "text",
+      value: UNAVAILABLE_PLACEHOLDER,
+    })
+    expect(getSerializedToolResult(stripForcedMessages).output).toEqual({
+      type: "text",
+      value: UNAVAILABLE_PLACEHOLDER,
+    })
+    expect(JSON.stringify(textOnlyMessages)).not.toContain(PNG_BASE64)
+    expect(JSON.stringify(stripForcedMessages)).not.toContain(PNG_BASE64)
+
+    const originalTool = history[1].parts[0]
+    expect(originalTool.type).toBe("tool")
+    if (originalTool.type === "tool" && originalTool.state.status === "completed") {
+      expect(originalTool.state.output).toBe(output)
+    }
+  })
+
+  test("leaves attachment-less image-generation outputs untouched when stripping is not required", async () => {
     const { history, output } = createHistory({ withAttachment: false })
 
     const imageCapableMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }))
-    const textOnlyMessages = await LLM.toRequestMessages(history, createModel({ imageInput: false }))
 
     expect(getSerializedToolResult(imageCapableMessages).output).toEqual({
       type: "text",
       value: output,
     })
-    expect(getSerializedToolResult(textOnlyMessages).output).toEqual({
-      type: "text",
-      value: output,
-    })
-    expect(JSON.stringify(textOnlyMessages)).toContain(PNG_BASE64)
+    expect(JSON.stringify(imageCapableMessages)).toContain(PNG_BASE64)
   })
 })
