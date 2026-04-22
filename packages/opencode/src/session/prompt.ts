@@ -702,7 +702,7 @@ export namespace SessionPrompt {
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
-      const modelMessages = await MessageV2.toModelMessages(sessionMessages, model)
+      const modelMessages = await LLM.toRequestMessages(sessionMessages, model)
 
       const result = await processor.process({
         user: lastUser,
@@ -2051,7 +2051,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         },
         ...(hasOnlySubtaskParts
           ? [{ role: "user" as const, content: subtaskParts.map((p) => p.prompt).join("\n") }]
-          : await MessageV2.toModelMessages(contextMessages, model)),
+          : await LLM.toRequestMessages(contextMessages, model, { stripMedia: true })),
       ],
     })
     let text: string | undefined

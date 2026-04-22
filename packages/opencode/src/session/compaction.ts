@@ -14,6 +14,7 @@ import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { ProviderTransform } from "@/provider/transform"
+import { LLM } from "./llm"
 
 export namespace SessionCompaction {
   const log = Log.create({ service: "session.compaction" })
@@ -195,7 +196,7 @@ When constructing the summary, try to stick to this template:
 [Construct a structured list of relevant files that have been read, edited, or created that pertain to the task at hand. If all the files in a directory are relevant, include the path to the directory.]
 ---`
     const promptText = compacting.prompt ?? [defaultPrompt, ...compacting.context].join("\n\n")
-    const modelMessages = await MessageV2.toModelMessages(messages, model, { stripMedia: true })
+    const modelMessages = await LLM.toRequestMessages(messages, model, { stripMedia: true })
     const result = await processor.process({
       user: userMessage,
       agent,
