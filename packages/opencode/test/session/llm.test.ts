@@ -104,31 +104,19 @@ describe("session.llm", () => {
     expect(LLM.hasToolCalls(messages)).toBe(true)
   })
 
-  test("enables Codex image generation only for oauth OpenAI image-capable models when the flag is on", () => {
+  test("enables Codex image generation for oauth OpenAI image-capable models", () => {
     expect(
       LLM.shouldEnableCodexImageGenerationTool({
         auth: { type: "oauth" } as any,
-        config: { experimental: { codex_image_generation: true } } as any,
         model: createModel({ imageInput: true }),
       }),
     ).toBe(true)
-  })
-
-  test("keeps Codex image generation disabled when the flag is off", () => {
-    expect(
-      LLM.shouldEnableCodexImageGenerationTool({
-        auth: { type: "oauth" } as any,
-        config: { experimental: { codex_image_generation: false } } as any,
-        model: createModel({ imageInput: true }),
-      }),
-    ).toBe(false)
   })
 
   test("keeps Codex image generation disabled for API-key auth", () => {
     expect(
       LLM.shouldEnableCodexImageGenerationTool({
         auth: { type: "api" } as any,
-        config: { experimental: { codex_image_generation: true } } as any,
         model: createModel({ imageInput: true }),
       }),
     ).toBe(false)
@@ -138,7 +126,6 @@ describe("session.llm", () => {
     expect(
       LLM.shouldEnableCodexImageGenerationTool({
         auth: { type: "oauth" } as any,
-        config: { experimental: { codex_image_generation: true } } as any,
         model: createModel({ imageInput: false }),
       }),
     ).toBe(false)
@@ -148,7 +135,6 @@ describe("session.llm", () => {
     expect(
       LLM.shouldEnableCodexImageGenerationTool({
         auth: { type: "oauth" } as any,
-        config: { experimental: { codex_image_generation: true } } as any,
         model: createModel({ providerID: "anthropic", imageInput: true }),
       }),
     ).toBe(false)

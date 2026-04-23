@@ -41,6 +41,33 @@ test("loads JSON config file", async () => {
   })
 })
 
+test("ignores the legacy experimental image-generation flag in existing configs", async () => {
+  const legacyImageFlagKey = ["codex", "image", "generation"].join("_")
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "oco.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          experimental: {
+            [legacyImageFlagKey]: true,
+            batch_tool: true,
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.experimental?.batch_tool).toBe(true)
+      expect((config.experimental as Record<string, unknown> | undefined)?.[legacyImageFlagKey]).toBeUndefined()
+    },
+  })
+})
+
 test("loads JSONC config file", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

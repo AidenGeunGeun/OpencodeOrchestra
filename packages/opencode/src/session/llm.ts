@@ -101,15 +101,10 @@ export namespace LLM {
 
   export function shouldEnableCodexImageGenerationTool(input: {
     auth: Auth.Info | undefined
-    config: Config.Info
     model: Provider.Model
   }) {
     const isCodexOauth = input.model.providerID === "openai" && input.auth?.type === "oauth"
-    return (
-      isCodexOauth &&
-      input.config.experimental?.codex_image_generation === true &&
-      input.model.capabilities.input.image === true
-    )
+    return isCodexOauth && input.model.capabilities.input.image === true
   }
 
   export async function stream(input: StreamInput) {
@@ -132,9 +127,8 @@ export namespace LLM {
       Auth.get(input.model.providerID),
     ])
     const isCodex = provider.id === "openai" && auth?.type === "oauth"
-    const codexImageGenerationEnabled = shouldEnableCodexImageGenerationTool({
+    const imageGenerationToolEnabled = shouldEnableCodexImageGenerationTool({
       auth,
-      config: cfg,
       model: input.model,
     })
 
@@ -187,7 +181,7 @@ export namespace LLM {
     )
     if (isCodex) {
       options.instructions = SystemPrompt.instructions({
-        codexImageGeneration: codexImageGenerationEnabled,
+        codexImageGeneration: imageGenerationToolEnabled,
       })
     }
 
@@ -228,7 +222,7 @@ export namespace LLM {
       isCodex || provider.id.includes("github-copilot") ? undefined : ProviderTransform.maxOutputTokens(input.model)
 
     const tools = await resolveTools(input)
-    if (codexImageGenerationEnabled) {
+    if (imageGenerationToolEnabled) {
       tools.image_generation = imageGeneration()
     }
 

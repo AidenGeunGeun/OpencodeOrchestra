@@ -8,7 +8,7 @@ import PROMPT_BEAST from "./prompt/beast.txt"
 import PROMPT_GEMINI from "./prompt/gemini.txt"
 
 import PROMPT_CODEX from "./prompt/codex_header.txt"
-import PROMPT_CODEX_IMAGE_GENERATION from "./prompt/codex_image_generation.txt"
+import PROMPT_CODEX_IMAGE_GENERATION from "./prompt/codex-image-generation.txt"
 import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider/provider"
 

@@ -1212,12 +1212,6 @@ export namespace Config {
           chatMaxRetries: z.number().optional().describe("Number of retries for chat completions on failure"),
           disable_paste_summary: z.boolean().optional(),
           batch_tool: z.boolean().optional().describe("Enable the batch tool"),
-          codex_image_generation: z
-            .boolean()
-            .optional()
-            .describe(
-              "Enable the Codex image_generation tool for ChatGPT OAuth sessions on image-capable models",
-            ),
           openTelemetry: z
             .boolean()
             .optional()
