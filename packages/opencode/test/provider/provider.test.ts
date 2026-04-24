@@ -269,6 +269,49 @@ test("openai custom model alias via config", async () => {
   })
 })
 
+test("openai GPT-5.5 FAST alias via config keeps canonical api id, priority tier, and generated variants", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "oco.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.5-fast": {
+                  id: "gpt-5.5",
+                  name: "GPT-5.5 Fast",
+                  options: {
+                    serviceTier: "priority",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("OPENAI_API_KEY", "test-openai-key")
+    },
+    fn: async () => {
+      const providers = await Provider.list()
+      expect(providers["openai"]).toBeDefined()
+      const model = providers["openai"].models["gpt-5.5-fast"]
+      expect(model).toBeDefined()
+      expect(model.name).toBe("GPT-5.5 Fast")
+      expect(model.api.id).toBe("gpt-5.5")
+      expect(model.options.serviceTier).toBe("priority")
+      expect(model.variants?.none?.reasoningEffort).toBe("none")
+      expect(model.variants?.xhigh?.reasoningEffort).toBe("xhigh")
+    },
+  })
+})
+
 test("openai OAuth custom model alias via config keeps canonical api id and FAST service tier", async () => {
   const authPath = path.join(Global.Path.data, "auth.json")
   const originalAuth = await Bun.file(authPath)
@@ -324,6 +367,72 @@ test("openai OAuth custom model alias via config keeps canonical api id and FAST
         expect(providers["openai"].models["gpt-5.4-fast"]).toBeDefined()
         expect(providers["openai"].models["gpt-5.4-fast"].api.id).toBe("gpt-5.4")
         expect(providers["openai"].models["gpt-5.4-fast"].options.serviceTier).toBe("priority")
+      },
+    })
+  } finally {
+    if (originalAuth === undefined) {
+      await fs.rm(authPath, { force: true })
+    } else {
+      await Bun.write(authPath, originalAuth)
+    }
+  }
+})
+
+test("openai OAuth GPT-5.5 FAST alias via config keeps canonical api id and FAST service tier", async () => {
+  const authPath = path.join(Global.Path.data, "auth.json")
+  const originalAuth = await Bun.file(authPath)
+    .text()
+    .catch(() => undefined)
+
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "oco.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.5-fast": {
+                  id: "gpt-5.5",
+                  name: "GPT-5.5 Fast",
+                  options: {
+                    serviceTier: "priority",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Bun.write(
+      authPath,
+      JSON.stringify({
+        openai: {
+          type: "oauth",
+          access: "test-access-token",
+          refresh: "test-refresh-token",
+          expires: Date.now() + 3600000,
+          accountId: "acc-123",
+        },
+      }),
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        Env.set("OPENAI_API_KEY", "")
+      },
+      fn: async () => {
+        const providers = await Provider.list()
+        expect(providers["openai"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.5-fast"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.5-fast"].api.id).toBe("gpt-5.5")
+        expect(providers["openai"].models["gpt-5.5-fast"].options.serviceTier).toBe("priority")
       },
     })
   } finally {

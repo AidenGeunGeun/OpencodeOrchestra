@@ -71,8 +71,8 @@
   // },
 
   // Custom models live under provider.<provider>.models.<name>.
-  // The shipped config defines a `gpt-5.4` alias so agents can share named
-  // reasoning variants without repeating them in every agent block.
+  // The shipped config defines named GPT aliases so agents can share reasoning
+  // settings without repeating them in every agent block.
   "provider": {
     "openai": {
       "models": {
@@ -80,6 +80,44 @@
           "id": "gpt-5.4",
           "name": "GPT-5.4",
           "limit": { "context": 1050000, "output": 128000 },
+          "variants": {
+            "medium": { "reasoningEffort": "medium" }
+          }
+        },
+        "gpt-5.4-fast": {
+          "id": "gpt-5.4",
+          "name": "GPT-5.4 Fast",
+          "limit": { "context": 1050000, "output": 128000 },
+          "options": {
+            "serviceTier": "priority"
+          },
+          "variants": {
+            "none": { "reasoningEffort": "none" },
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" },
+            "xhigh": { "reasoningEffort": "xhigh" }
+          }
+        },
+        "gpt-5.5": {
+          "id": "gpt-5.5",
+          "name": "GPT-5.5",
+          "limit": { "context": 272000, "output": 128000 },
+          "variants": {
+            "none": { "reasoningEffort": "none" },
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" },
+            "xhigh": { "reasoningEffort": "xhigh" }
+          }
+        },
+        "gpt-5.5-fast": {
+          "id": "gpt-5.5",
+          "name": "GPT-5.5 Fast",
+          "limit": { "context": 272000, "output": 128000 },
+          "options": {
+            "serviceTier": "priority"
+          },
           "variants": {
             "none": { "reasoningEffort": "none" },
             "low": { "reasoningEffort": "low" },
@@ -93,10 +131,10 @@
   },
 
   "agent": {
-    // PM agents use the full `gpt-5.4` alias with a high reasoning effort.
+    // PM agents use the `gpt-5.5-fast` Priority-tier alias with a high reasoning effort.
     "plan": {
       "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5-fast",
       "prompt": "{file:prompts/pm.txt}",
       "reasoningEffort": "high",
       "permission": {
@@ -105,7 +143,7 @@
     },
     "build": {
       "description": "PM — Engineering delegate for a domain-oriented user. Translates natural-language goals into specs, decisions, and orchestration.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5-fast",
       "prompt": "{file:prompts/pm.txt}",
       "reasoningEffort": "high",
       "permission": {
@@ -124,14 +162,14 @@
       "description": "HIDDEN: Prefer @investigator for codebase analysis.",
     },
 
-    // Orchestrator gets the same GPT-5.4 base model with the highest shipped
+    // Orchestrator gets the same GPT-5.5 Priority-tier alias with a high
     // reasoning setting because it owns implementation and audit recovery.
     "orchestrator": {
       "mode": "subagent",
       "description": "Orchestrator. Executes approved specs through phased implementation. Runs tests. Auditor loop. Reports to PM.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5-fast",
       "prompt": "{file:prompts/orchestrator.txt}",
-      "reasoningEffort": "xhigh",
+      "reasoningEffort": "high",
       "permission": {
         "edit": "allow",
       },
@@ -142,8 +180,9 @@
     "investigator": {
       "mode": "subagent",
       "description": "Internal Codebase Analysis. READ-ONLY. Deep multi-file tracing and cross-referencing.",
-      "model": "openai/gpt-5.4-mini",
+      "model": "openai/gpt-5.4-fast",
       "prompt": "{file:prompts/investigator.txt}",
+      "reasoningEffort": "medium",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
@@ -158,7 +197,7 @@
     "auditor": {
       "mode": "subagent",
       "description": "Code Audit & Review. Verifies changes against spec, checks for regressions and style.",
-      "model": "openai/gpt-5.4",
+      "model": "openai/gpt-5.5-fast",
       "prompt": "{file:prompts/auditor.txt}",
       "reasoningEffort": "high",
       "permission": {
@@ -176,8 +215,9 @@
     "web-search": {
       "mode": "subagent",
       "description": "External Web Search. Searches the web and returns evidence with source citations.",
-      "model": "openai/gpt-5.4-mini",
+      "model": "openai/gpt-5.4-fast",
       "prompt": "{file:prompts/web-search.txt}",
+      "reasoningEffort": "medium",
       "permission": {
         "compress": "deny",
         "finish_task": "deny",
@@ -199,7 +239,7 @@
     "docs": {
       "mode": "subagent",
       "description": "Documentation updates. README, AGENTS.md, API docs, SKILL.md files.",
-      "model": "openai/gpt-5.4-mini",
+      "model": "openai/gpt-5.5-fast",
       "prompt": "{file:prompts/docs.txt}",
       "permission": {
         "compress": "deny",

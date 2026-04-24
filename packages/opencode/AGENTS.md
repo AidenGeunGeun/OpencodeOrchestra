@@ -170,7 +170,8 @@ GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The 
 ### Built-In Auth Plugins
 
 - `src/plugin/codex.ts` handles the OpenAI / ChatGPT subscription-backed OAuth path.
-- That Codex OAuth path allows the GPT-5.4 subscription family and normalizes aliases to canonical upstream model IDs via `api.id`.
+- That Codex OAuth path allows the GPT-5.4 and GPT-5.5 subscription families and normalizes aliases to canonical upstream model IDs via `api.id`.
+- GPT-5.5 stays capped at a 272K Codex client window until OpenAI raises the catalog `max_context_window`, even though the public announcement mentions 400K.
 - `src/plugin/anthropic.ts` handles Anthropic OAuth directly in-tree.
 - Anthropic token exchange / refresh requests use `application/x-www-form-urlencoded` plus the auth-side `User-Agent: claude-cli/2.1.80`; do not send the OpenCode CLI fingerprint on OAuth token calls because it is prone to `429` failures.
 - The OAuth code exchange sends the original PKCE verifier back as `state`, not a parsed `code#...` suffix, so plain authorization-code pastes still validate correctly.
