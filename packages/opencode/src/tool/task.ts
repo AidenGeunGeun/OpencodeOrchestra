@@ -12,6 +12,7 @@ import { defer } from "@/util/defer"
 import { Config } from "../config/config"
 import { PermissionNext } from "@/permission/next"
 import { Log } from "../util/log"
+import { DesignContext } from "../session/design"
 
 const log = Log.create({ service: "task" })
 
@@ -185,6 +186,10 @@ async function getTaskSummary(sessionID: string): Promise<TaskSummaryPart[]> {
     }))
 }
 
+async function resolveTaskPromptParts(params: TaskToolParams, ctx: Tool.Context) {
+  return [...(await SessionPrompt.resolvePromptParts(params.prompt)), ...DesignContext.handoffParts(ctx.messages, params.prompt)]
+}
+
 export async function prepareTaskSession(
   params: TaskToolParams,
   ctx: Tool.Context,
@@ -265,7 +270,7 @@ export async function prepareTaskSession(
   // kill the child on every normal turn completion. Skip the listener for async children;
   // explicit user cancellation is handled by the cascade in SessionPrompt.cancel().
   if (options.async) {
-    const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+    const promptParts = await resolveTaskPromptParts(params, ctx)
     return {
       session,
       agent,
@@ -284,7 +289,7 @@ export async function prepareTaskSession(
   ctx.abort.addEventListener("abort", cancel)
 
   try {
-    const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
+    const promptParts = await resolveTaskPromptParts(params, ctx)
 
     return {
       session,

@@ -9,6 +9,18 @@ import { Agent } from "../../src/agent/agent"
 const SLOW_TIMEOUT_MS = 30000
 
 describe("tool.registry", () => {
+  test("exposes design tool for authoring guidance without an existing design doc", async () => {
+    await using tmp = await tmpdir()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ids = await ToolRegistry.ids()
+        expect(ids).toContain("design")
+      },
+    })
+  }, SLOW_TIMEOUT_MS)
+
   test("loads tools from .oco/tool (singular)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

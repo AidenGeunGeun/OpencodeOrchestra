@@ -48,7 +48,8 @@ Usage notes:
 2. The immediate tool output confirms spawning only. The actual result arrives later as an <async-result> message.
 3. Your prompt should be fully self-contained with exactly what information to return, since the agent cannot ask follow-up questions.
 4. Clearly tell the agent whether you expect it to write code or just do research.
-5. Prefer investigator, web-search, auditor, or docs for background work. Never use orchestrator with async_task.`
+5. For frontend, UI, UX, visual, brand, typography, component, layout, motion, or user-facing copy handoffs, load project design context first when available and include the relevant design guidance in the delegation.
+6. Prefer investigator, web-search, auditor, or docs for background work. Never use orchestrator with async_task.`
 
 type AsyncTaskStatus = "completed" | "failed"
 

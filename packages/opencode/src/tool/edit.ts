@@ -16,6 +16,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
+import { DesignContext } from "../session/design"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_FILEDIFF_CONTENT_SIZE = 128 * 1024 // 128KB - skip before/after storage for large files
@@ -135,6 +136,11 @@ export const EditTool = Tool.define("edit", {
       const suffix =
         errors.length > MAX_DIAGNOSTICS_PER_FILE ? `\n... and ${errors.length - MAX_DIAGNOSTICS_PER_FILE} more` : ""
       output += `\n\nLSP errors detected in this file, please fix:\n<diagnostics file="${filePath}">\n${limited.map(LSP.Diagnostic.pretty).join("\n")}${suffix}\n</diagnostics>`
+    }
+
+    if (DesignContext.isDesignDocPath(filePath)) {
+      const validation = await DesignContext.validate(filePath)
+      output += `\n\n${DesignContext.formatValidation(validation)}`
     }
 
     return {

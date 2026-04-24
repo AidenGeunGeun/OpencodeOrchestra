@@ -308,4 +308,109 @@ describe("tool.task", () => {
       },
     })
   })
+
+  test("passes loaded design context into design-facing subagent handoffs", async () => {
+    const prompt = mock(() => Promise.resolve({ parts: [{ type: "text", text: "Subagent done" }] }))
+
+    mock.module(SESSION_PATH, () => ({
+      Session: {
+        get: mock((id) => {
+          if (id === "test-session") return Promise.resolve({ id: "test-session", parentID: undefined })
+          return Promise.resolve(undefined)
+        }),
+        create: mock(() => Promise.resolve({ id: "depth2" })),
+        messages: mock(() => Promise.resolve([])),
+      },
+    }))
+
+    mock.module(MESSAGE_V2_PATH, () => ({
+      MessageV2: {
+        get: mock(() => Promise.resolve({ info: { role: "assistant", modelID: "gpt-4", providerID: "openai" } })),
+        Event: { PartUpdated: "PartUpdated" },
+      },
+    }))
+
+    mock.module(PROMPT_PATH, () => ({
+      SessionPrompt: {
+        resolvePromptParts: mock((text) => [{ type: "text", text }]),
+        prompt,
+        cancel: mock(),
+      },
+    }))
+
+    mock.module(AGENT_PATH, () => ({
+      Agent: {
+        list: mock(() => Promise.resolve([])),
+        get: mock(() =>
+          Promise.resolve({
+            name: "subagent",
+            permission: [],
+            singleShot: true,
+          }),
+        ),
+      },
+    }))
+
+    mock.module(CONFIG_PATH, () => ({
+      Config: {
+        get: mock(() => Promise.resolve({})),
+      },
+    }))
+
+    mock.module(BUS_PATH, () => ({
+      GlobalBus: {
+        emit: mock(() => {}),
+        on: mock(() => {}),
+        off: mock(() => {}),
+      },
+      Bus: {
+        subscribe: mock(() => () => {}),
+      },
+    }))
+
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const impl = await TaskTool.init()
+        await impl.execute(
+          {
+            description: "Review UI",
+            prompt: "Review the frontend layout",
+            subagent_type: "subagent",
+          },
+          {
+            ...ctx,
+            messages: [
+              {
+                info: { role: "assistant" },
+                parts: [
+                  {
+                    type: "tool",
+                    tool: "design",
+                    state: {
+                      status: "completed",
+                      output: "<design_context>Loaded design tokens</design_context>",
+                      time: {},
+                    },
+                  },
+                ],
+              },
+            ] as any,
+          },
+        )
+
+        expect(prompt).toHaveBeenCalledTimes(1)
+        const promptInput = (prompt.mock.calls.at(0) as any)?.[0]
+        expect(promptInput.parts).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining("Loaded design tokens"),
+            }),
+          ]),
+        )
+      },
+    })
+  })
 })
