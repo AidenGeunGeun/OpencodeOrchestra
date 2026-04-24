@@ -200,6 +200,7 @@ describe("plugin.codex", () => {
           headers: {
             Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
             "Content-Type": "application/json",
+            session_id: "session-123",
           },
           body: JSON.stringify({
             model: "gpt-5.4-fast",
@@ -214,8 +215,17 @@ describe("plugin.codex", () => {
       expect(seenUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
       expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
       expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
+      expect(seenHeaders?.get("originator")).toBe("codex_cli_rs")
+      expect(seenHeaders?.get("User-Agent")).toStartWith("codex_cli_rs/")
+      expect(typeof seenHeaders?.get("version")).toBe("string")
+      expect(seenHeaders?.get("session_id")).toBe("session-123")
+      expect(seenHeaders?.get("x-client-request-id")).toBe("session-123")
+      expect(seenHeaders?.get("x-codex-window-id")).toBe("session-123:0")
+      expect(seenHeaders?.get("Accept")).toBe("text/event-stream")
       expect(seenBody.model).toBe("gpt-5.4")
       expect(seenBody.service_tier).toBe("priority")
+      expect(seenBody.prompt_cache_key).toBe("session-123")
+      expect(typeof seenBody.client_metadata["x-codex-installation-id"]).toBe("string")
     })
 
     test("rewrites GPT-5.5 FAST aliases to canonical model slugs and preserves priority tier", async () => {
@@ -294,6 +304,7 @@ describe("plugin.codex", () => {
           headers: {
             Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
             "Content-Type": "application/json",
+            session_id: "session-456",
           },
           body: JSON.stringify({
             model: "gpt-5.5-fast",
@@ -308,8 +319,103 @@ describe("plugin.codex", () => {
       expect(seenUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
       expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
       expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
+      expect(seenHeaders?.get("originator")).toBe("codex_cli_rs")
+      expect(seenHeaders?.get("session_id")).toBe("session-456")
+      expect(seenHeaders?.get("x-client-request-id")).toBe("session-456")
+      expect(seenHeaders?.get("x-codex-window-id")).toBe("session-456:0")
       expect(seenBody.model).toBe("gpt-5.5")
       expect(seenBody.service_tier).toBe("priority")
+      expect(seenBody.prompt_cache_key).toBe("session-456")
+      expect(typeof seenBody.client_metadata["x-codex-installation-id"]).toBe("string")
+    })
+
+    test("applies Codex compatibility metadata only to rewritten OAuth responses requests", async () => {
+      const plugin = await CodexAuthPlugin({
+        client: {
+          auth: {
+            set: async () => undefined,
+          },
+        } as any,
+      } as any)
+
+      const provider = {
+        models: {
+          "gpt-5.5-fast": {
+            api: { id: "gpt-5.5" },
+          },
+        },
+      } as any
+
+      const auth = {
+        type: "oauth" as const,
+        access: "oauth-access-token",
+        refresh: "oauth-refresh-token",
+        expires: Date.now() + 60_000,
+        accountId: "acc-123",
+      }
+
+      const loader = plugin.auth?.loader
+      expect(loader).toBeDefined()
+      const options = await loader!(async () => auth, provider)
+
+      const originalFetch = globalThis.fetch
+      let seenUrl: string | undefined
+      let seenHeaders: Headers | undefined
+      let seenBody: string | undefined
+      const mockFetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+        seenUrl = input.toString()
+        seenHeaders = new Headers(init?.headers)
+        seenBody = init?.body ? String(init.body) : undefined
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      })
+      globalThis.fetch = mockFetch as unknown as typeof fetch
+
+      try {
+        await options.fetch("https://api.openai.com/v1/models", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
+          },
+        })
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      expect(seenUrl).toBe("https://api.openai.com/v1/models")
+      expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
+      expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
+      expect(seenHeaders?.get("originator")).toBeNull()
+      expect(seenHeaders?.get("x-codex-window-id")).toBeNull()
+      expect(seenHeaders?.get("x-client-request-id")).toBeNull()
+      expect(seenBody).toBeUndefined()
+    })
+
+    test("does not install Codex OAuth fetch behavior for API-key auth", async () => {
+      const plugin = await CodexAuthPlugin({
+        client: {
+          auth: {
+            set: async () => undefined,
+          },
+        } as any,
+      } as any)
+
+      const provider = {
+        models: {
+          "gpt-5.5-fast": {
+            api: { id: "gpt-5.5" },
+          },
+        },
+      } as any
+
+      const loader = plugin.auth?.loader
+      expect(loader).toBeDefined()
+      const options = await loader!(async () => ({ type: "api" as const, key: "sk-test" }), provider)
+
+      expect(options.fetch).toBeUndefined()
+      expect(options.apiKey).toBeUndefined()
     })
   })
 })

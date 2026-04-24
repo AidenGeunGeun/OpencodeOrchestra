@@ -3,13 +3,19 @@ import { Log } from "../util/log"
 import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"
 import os from "os"
+import path from "path"
+import fs from "fs/promises"
+import { randomUUID } from "node:crypto"
 import { ProviderTransform } from "@/provider/transform"
+import { Global } from "@/global"
 
 const log = Log.create({ service: "plugin.codex" })
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const ISSUER = "https://auth.openai.com"
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
+const CODEX_ORIGINATOR = "codex_cli_rs"
+const CODEX_INSTALLATION_ID_FILE = path.join(Global.Path.state, "codex-installation-id")
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
 // Known debt: replace this string-based allowlist with a live Codex catalog sync.
@@ -65,7 +71,44 @@ function isAllowedCodexOauthModel(modelID: string, model?: { api?: { id?: string
   return OAUTH_ALLOWED_MODELS.has(modelID) || (apiID ? OAUTH_ALLOWED_MODELS.has(apiID) : false)
 }
 
-function normalizeCodexOauthBody(body: RequestInit["body"], models: Record<string, { api?: { id?: string } }>) {
+let codexInstallationId: Promise<string> | undefined
+
+async function getCodexInstallationId() {
+  codexInstallationId ??= Bun.file(CODEX_INSTALLATION_ID_FILE)
+    .text()
+    .then((value) => value.trim())
+    .then(async (value) => {
+      if (value) return value
+      const id = randomUUID()
+      await fs.mkdir(path.dirname(CODEX_INSTALLATION_ID_FILE), { recursive: true })
+      await Bun.write(CODEX_INSTALLATION_ID_FILE, id)
+      return id
+    })
+    .catch(async () => {
+      const id = randomUUID()
+      await fs.mkdir(path.dirname(CODEX_INSTALLATION_ID_FILE), { recursive: true })
+      await Bun.write(CODEX_INSTALLATION_ID_FILE, id)
+      return id
+    })
+  return codexInstallationId
+}
+
+function codexUserAgent() {
+  return `${CODEX_ORIGINATOR}/${Installation.VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`
+}
+
+function codexLineage(headers: Headers) {
+  const sessionID = headers.get("session_id") || headers.get("x-client-request-id") || randomUUID()
+  const requestID = headers.get("x-client-request-id") || sessionID
+  const windowID = headers.get("x-codex-window-id") || `${sessionID}:0`
+  return { sessionID, requestID, windowID }
+}
+
+async function normalizeCodexOauthBody(
+  body: RequestInit["body"],
+  models: Record<string, { api?: { id?: string } }>,
+  identity: { sessionID: string; installationID: string },
+) {
   if (typeof body !== "string") return body
 
   try {
@@ -74,11 +117,19 @@ function normalizeCodexOauthBody(body: RequestInit["body"], models: Record<strin
     if (typeof parsed.model !== "string") return body
 
     const canonicalModel = models[parsed.model]?.api?.id
-    if (!canonicalModel || canonicalModel === parsed.model) return body
+    const clientMetadata =
+      parsed.client_metadata && typeof parsed.client_metadata === "object" && !Array.isArray(parsed.client_metadata)
+        ? parsed.client_metadata
+        : {}
 
     return JSON.stringify({
       ...parsed,
-      model: canonicalModel,
+      ...(canonicalModel && canonicalModel !== parsed.model ? { model: canonicalModel } : undefined),
+      prompt_cache_key: parsed.prompt_cache_key || identity.sessionID,
+      client_metadata: {
+        ...clientMetadata,
+        "x-codex-installation-id": clientMetadata["x-codex-installation-id"] || identity.installationID,
+      },
     })
   } catch {
     return body
@@ -581,8 +632,23 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               parsed.pathname.includes("/v1/responses") || parsed.pathname.includes("/chat/completions")
                 ? new URL(CODEX_API_ENDPOINT)
                 : parsed
-            const body =
-              url.href === CODEX_API_ENDPOINT ? normalizeCodexOauthBody(init?.body, provider.models as any) : init?.body
+            const body = await (async () => {
+              if (url.href !== CODEX_API_ENDPOINT) return init?.body
+              const lineage = codexLineage(headers)
+              const installationID = await getCodexInstallationId()
+              headers.set("originator", CODEX_ORIGINATOR)
+              headers.set("User-Agent", codexUserAgent())
+              headers.set("version", Installation.VERSION)
+              headers.set("session_id", lineage.sessionID)
+              headers.set("x-client-request-id", lineage.requestID)
+              headers.set("x-codex-window-id", lineage.windowID)
+              headers.set("Accept", "text/event-stream")
+              headers.set("Content-Type", "application/json")
+              return normalizeCodexOauthBody(init?.body, provider.models as any, {
+                sessionID: lineage.sessionID,
+                installationID,
+              })
+            })()
 
             return fetch(url, {
               ...init,

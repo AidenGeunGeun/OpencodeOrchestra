@@ -349,6 +349,11 @@ export const RunCommand = cmd({
     await bootstrap(process.cwd(), async () => {
       const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init)
+        const password = Flag.OPENCODE_SERVER_PASSWORD
+        if (password && !request.headers.has("authorization")) {
+          const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
+          request.headers.set("authorization", `Basic ${btoa(`${username}:${password}`)}`)
+        }
         return Server.App().fetch(request)
       }) as typeof globalThis.fetch
       const sdk = createOpencodeClient({ baseUrl: "http://opencode.internal", fetch: fetchFn })
@@ -375,7 +380,28 @@ export const RunCommand = cmd({
               : args.title
             : undefined
 
-        const result = await sdk.session.create(title ? { title } : {})
+        const result = await sdk.session.create(
+          title
+            ? {
+                title,
+                permission: [
+                  {
+                    permission: "question",
+                    action: "deny",
+                    pattern: "*",
+                  },
+                ],
+              }
+            : {
+                permission: [
+                  {
+                    permission: "question",
+                    action: "deny",
+                    pattern: "*",
+                  },
+                ],
+              },
+        )
         return result.data?.id
       })()
 
