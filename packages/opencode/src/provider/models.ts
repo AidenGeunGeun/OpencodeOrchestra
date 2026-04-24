@@ -84,18 +84,113 @@ export namespace ModelsDev {
     return Flag.OPENCODE_MODELS_URL || "https://models.dev"
   }
 
+  type DeepSeekProvider = {
+    id?: string
+    name?: string
+    env?: string[]
+    api?: string
+    npm?: string
+    models?: Record<string, Record<string, unknown>>
+  }
+
+  function withDeepSeekV4(input: Record<string, unknown>) {
+    const provider = (input.deepseek ?? {}) as DeepSeekProvider
+    const models = provider.models ?? {}
+    const updated = "2026-04-24"
+    const releaseDate = (modelID: string) => {
+      const value = models[modelID]?.release_date
+      return typeof value === "string" ? value : updated
+    }
+    const flash = {
+      id: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      family: "deepseek-v4",
+      attachment: false,
+      reasoning: true,
+      tool_call: true,
+      interleaved: { field: "reasoning_content" },
+      temperature: true,
+      release_date: updated,
+      last_updated: updated,
+      modalities: { input: ["text"], output: ["text"] },
+      open_weights: false,
+      cost: { input: 0.14, output: 0.28, cache_read: 0.028 },
+      limit: { context: 1_000_000, output: 384_000 },
+    }
+    const pro = {
+      ...flash,
+      id: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro",
+      cost: { input: 1.74, output: 3.48, cache_read: 0.145 },
+    }
+    const chat: Record<string, unknown> = {
+      ...(models["deepseek-chat"] ?? {}),
+      id: "deepseek-chat",
+      name: "DeepSeek Chat (Legacy Alias)",
+      family: "deepseek-v4",
+      attachment: false,
+      reasoning: false,
+      tool_call: true,
+      temperature: true,
+      release_date: releaseDate("deepseek-chat"),
+      last_updated: updated,
+      modalities: { input: ["text"], output: ["text"] },
+      open_weights: false,
+      cost: flash.cost,
+      limit: flash.limit,
+      status: "deprecated",
+    }
+    delete chat.interleaved
+    const reasoner = {
+      ...(models["deepseek-reasoner"] ?? {}),
+      id: "deepseek-reasoner",
+      name: "DeepSeek Reasoner (Legacy Alias)",
+      family: "deepseek-v4",
+      attachment: false,
+      reasoning: true,
+      tool_call: true,
+      interleaved: { field: "reasoning_content" },
+      temperature: true,
+      release_date: releaseDate("deepseek-reasoner"),
+      last_updated: updated,
+      modalities: { input: ["text"], output: ["text"] },
+      open_weights: false,
+      cost: flash.cost,
+      limit: flash.limit,
+      status: "deprecated",
+    }
+    input.deepseek = {
+      ...provider,
+      id: "deepseek",
+      name: provider.name ?? "DeepSeek",
+      env: provider.env ?? ["DEEPSEEK_API_KEY"],
+      api: provider.api ?? "https://api.deepseek.com",
+      npm: provider.npm ?? "@ai-sdk/openai-compatible",
+      models: Object.fromEntries([
+        [flash.id, flash],
+        [pro.id, pro],
+        ["deepseek-chat", chat],
+        ["deepseek-reasoner", reasoner],
+        ...Object.entries(models).filter(
+          ([id]) => !["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"].includes(id),
+        ),
+      ]),
+    }
+    return input
+  }
+
   export const Data = lazy(async () => {
     const file = Bun.file(Flag.OPENCODE_MODELS_PATH ?? filepath)
     const result = await file.json().catch(() => {})
-    if (result) return result
+    if (result) return withDeepSeekV4(result)
     // @ts-ignore
     const snapshot = await import("./models-snapshot")
       .then((m) => m.snapshot as Record<string, unknown>)
       .catch(() => undefined)
-    if (snapshot) return snapshot
+    if (snapshot) return withDeepSeekV4(snapshot)
     if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
     const json = await fetch(`${url()}/api.json`).then((x) => x.text())
-    return JSON.parse(json)
+    return withDeepSeekV4(JSON.parse(json))
   })
 
   export async function get() {

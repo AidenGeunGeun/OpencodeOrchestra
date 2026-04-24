@@ -1968,6 +1968,68 @@ test("provider options are deeply merged", async () => {
   })
 })
 
+test("deepseek exposes v4 models and hides deprecated aliases", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "oco.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set("DEEPSEEK_API_KEY", "test-api-key")
+    },
+    fn: async () => {
+      const providers = await Provider.list()
+      const deepseek = providers["deepseek"]
+
+      expect(deepseek).toBeDefined()
+      expect(deepseek.models["deepseek-v4-flash"]).toBeDefined()
+      expect(deepseek.models["deepseek-v4-pro"]).toBeDefined()
+      expect(deepseek.models["deepseek-chat"]).toBeUndefined()
+      expect(deepseek.models["deepseek-reasoner"]).toBeUndefined()
+
+      const flash = deepseek.models["deepseek-v4-flash"]
+      expect(flash.name).toBe("DeepSeek V4 Flash")
+      expect(flash.api.id).toBe("deepseek-v4-flash")
+      expect(flash.api.url).toBe("https://api.deepseek.com")
+      expect(flash.api.npm).toBe("@ai-sdk/openai-compatible")
+      expect(flash.capabilities).toMatchObject({
+        reasoning: true,
+        toolcall: true,
+        temperature: true,
+        input: { text: true },
+        output: { text: true },
+        interleaved: { field: "reasoning_content" },
+      })
+      expect(flash.limit).toEqual({ context: 1_000_000, output: 384_000 })
+      expect(flash.cost).toEqual({
+        input: 0.14,
+        output: 0.28,
+        cache: { read: 0.028, write: 0 },
+        experimentalOver200K: undefined,
+      })
+      expect(flash.variants).toEqual({})
+
+      const pro = deepseek.models["deepseek-v4-pro"]
+      expect(pro.name).toBe("DeepSeek V4 Pro")
+      expect(pro.cost).toEqual({
+        input: 1.74,
+        output: 3.48,
+        cache: { read: 0.145, write: 0 },
+        experimentalOver200K: undefined,
+      })
+      expect(pro.limit).toEqual({ context: 1_000_000, output: 384_000 })
+      expect(pro.variants).toEqual({})
+    },
+  })
+})
+
 test("custom model inherits npm package from models.dev provider config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

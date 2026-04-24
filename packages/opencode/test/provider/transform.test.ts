@@ -162,7 +162,7 @@ describe("ProviderTransform.schema - gemini array items", () => {
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
-  test("DeepSeek with tool calls includes reasoning_content in providerOptions", () => {
+  test("DeepSeek V4 with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
       {
         role: "assistant",
@@ -181,14 +181,14 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
     const result = ProviderTransform.message(
       msgs,
       {
-        id: "deepseek/deepseek-chat",
+        id: "deepseek/deepseek-v4-pro",
         providerID: "deepseek",
         api: {
-          id: "deepseek-chat",
+          id: "deepseek-v4-pro",
           url: "https://api.deepseek.com",
           npm: "@ai-sdk/openai-compatible",
         },
-        name: "DeepSeek Chat",
+        name: "DeepSeek V4 Pro",
         capabilities: {
           temperature: true,
           reasoning: true,
@@ -201,18 +201,18 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
           },
         },
         cost: {
-          input: 0.001,
-          output: 0.002,
-          cache: { read: 0.0001, write: 0.0002 },
+          input: 1.74,
+          output: 3.48,
+          cache: { read: 0.145, write: 0 },
         },
         limit: {
-          context: 128000,
-          output: 8192,
+          context: 1_000_000,
+          output: 384_000,
         },
         status: "active",
         options: {},
         headers: {},
-        release_date: "2023-04-01",
+        release_date: "2026-04-24",
       },
       {},
     )
@@ -1014,12 +1014,12 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
-  test("deepseek returns empty object", () => {
+  test("deepseek v4 returns empty object", () => {
     const model = createMockModel({
-      id: "deepseek/deepseek-chat",
+      id: "deepseek/deepseek-v4-pro",
       providerID: "deepseek",
       api: {
-        id: "deepseek-chat",
+        id: "deepseek-v4-pro",
         url: "https://api.deepseek.com",
         npm: "@ai-sdk/openai-compatible",
       },

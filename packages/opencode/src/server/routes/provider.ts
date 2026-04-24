@@ -8,6 +8,7 @@ import { ProviderAuth } from "../../provider/auth"
 import { mapValues } from "remeda"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Flag } from "../../flag/flag"
 
 export const ProviderRoutes = lazy(() =>
   new Hono()
@@ -49,9 +50,19 @@ export const ProviderRoutes = lazy(() =>
 
         const connected = await Provider.list()
         const providers = Object.assign(
-          mapValues(filteredProviders, (x) => Provider.fromModelsDevProvider(x)),
+          mapValues(filteredProviders, (x) => {
+            const provider = Provider.fromModelsDevProvider(x)
+            for (const [modelID, model] of Object.entries(provider.models)) {
+              if (model.status === "alpha" && !Flag.OPENCODE_ENABLE_EXPERIMENTAL_MODELS) delete provider.models[modelID]
+              if (model.status === "deprecated") delete provider.models[modelID]
+            }
+            return provider
+          }),
           connected,
         )
+        for (const [providerID, provider] of Object.entries(providers)) {
+          if (Object.keys(provider.models).length === 0) delete providers[providerID]
+        }
         return c.json({
           all: Object.values(providers),
           default: mapValues(providers, (item) => Provider.sort(Object.values(item.models))[0].id),
