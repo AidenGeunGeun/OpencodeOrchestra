@@ -663,52 +663,6 @@
   }
 }
 
-[data-slot="tool-message-attachments"] {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(100%, 720px);
-  margin-top: 8px;
-}
-
-[data-slot="tool-message-attachment"] {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--surface-weak);
-  border: 1px solid var(--border-weak-base);
-  transition: border-color 0.15s ease;
-
-  &:hover {
-    border-color: var(--border-strong-base);
-  }
-}
-
-[data-slot="tool-message-attachment"][data-type="image"] {
-  cursor: zoom-in;
-}
-
-[data-slot="tool-message-attachment-image"] {
-  display: block;
-  width: 100%;
-  max-height: min(60vh, 520px);
-  object-fit: contain;
-  background: var(--surface-weak);
-}
-
-[data-slot="tool-message-attachment-missing"] {
-  width: 100%;
-  padding: 12px 14px;
-  font-family: var(--font-family-sans);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-weak);
-  word-break: break-word;
-}
-
 [data-component="user-message"] [data-slot="user-message-text"],
 [data-component="text-part"],
 [data-component="reasoning-part"],

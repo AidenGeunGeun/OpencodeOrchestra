@@ -142,7 +142,6 @@ export function SessionTurn(
     sessionID: string
     messageID: string
     actions?: UserActions
-    showGeneratedToolAttachments?: boolean
     showReasoningSummaries?: boolean
     shellToolDefaultOpen?: boolean
     editToolDefaultOpen?: boolean
@@ -397,7 +396,6 @@ export function SessionTurn(
                   <AssistantParts
                     messages={assistantMessages()}
                     showAssistantCopyPartID={assistantCopyPartID()}
-                    showGeneratedToolAttachments={props.showGeneratedToolAttachments}
                     turnDurationMs={turnDurationMs()}
                     working={working()}
                     showReasoningSummaries={showReasoningSummaries()}

@@ -1,15 +1,7 @@
 import { Installation } from "@/installation"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
-import {
-  streamText,
-  type ModelMessage,
-  type StreamTextResult,
-  type Tool,
-  type ToolSet,
-  tool,
-  jsonSchema,
-} from "ai"
+import { streamText, type ModelMessage, type StreamTextResult, type Tool, type ToolSet, tool, jsonSchema } from "ai"
 import { clone, mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
@@ -21,11 +13,9 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
-import { imageGeneration } from "@/provider/sdk/openai-compatible/src/responses/tool/image-generation"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
-  const GENERATED_IMAGE_UNAVAILABLE = "<generated image unavailable>"
 
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -53,58 +43,8 @@ export namespace LLM {
     model: Provider.Model,
     options?: { stripMedia?: boolean },
   ) {
-    const [{ MessageV2 }, { GeneratedImage }] = await Promise.all([
-      import("./message-v2"),
-      import("./generated-image"),
-    ])
-    const requestMessages = clone(messages)
-    const shouldStripGeneratedImageOutput =
-      options?.stripMedia === true || model.capabilities?.input?.image !== true
-
-    for (const message of requestMessages) {
-      if (message.info.role !== "assistant") continue
-
-      for (const part of message.parts) {
-        if (part.type !== "tool") continue
-        if (part.tool !== "image_generation") continue
-        if (part.state.status !== "completed") continue
-        if (part.state.time.compacted) continue
-        if (!shouldStripGeneratedImageOutput) continue
-
-        const savedPath = GeneratedImage.attachmentPath(part.state.attachments)
-        part.state.output = savedPath
-          ? GeneratedImage.replaceOutputWithReference(part.state.output, savedPath)
-          : replaceGeneratedImageOutputWithPlaceholder(part.state.output)
-      }
-    }
-
-    return MessageV2.toModelMessages(requestMessages, model, options)
-  }
-
-  function replaceGeneratedImageOutputWithPlaceholder(output: string) {
-    const fallback = JSON.stringify({ result: GENERATED_IMAGE_UNAVAILABLE })
-
-    try {
-      const parsed = JSON.parse(output)
-      if (!parsed || typeof parsed !== "object" || typeof (parsed as { result?: unknown }).result !== "string") {
-        return fallback
-      }
-
-      return JSON.stringify({
-        ...(parsed as Record<string, unknown>),
-        result: GENERATED_IMAGE_UNAVAILABLE,
-      })
-    } catch {
-      return fallback
-    }
-  }
-
-  export function shouldEnableCodexImageGenerationTool(input: {
-    auth: Auth.Info | undefined
-    model: Provider.Model
-  }) {
-    const isCodexOauth = input.model.providerID === "openai" && input.auth?.type === "oauth"
-    return isCodexOauth && input.model.capabilities.input.image === true
+    const { MessageV2 } = await import("./message-v2")
+    return MessageV2.toModelMessages(clone(messages), model, options)
   }
 
   export async function stream(input: StreamInput) {
@@ -127,10 +67,6 @@ export namespace LLM {
       Auth.get(input.model.providerID),
     ])
     const isCodex = provider.id === "openai" && auth?.type === "oauth"
-    const imageGenerationToolEnabled = shouldEnableCodexImageGenerationTool({
-      auth,
-      model: input.model,
-    })
 
     const system = []
     system.push(
@@ -180,9 +116,7 @@ export namespace LLM {
       mergeDeep(variant),
     )
     if (isCodex) {
-      options.instructions = SystemPrompt.instructions({
-        codexImageGeneration: imageGenerationToolEnabled,
-      })
+      options.instructions = SystemPrompt.instructions()
     }
 
     const params = await Plugin.trigger(
@@ -222,9 +156,6 @@ export namespace LLM {
       isCodex || provider.id.includes("github-copilot") ? undefined : ProviderTransform.maxOutputTokens(input.model)
 
     const tools = await resolveTools(input)
-    if (imageGenerationToolEnabled) {
-      tools.image_generation = imageGeneration()
-    }
 
     // LiteLLM and some Anthropic proxies require the tools parameter to be present
     // when message history contains tool calls, even if no tools are being used.

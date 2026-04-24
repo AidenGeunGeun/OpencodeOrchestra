@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 
-const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII="
 const USER_UPLOAD_DATA_URL = "data:image/png;base64,Zm9v"
-const UNAVAILABLE_PLACEHOLDER = '{"result":"<generated image unavailable>"}'
 
 function createModel(options?: { imageInput?: boolean }) {
   return {
@@ -18,14 +16,7 @@ function createModel(options?: { imageInput?: boolean }) {
   } as any
 }
 
-function createHistory(options?: {
-  compacted?: boolean
-  includeUserUpload?: boolean
-  withAttachment?: boolean
-}) {
-  const output = JSON.stringify({ result: PNG_BASE64 })
-  const savedPath = "/tmp/project/.oco/generated/session-test/call-image.png"
-
+function createHistory(options?: { includeUserUpload?: boolean }) {
   const history: MessageV2.WithParts[] = [
     {
       info: {
@@ -59,114 +50,14 @@ function createHistory(options?: {
           : []),
       ],
     },
-    {
-      info: {
-        id: "message-assistant",
-        sessionID: "session-test",
-        parentID: "message-user",
-        role: "assistant",
-        time: { created: 2 },
-        mode: "build",
-        agent: "build",
-        path: { cwd: "/tmp/project", root: "/tmp/project" },
-        cost: 0,
-        tokens: {
-          input: 0,
-          output: 0,
-          reasoning: 0,
-          cache: { read: 0, write: 0 },
-        },
-        modelID: "gpt-5.4",
-        providerID: "openai",
-      },
-      parts: [
-        {
-          id: "part-tool",
-          sessionID: "session-test",
-          messageID: "message-assistant",
-          type: "tool",
-          callID: "call-image",
-          tool: "image_generation",
-          state: {
-            status: "completed",
-            input: {},
-            output,
-            title: "Image generation",
-            metadata: {},
-            time: options?.compacted ? { start: 3, end: 4, compacted: 5 } : { start: 3, end: 4 },
-            attachments: options?.withAttachment === false
-              ? []
-              : [
-                  {
-                    id: "part-file",
-                    sessionID: "session-test",
-                    messageID: "message-assistant",
-                    type: "file",
-                    mime: "image/png",
-                    url: `file://${savedPath}`,
-                  },
-                ],
-          },
-        },
-      ],
-    },
   ]
 
-  return {
-    history,
-    output,
-    savedPath,
-  }
-}
-
-function getSerializedToolResult(modelMessages: any[]) {
-  const toolMessage = modelMessages.find((message) => message.role === "tool")
-  expect(toolMessage).toBeDefined()
-  expect(Array.isArray(toolMessage?.content)).toBe(true)
-  return (toolMessage?.content as any[])[0]
+  return { history }
 }
 
 describe("session.llm request serialization", () => {
-  test("keeps persisted image-generation base64 on-wire for image-capable models", async () => {
-    const { history, output } = createHistory()
-
-    const modelMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }))
-
-    const toolResult = getSerializedToolResult(modelMessages)
-    expect(toolResult.output).toEqual({
-      type: "text",
-      value: output,
-    })
-    expect(JSON.stringify(modelMessages)).toContain(PNG_BASE64)
-
-    const originalTool = history[1].parts[0]
-    expect(originalTool.type).toBe("tool")
-    if (originalTool.type === "tool" && originalTool.state.status === "completed") {
-      expect(originalTool.state.output).toBe(output)
-    }
-  })
-
-  test("replaces persisted image-generation base64 with a saved-file reference for text-only models", async () => {
-    const { history, output, savedPath } = createHistory()
-
-    const modelMessages = await LLM.toRequestMessages(history, createModel({ imageInput: false }))
-
-    const toolResult = getSerializedToolResult(modelMessages)
-    expect(toolResult.output).toEqual({
-      type: "text",
-      value: `{"result":"<see attached file: ${savedPath}>"}`,
-    })
-    expect(JSON.stringify(modelMessages)).not.toContain(PNG_BASE64)
-
-    const originalTool = history[1].parts[0]
-    expect(originalTool.type).toBe("tool")
-    if (originalTool.type === "tool" && originalTool.state.status === "completed") {
-      expect(originalTool.state.output).toBe(output)
-    }
-  })
-
-  test("stripMedia forces the saved-file reference even on image-capable models", async () => {
-    const { history, savedPath } = createHistory({ includeUserUpload: true })
+  test("stripMedia replaces user-uploaded media with a text placeholder", async () => {
+    const { history } = createHistory({ includeUserUpload: true })
 
     const modelMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }), {
       stripMedia: true,
@@ -180,59 +71,23 @@ describe("session.llm request serialization", () => {
       ],
     })
 
-    const serialized = JSON.stringify(modelMessages)
-    expect(serialized).toContain(`<see attached file: ${savedPath}>`)
-    expect(serialized).not.toContain(PNG_BASE64)
-    expect(serialized).not.toContain(USER_UPLOAD_DATA_URL)
+    expect(JSON.stringify(modelMessages)).not.toContain(USER_UPLOAD_DATA_URL)
   })
 
-  test("leaves compacted image-generation outputs untouched on both capability paths", async () => {
-    const { history, savedPath } = createHistory({ compacted: true })
+  test("keeps user-uploaded media intact when stripMedia is not enabled", async () => {
+    const { history } = createHistory({ includeUserUpload: true })
 
-    const imageCapableMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }))
-    const textOnlyMessages = await LLM.toRequestMessages(history, createModel({ imageInput: false }))
+    const modelMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }))
 
-    expect(getSerializedToolResult(imageCapableMessages).output).toEqual(getSerializedToolResult(textOnlyMessages).output)
+    expect(modelMessages[0]?.role).toBe("user")
+    expect(Array.isArray(modelMessages[0]?.content)).toBe(true)
 
-    const serialized = JSON.stringify(textOnlyMessages)
-    expect(serialized).not.toContain(`<see attached file: ${savedPath}>`)
-  })
-
-  test("replaces attachment-less image-generation outputs with a placeholder when stripping is required", async () => {
-    const { history, output } = createHistory({ withAttachment: false })
-
-    const textOnlyMessages = await LLM.toRequestMessages(history, createModel({ imageInput: false }))
-    const stripForcedMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }), {
-      stripMedia: true,
-    })
-
-    expect(getSerializedToolResult(textOnlyMessages).output).toEqual({
-      type: "text",
-      value: UNAVAILABLE_PLACEHOLDER,
-    })
-    expect(getSerializedToolResult(stripForcedMessages).output).toEqual({
-      type: "text",
-      value: UNAVAILABLE_PLACEHOLDER,
-    })
-    expect(JSON.stringify(textOnlyMessages)).not.toContain(PNG_BASE64)
-    expect(JSON.stringify(stripForcedMessages)).not.toContain(PNG_BASE64)
-
-    const originalTool = history[1].parts[0]
-    expect(originalTool.type).toBe("tool")
-    if (originalTool.type === "tool" && originalTool.state.status === "completed") {
-      expect(originalTool.state.output).toBe(output)
-    }
-  })
-
-  test("leaves attachment-less image-generation outputs untouched when stripping is not required", async () => {
-    const { history, output } = createHistory({ withAttachment: false })
-
-    const imageCapableMessages = await LLM.toRequestMessages(history, createModel({ imageInput: true }))
-
-    expect(getSerializedToolResult(imageCapableMessages).output).toEqual({
-      type: "text",
-      value: output,
-    })
-    expect(JSON.stringify(imageCapableMessages)).toContain(PNG_BASE64)
+    const content = modelMessages[0]?.content as any[]
+    expect(content).toHaveLength(2)
+    expect(content[0]).toStrictEqual({ type: "text", text: "Describe what happened." })
+    expect(content[1]?.type).toBe("file")
+    expect(content[1]?.filename).toBe("upload.png")
+    expect(content[1]?.mediaType).toBe("image/png")
+    expect(JSON.stringify(content[1])).toContain(USER_UPLOAD_DATA_URL)
   })
 })

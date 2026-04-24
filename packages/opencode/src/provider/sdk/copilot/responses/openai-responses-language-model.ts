@@ -23,7 +23,6 @@ import type { OpenAIConfig } from "./openai-config"
 import { openaiFailedResponseHandler } from "./openai-error"
 import { codeInterpreterInputSchema, codeInterpreterOutputSchema } from "./tool/code-interpreter"
 import { fileSearchOutputSchema } from "./tool/file-search"
-import { imageGenerationOutputSchema } from "./tool/image-generation"
 import { convertToOpenAIResponsesInput } from "./convert-to-openai-responses-input"
 import { mapOpenAIResponseFinishReason } from "./map-openai-responses-finish-reason"
 import type { OpenAIResponsesIncludeOptions, OpenAIResponsesIncludeValue } from "./openai-responses-api-types"
@@ -98,12 +97,6 @@ const localShellCallItem = z.object({
     working_directory: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
   }),
-})
-
-const imageGenerationCallItem = z.object({
-  type: z.literal("image_generation_call"),
-  id: z.string(),
-  result: z.string(),
 })
 
 /**
@@ -460,7 +453,6 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
               webSearchCallItem,
               fileSearchCallItem,
               codeInterpreterCallItem,
-              imageGenerationCallItem,
               localShellCallItem,
               z.object({
                 type: z.literal("function_call"),
@@ -535,28 +527,6 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
               },
             })
           }
-          break
-        }
-
-        case "image_generation_call": {
-          content.push({
-            type: "tool-call",
-            toolCallId: part.id,
-            toolName: "image_generation",
-            input: "{}",
-            providerExecuted: true,
-          })
-
-          content.push({
-            type: "tool-result",
-            toolCallId: part.id,
-            toolName: "image_generation",
-            result: {
-              result: part.result,
-            } satisfies z.infer<typeof imageGenerationOutputSchema>,
-            providerExecuted: true,
-          })
-
           break
         }
 
@@ -692,7 +662,7 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
             result: {
               queries: part.queries,
               results:
-                part.results?.map((result) => ({
+                part.results?.map((result: NonNullable<typeof part.results>[number]) => ({
                   attributes: result.attributes,
                   fileId: result.file_id,
                   filename: result.filename,
@@ -918,14 +888,6 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
                   input: "{}",
                   providerExecuted: true,
                 })
-              } else if (value.item.type === "image_generation_call") {
-                controller.enqueue({
-                  type: "tool-call",
-                  toolCallId: value.item.id,
-                  toolName: "image_generation",
-                  input: "{}",
-                  providerExecuted: true,
-                })
               } else if (value.item.type === "message") {
                 // Start a stable text part for this assistant message
                 currentTextId = value.item.id
@@ -1059,16 +1021,6 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
                   } satisfies z.infer<typeof codeInterpreterOutputSchema>,
                   providerExecuted: true,
                 })
-              } else if (value.item.type === "image_generation_call") {
-                controller.enqueue({
-                  type: "tool-result",
-                  toolCallId: value.item.id,
-                  toolName: "image_generation",
-                  result: {
-                    result: value.item.result,
-                  } satisfies z.infer<typeof imageGenerationOutputSchema>,
-                  providerExecuted: true,
-                })
               } else if (value.item.type === "local_shell_call") {
                 ongoingToolCalls[value.output_index] = undefined
 
@@ -1129,16 +1081,6 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV2 {
                   delta: value.delta,
                 })
               }
-            } else if (isResponseImageGenerationCallPartialImageChunk(value)) {
-              controller.enqueue({
-                type: "tool-result",
-                toolCallId: value.item_id,
-                toolName: "image_generation",
-                result: {
-                  result: value.partial_image_b64,
-                } satisfies z.infer<typeof imageGenerationOutputSchema>,
-                providerExecuted: true,
-              })
             } else if (isResponseCodeInterpreterCallCodeDeltaChunk(value)) {
               const toolCall = ongoingToolCalls[value.output_index]
 
@@ -1398,10 +1340,6 @@ const responseOutputItemAddedSchema = z.object({
       id: z.string(),
     }),
     z.object({
-      type: z.literal("image_generation_call"),
-      id: z.string(),
-    }),
-    z.object({
       type: z.literal("code_interpreter_call"),
       id: z.string(),
       container_id: z.string(),
@@ -1441,7 +1379,6 @@ const responseOutputItemDoneSchema = z.object({
       status: z.literal("completed"),
     }),
     codeInterpreterCallItem,
-    imageGenerationCallItem,
     webSearchCallItem,
     fileSearchCallItem,
     localShellCallItem,
@@ -1458,13 +1395,6 @@ const responseFunctionCallArgumentsDeltaSchema = z.object({
   item_id: z.string(),
   output_index: z.number(),
   delta: z.string(),
-})
-
-const responseImageGenerationCallPartialImageSchema = z.object({
-  type: z.literal("response.image_generation_call.partial_image"),
-  item_id: z.string(),
-  output_index: z.number(),
-  partial_image_b64: z.string(),
 })
 
 const responseCodeInterpreterCallCodeDeltaSchema = z.object({
@@ -1521,7 +1451,6 @@ const openaiResponsesChunkSchema = z.union([
   responseOutputItemAddedSchema,
   responseOutputItemDoneSchema,
   responseFunctionCallArgumentsDeltaSchema,
-  responseImageGenerationCallPartialImageSchema,
   responseCodeInterpreterCallCodeDeltaSchema,
   responseCodeInterpreterCallCodeDoneSchema,
   responseAnnotationAddedSchema,
@@ -1569,11 +1498,6 @@ function isResponseFunctionCallArgumentsDeltaChunk(
   chunk: z.infer<typeof openaiResponsesChunkSchema>,
 ): chunk is z.infer<typeof responseFunctionCallArgumentsDeltaSchema> {
   return chunk.type === "response.function_call_arguments.delta"
-}
-function isResponseImageGenerationCallPartialImageChunk(
-  chunk: z.infer<typeof openaiResponsesChunkSchema>,
-): chunk is z.infer<typeof responseImageGenerationCallPartialImageSchema> {
-  return chunk.type === "response.image_generation_call.partial_image"
 }
 
 function isResponseCodeInterpreterCallCodeDeltaChunk(

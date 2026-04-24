@@ -15,8 +15,6 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
-import { pathToFileURL } from "url"
-import { GeneratedImage } from "./generated-image"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -36,7 +34,8 @@ export namespace SessionProcessor {
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i]
-      if (!lastUser && message.info.role === "user") lastUser = message as MessageV2.WithParts & { info: MessageV2.User }
+      if (!lastUser && message.info.role === "user")
+        lastUser = message as MessageV2.WithParts & { info: MessageV2.User }
       if (!lastAssistant && message.info.role === "assistant")
         lastAssistant = message as MessageV2.WithParts & { info: MessageV2.Assistant }
       if (lastUser && lastAssistant) break
@@ -53,8 +52,7 @@ export namespace SessionProcessor {
     const toolParts = lastAssistant.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool")
     if (toolParts.length === 0) return false
     if (!toolParts.some((part) => part.state.status === "completed")) return false
-    if (toolParts.some((part) => part.state.status === "pending" || part.state.status === "running"))
-      return false
+    if (toolParts.some((part) => part.state.status === "pending" || part.state.status === "running")) return false
     return true
   }
 
@@ -212,37 +210,7 @@ export namespace SessionProcessor {
                 case "tool-result": {
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
-                    const attachments = [...(value.output.attachments ?? [])]
-
-                    if (match.tool === "image_generation") {
-                      const saved = await GeneratedImage.save({
-                        cwd: input.assistantMessage.path.cwd,
-                        sessionID: input.sessionID,
-                        callID: value.toolCallId,
-                        output: value.output.output,
-                      })
-
-                      if (saved) {
-                        attachments.push({
-                          id: Identifier.ascending("part"),
-                          sessionID: input.sessionID,
-                          messageID: input.assistantMessage.id,
-                          type: "file",
-                          mime: "image/png",
-                          filename: saved.filename,
-                          url: pathToFileURL(saved.path).href,
-                        })
-
-                        await Session.updatePart({
-                          id: Identifier.ascending("part"),
-                          messageID: input.assistantMessage.parentID,
-                          sessionID: input.sessionID,
-                          type: "text",
-                          synthetic: true,
-                          text: GeneratedImage.instruction(input.sessionID),
-                        })
-                      }
-                    }
+                    const attachments = value.output.attachments?.length ? [...value.output.attachments] : undefined
 
                     await Session.updatePart({
                       ...match,
@@ -256,7 +224,7 @@ export namespace SessionProcessor {
                           start: match.state.time.start,
                           end: Date.now(),
                         },
-                        attachments: attachments.length > 0 ? attachments : undefined,
+                        attachments,
                       },
                     })
 

@@ -2,17 +2,6 @@ import { describe, expect, test } from "bun:test"
 import type { ModelMessage } from "ai"
 import { LLM } from "../../src/session/llm"
 
-function createModel(options?: { providerID?: string; imageInput?: boolean }) {
-  return {
-    providerID: options?.providerID ?? "openai",
-    capabilities: {
-      input: {
-        image: options?.imageInput ?? true,
-      },
-    },
-  } as any
-}
-
 describe("session.llm", () => {
   test("hasToolCalls returns false for empty messages array", () => {
     expect(LLM.hasToolCalls([])).toBe(false)
@@ -102,41 +91,5 @@ describe("session.llm", () => {
     ] as ModelMessage[]
 
     expect(LLM.hasToolCalls(messages)).toBe(true)
-  })
-
-  test("enables Codex image generation for oauth OpenAI image-capable models", () => {
-    expect(
-      LLM.shouldEnableCodexImageGenerationTool({
-        auth: { type: "oauth" } as any,
-        model: createModel({ imageInput: true }),
-      }),
-    ).toBe(true)
-  })
-
-  test("keeps Codex image generation disabled for API-key auth", () => {
-    expect(
-      LLM.shouldEnableCodexImageGenerationTool({
-        auth: { type: "api" } as any,
-        model: createModel({ imageInput: true }),
-      }),
-    ).toBe(false)
-  })
-
-  test("keeps Codex image generation disabled for non-image models", () => {
-    expect(
-      LLM.shouldEnableCodexImageGenerationTool({
-        auth: { type: "oauth" } as any,
-        model: createModel({ imageInput: false }),
-      }),
-    ).toBe(false)
-  })
-
-  test("keeps Codex image generation disabled for non-OpenAI providers", () => {
-    expect(
-      LLM.shouldEnableCodexImageGenerationTool({
-        auth: { type: "oauth" } as any,
-        model: createModel({ providerID: "anthropic", imageInput: true }),
-      }),
-    ).toBe(false)
   })
 })

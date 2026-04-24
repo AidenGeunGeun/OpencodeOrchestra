@@ -7,7 +7,6 @@ import { codeInterpreterArgsSchema } from "./tool/code-interpreter"
 import { fileSearchArgsSchema } from "./tool/file-search"
 import { webSearchArgsSchema } from "./tool/web-search"
 import { webSearchPreviewArgsSchema } from "./tool/web-search-preview"
-import { imageGenerationArgsSchema } from "./tool/image-generation"
 import type { OpenAIResponsesTool } from "./openai-responses-api-types"
 
 export function prepareResponsesTools({
@@ -29,7 +28,6 @@ export function prepareResponsesTools({
     | { type: "web_search" }
     | { type: "function"; name: string }
     | { type: "code_interpreter" }
-    | { type: "image_generation" }
   toolWarnings: LanguageModelV2CallWarning[]
 } {
   // when the tools array is empty, change it to undefined to prevent errors:
@@ -112,28 +110,6 @@ export function prepareResponsesTools({
             })
             break
           }
-          case "openai.image_generation": {
-            const args = imageGenerationArgsSchema.parse(tool.args)
-            openaiTools.push({
-              type: "image_generation",
-              background: args.background,
-              input_fidelity: args.inputFidelity,
-              input_image_mask: args.inputImageMask
-                ? {
-                    file_id: args.inputImageMask.fileId,
-                    image_url: args.inputImageMask.imageUrl,
-                  }
-                : undefined,
-              model: args.model,
-              moderation: args.moderation,
-              partial_images: args.partialImages,
-              quality: args.quality,
-              output_compression: args.outputCompression,
-              output_format: args.outputFormat,
-              size: args.size,
-            })
-            break
-          }
         }
         break
       }
@@ -160,7 +136,6 @@ export function prepareResponsesTools({
         toolChoice:
           toolChoice.toolName === "code_interpreter" ||
           toolChoice.toolName === "file_search" ||
-          toolChoice.toolName === "image_generation" ||
           toolChoice.toolName === "web_search_preview" ||
           toolChoice.toolName === "web_search"
             ? { type: toolChoice.toolName }

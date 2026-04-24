@@ -54,7 +54,6 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { ContextHealth } from "./context-health"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
-import { generatedImageMissingText, generatedToolImageAttachments } from "./generated-tool-attachments"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -133,7 +132,6 @@ export interface MessageProps {
   parts: PartType[]
   actions?: UserActions
   showAssistantCopyPartID?: string | null
-  showGeneratedToolAttachments?: boolean
   interrupted?: boolean
   showReasoningSummaries?: boolean
 }
@@ -151,7 +149,6 @@ export interface MessagePartProps {
   hideDetails?: boolean
   defaultOpen?: boolean
   showAssistantCopyPartID?: string | null
-  showGeneratedToolAttachments?: boolean
   turnDurationMs?: number
 }
 
@@ -364,7 +361,8 @@ function getSessionContextHealth(store: ReturnType<typeof useData>["store"], ses
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
     if (!msg || msg.role !== "assistant") continue
-    const total = msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+    const total =
+      msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
     if (total <= 0) continue
     const provider = store.provider?.all?.find((item) => item.id === msg.providerID)
     const limit = provider?.models[msg.modelID]?.limit.context
@@ -504,7 +502,6 @@ function partDefaultOpen(part: PartType, shell = false, edit = false) {
 export function AssistantParts(props: {
   messages: AssistantMessage[]
   showAssistantCopyPartID?: string | null
-  showGeneratedToolAttachments?: boolean
   turnDurationMs?: number
   working?: boolean
   showReasoningSummaries?: boolean
@@ -589,7 +586,6 @@ export function AssistantParts(props: {
                         part={item()!}
                         message={message()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
-                        showGeneratedToolAttachments={props.showGeneratedToolAttachments}
                         turnDurationMs={props.turnDurationMs}
                         defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                       />
@@ -728,7 +724,6 @@ export function Message(props: MessageProps) {
             message={assistantMessage() as AssistantMessage}
             parts={props.parts}
             showAssistantCopyPartID={props.showAssistantCopyPartID}
-            showGeneratedToolAttachments={props.showGeneratedToolAttachments}
             showReasoningSummaries={props.showReasoningSummaries}
           />
         )}
@@ -741,7 +736,6 @@ export function AssistantMessageDisplay(props: {
   message: AssistantMessage
   parts: PartType[]
   showAssistantCopyPartID?: string | null
-  showGeneratedToolAttachments?: boolean
   showReasoningSummaries?: boolean
 }) {
   const emptyTools: ToolPart[] = []
@@ -802,7 +796,6 @@ export function AssistantMessageDisplay(props: {
                       part={item()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
-                      showGeneratedToolAttachments={props.showGeneratedToolAttachments}
                     />
                   </Show>
                 )
@@ -977,11 +970,7 @@ function MessageAttachments(props: {
       <div data-slot={slot("attachments")}>
         <For each={props.files}>
           {(file) => (
-            <MessageAttachmentItem
-              file={file}
-              slotPrefix={props.slotPrefix}
-              missingText={props.missingText?.(file)}
-            />
+            <MessageAttachmentItem file={file} slotPrefix={props.slotPrefix} missingText={props.missingText?.(file)} />
           )}
         </For>
       </div>
@@ -1213,7 +1202,6 @@ export function Part(props: MessagePartProps) {
         hideDetails={props.hideDetails}
         defaultOpen={props.defaultOpen}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
-        showGeneratedToolAttachments={props.showGeneratedToolAttachments}
         turnDurationMs={props.turnDurationMs}
       />
     </Show>
@@ -1298,8 +1286,6 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const part = () => props.part as ToolPart
   if (part().tool === "todowrite" || part().tool === "todoread") return null
 
-  const toolAttachments = createMemo(() => generatedToolImageAttachments(part(), props.showGeneratedToolAttachments))
-
   const hideQuestion = createMemo(
     () => part().tool === "question" && (part().state.status === "pending" || part().state.status === "running"),
   )
@@ -1369,11 +1355,6 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             />
           </Match>
         </Switch>
-        <MessageAttachments
-          files={toolAttachments()}
-          slotPrefix="tool-message"
-          missingText={generatedImageMissingText}
-        />
       </div>
     </Show>
   )
