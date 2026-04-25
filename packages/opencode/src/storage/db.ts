@@ -1,6 +1,3 @@
-import { Database as BunDatabase } from "bun:sqlite"
-import { drizzle, type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
-import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { Context } from "../util/context"
@@ -10,8 +7,9 @@ import { Log } from "../util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
-import { readFileSync, readdirSync } from "fs"
+import { existsSync, readFileSync, readdirSync } from "fs"
 import * as schema from "./schema"
+import { init, migrate, type Client as RuntimeClient } from "#db"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number }[] | undefined
 
@@ -29,7 +27,7 @@ export namespace Database {
   type Schema = typeof schema
   export type Transaction = SQLiteTransaction<"sync", void, Schema>
 
-  type Client = SQLiteBunDatabase<Schema>
+  type Client = RuntimeClient
 
   type Journal = { sql: string; timestamp: number }[]
 
@@ -54,7 +52,7 @@ export namespace Database {
     const sql = dirs
       .map((name) => {
         const file = path.join(dir, name, "migration.sql")
-        if (!Bun.file(file).size) return
+        if (!existsSync(file)) return
         return {
           sql: readFileSync(file, "utf-8"),
           timestamp: time(name),
@@ -68,16 +66,7 @@ export namespace Database {
   export const Client = lazy(() => {
     log.info("opening database", { path: path.join(Global.Path.data, "oco.db") })
 
-    const sqlite = new BunDatabase(path.join(Global.Path.data, "oco.db"), { create: true })
-
-    sqlite.run("PRAGMA journal_mode = WAL")
-    sqlite.run("PRAGMA synchronous = NORMAL")
-    sqlite.run("PRAGMA busy_timeout = 5000")
-    sqlite.run("PRAGMA cache_size = -64000")
-    sqlite.run("PRAGMA foreign_keys = ON")
-    sqlite.run("PRAGMA wal_checkpoint(PASSIVE)")
-
-    const db = drizzle({ client: sqlite, schema })
+    const db = init(path.join(Global.Path.data, "oco.db"))
 
     // Apply schema migrations
     const entries =

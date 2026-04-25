@@ -35,7 +35,6 @@ import { lazy } from "../util/lazy"
 import { InstanceBootstrap } from "../project/bootstrap"
 import { NotFoundError } from "../storage/db"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { websocket } from "hono/bun"
 import { HTTPException } from "hono/http-exception"
 import { existsSync } from "node:fs"
 import { extname, join, normalize } from "node:path"
@@ -45,6 +44,7 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { MDNS } from "./mdns"
+import { adapter } from "#hono"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -95,6 +95,7 @@ export namespace Server {
   }
 
   const app = new Hono()
+  const runtime = adapter.create(app)
   export const App: () => Hono = lazy(
     () =>
       // TODO: Break server.ts into smaller route files to fix type inference
@@ -267,7 +268,7 @@ export namespace Server {
         )
         .use(validator("query", z.object({ directory: z.string().optional(), workspace: z.string().optional() })))
         .route("/project", ProjectRoutes())
-        .route("/pty", PtyRoutes())
+        .route("/pty", PtyRoutes(runtime.upgradeWebSocket))
         .route("/config", ConfigRoutes())
         .route("/experimental", ExperimentalRoutes())
         .route("/session", SessionRoutes())
@@ -622,10 +623,7 @@ export namespace Server {
               host: "app.opencode.ai",
             },
           })
-          response.headers.set(
-            "Content-Security-Policy",
-            frontendCsp,
-          )
+          response.headers.set("Content-Security-Policy", frontendCsp)
           return response
         }) as unknown as Hono,
   )
@@ -645,7 +643,7 @@ export namespace Server {
     return result
   }
 
-  export function listen(opts: {
+  export async function listen(opts: {
     port: number
     hostname: string
     mdns?: boolean
@@ -654,42 +652,31 @@ export namespace Server {
   }) {
     _corsWhitelist = opts.cors ?? []
 
-    const args = {
-      hostname: opts.hostname,
-      idleTimeout: 0,
-      fetch: App().fetch,
-      websocket: websocket,
-    } as const
-    const tryServe = (port: number) => {
-      try {
-        return Bun.serve({ ...args, port })
-      } catch {
-        return undefined
-      }
-    }
-    const server = opts.port === 0 ? (tryServe(4096) ?? tryServe(0)) : tryServe(opts.port)
-    if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
-
-    _url = server.url
+    App()
+    const listener = await runtime.listen({ port: opts.port, hostname: opts.hostname })
+    const urlHostname = opts.hostname === "0.0.0.0" ? "127.0.0.1" : opts.hostname
+    _url = new URL(`http://${urlHostname}:${listener.port}`)
 
     const shouldPublishMDNS =
       opts.mdns &&
-      server.port &&
+      listener.port &&
       opts.hostname !== "127.0.0.1" &&
       opts.hostname !== "localhost" &&
       opts.hostname !== "::1"
     if (shouldPublishMDNS) {
-      MDNS.publish(server.port!)
+      MDNS.publish(listener.port)
     } else if (opts.mdns) {
       log.warn("mDNS enabled but hostname is loopback; skipping mDNS publish")
     }
 
-    const originalStop = server.stop.bind(server)
-    server.stop = async (closeActiveConnections?: boolean) => {
-      if (shouldPublishMDNS) MDNS.unpublish()
-      return originalStop(closeActiveConnections)
+    return {
+      url: _url,
+      hostname: opts.hostname,
+      port: listener.port,
+      async stop(closeActiveConnections?: boolean) {
+        if (shouldPublishMDNS) MDNS.unpublish()
+        return listener.stop(closeActiveConnections)
+      },
     }
-
-    return server
   }
 }

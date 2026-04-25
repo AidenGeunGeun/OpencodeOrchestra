@@ -1,6 +1,6 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
-import { type IPty } from "bun-pty"
+import type { Proc } from "./pty"
 import z from "zod"
 import { Identifier } from "../id/id"
 import { Log } from "../util/log"
@@ -16,7 +16,7 @@ export namespace Pty {
   const BUFFER_CHUNK = 64 * 1024
 
   const pty = lazy(async () => {
-    const { spawn } = await import("bun-pty")
+    const { spawn } = await import("#pty")
     return spawn
   })
 
@@ -65,7 +65,7 @@ export namespace Pty {
 
   interface ActiveSession {
     info: Info
-    process: IPty
+    process: Proc
     buffer: string
     subscribers: Set<WSContext>
   }

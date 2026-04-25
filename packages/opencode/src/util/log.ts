@@ -63,24 +63,19 @@ export namespace Log {
       Global.Path.log,
       options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
     )
-    const logfile = Bun.file(logpath)
     await fs.truncate(logpath).catch(() => {})
-    const writer = logfile.writer()
-    write = async (msg: any) => {
-      const num = writer.write(msg)
-      writer.flush()
-      return num
+    const logfile = await fs.open(logpath, "a")
+    write = (msg: any) => {
+      void logfile.write(msg)
+      return msg.length
     }
   }
 
   async function cleanup(dir: string) {
-    const glob = new Bun.Glob("????-??-??T??????.log")
-    const files = await Array.fromAsync(
-      glob.scan({
-        cwd: dir,
-        absolute: true,
-      }),
-    )
+    const files = (await fs.readdir(dir).catch(() => []))
+      .filter((file) => /^\d{4}-\d{2}-\d{2}T\d{6}\.log$/.test(file))
+      .sort()
+      .map((file) => path.join(dir, file))
     if (files.length <= 5) return
 
     const filesToDelete = files.slice(0, -10)

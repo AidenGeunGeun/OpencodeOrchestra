@@ -53,6 +53,7 @@ export namespace Global {
 
 await Promise.all([
   fs.mkdir(Global.Path.data, { recursive: true }),
+  fs.mkdir(Global.Path.cache, { recursive: true }),
   fs.mkdir(Global.Path.config, { recursive: true }),
   fs.mkdir(Global.Path.state, { recursive: true }),
   fs.mkdir(Global.Path.log, { recursive: true }),
@@ -61,9 +62,7 @@ await Promise.all([
 
 const CACHE_VERSION = "21"
 
-const version = await Bun.file(path.join(Global.Path.cache, "version"))
-  .text()
-  .catch(() => "0")
+const version = await fs.readFile(path.join(Global.Path.cache, "version"), "utf8").catch(() => "0")
 
 if (version !== CACHE_VERSION) {
   try {
@@ -77,5 +76,5 @@ if (version !== CACHE_VERSION) {
       ),
     )
   } catch (e) {}
-  await Bun.file(path.join(Global.Path.cache, "version")).write(CACHE_VERSION)
+  await fs.writeFile(path.join(Global.Path.cache, "version"), CACHE_VERSION)
 }

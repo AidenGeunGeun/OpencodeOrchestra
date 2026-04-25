@@ -33,6 +33,7 @@ import { existsSync } from "fs"
 import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
+import { raw as rawDatabase } from "#db"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -94,7 +95,7 @@ const cli = yargs(hideBin(process.argv))
       let last = -1
       if (tty) process.stderr.write("\x1b[?25l")
       try {
-        await JsonMigration.run(Database.Client().$client, {
+        await JsonMigration.run(rawDatabase(Database.Client()), {
           progress: (event) => {
             const percent = Math.floor((event.current / event.total) * 100)
             if (percent === last && event.current !== event.total) return

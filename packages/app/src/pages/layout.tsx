@@ -72,6 +72,7 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
+  isProjectRestoreSession,
   latestRootSession,
   sortedRootSessions,
   workspaceKey,
@@ -79,7 +80,7 @@ import {
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
-  deepLinkEvent,
+  deepLinkEvents,
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
@@ -306,6 +307,13 @@ export default function Layout(props: ParentProps) {
     clearSidebarHoverState()
     navigate(href)
     layout.mobileSidebar.hide()
+  }
+
+  const currentBrowserAppRoute = () => {
+    const path = window.location.pathname
+    if (!path || path === "/" || path === "/index.html") return undefined
+    if (!/^\/[A-Za-z0-9_-]+(?:\/session(?:\/[^/?#]+)?)?$/.test(path)) return undefined
+    return `${path}${window.location.search}${window.location.hash}`
   }
 
   function cycleTheme(direction = 1) {
@@ -574,6 +582,13 @@ export default function Layout(props: ParentProps) {
         if (!value.layoutReady) return
         if (!state.autoselect) return
         if (value.dir) return
+
+        const browserRoute = currentBrowserAppRoute()
+        if (browserRoute) {
+          setState("autoselect", false)
+          navigate(browserRoute, { replace: true })
+          return
+        }
 
         const last = server.projects.last()
 
@@ -1194,6 +1209,9 @@ export default function Layout(props: ParentProps) {
   }
 
   function rememberSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
+    const [store] = globalSync.child(directory, { bootstrap: false })
+    const session = store.session.find((item) => item.id === id)
+    if (session && !isProjectRestoreSession(session, directory)) return root
     setStore("lastProjectSession", root, { directory, id, at: Date.now() })
     return root
   }
@@ -1243,7 +1261,9 @@ export default function Layout(props: ParentProps) {
     const openSession = async (target: { directory: string; id: string }) => {
       if (!canOpen(target.directory)) return false
       const [data] = globalSync.child(target.directory, { bootstrap: false })
-      if (data.session.some((item) => item.id === target.id)) {
+      const cached = data.session.find((item) => item.id === target.id)
+      if (cached && !isProjectRestoreSession(cached, target.directory)) return false
+      if (cached) {
         setStore("lastProjectSession", root, { directory: target.directory, id: target.id, at: Date.now() })
         navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
@@ -1254,6 +1274,7 @@ export default function Layout(props: ParentProps) {
         .catch(() => undefined)
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
+      if (!isProjectRestoreSession(resolved, resolved.directory)) return false
       setStore("lastProjectSession", root, { directory: resolved.directory, id: resolved.id, at: Date.now() })
       navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
@@ -1331,8 +1352,14 @@ export default function Layout(props: ParentProps) {
     }
 
     handleDeepLinks(drainPendingDeepLinks(window))
-    window.addEventListener(deepLinkEvent, handler as EventListener)
-    onCleanup(() => window.removeEventListener(deepLinkEvent, handler as EventListener))
+    for (const eventName of deepLinkEvents) {
+      window.addEventListener(eventName, handler as EventListener)
+    }
+    onCleanup(() => {
+      for (const eventName of deepLinkEvents) {
+        window.removeEventListener(eventName, handler as EventListener)
+      }
+    })
   })
 
   async function renameProject(project: LocalProject, next: string) {

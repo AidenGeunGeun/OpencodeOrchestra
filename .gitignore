@@ -46,7 +46,7 @@ packages/opencode/release-assets/
 opencode-dev
 logs/
 *.bun-build
+packages/desktop-electron/resources/oco-cli*
 
 # Sprint specs — scratch work, not shipped
 specs/
-

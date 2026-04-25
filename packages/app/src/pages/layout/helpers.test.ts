@@ -12,6 +12,7 @@ import {
   effectiveWorkspaceOrder,
   errorMessage,
   hasProjectPermissions,
+  isProjectRestoreSession,
   latestRootSession,
   workspaceKey,
 } from "./helpers"
@@ -196,6 +197,20 @@ describe("layout workspace helpers", () => {
     )
 
     expect(result?.id).toBe("root")
+  })
+
+  test("treats only unarchived root sessions as project restore targets", () => {
+    expect(isProjectRestoreSession(session({ id: "root", directory: "/workspace" }), "/workspace")).toBe(true)
+    expect(
+      isProjectRestoreSession(session({ id: "child", directory: "/workspace", parentID: "root" }), "/workspace"),
+    ).toBe(false)
+    expect(
+      isProjectRestoreSession(
+        session({ id: "archived", directory: "/workspace", time: { created: 0, updated: 0, archived: 1 } }),
+        "/workspace",
+      ),
+    ).toBe(false)
+    expect(isProjectRestoreSession(session({ id: "other", directory: "/other" }), "/workspace")).toBe(false)
   })
 
   test("formats fallback project display name", () => {

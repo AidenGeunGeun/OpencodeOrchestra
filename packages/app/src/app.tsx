@@ -159,7 +159,7 @@ const effectMinDuration =
   <A, E, R>(e: Effect.Effect<A, E, R>) =>
     Effect.all([e, Effect.sleep(duration)], { concurrency: "unbounded" }).pipe(Effect.map((v) => v[0]))
 
-function ConnectionGate(props: ParentProps) {
+function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
   const server = useServer()
   const checkServerHealth = useCheckServerHealth()
 
@@ -168,32 +168,34 @@ function ConnectionGate(props: ParentProps) {
   // performs repeated health check with a grace period for
   // non-http connections, otherwise fails instantly
   const [startupHealthCheck, healthCheckActions] = createResource(() =>
-    Effect.gen(function* () {
-      if (!server.current) return true
-      const { http, type } = server.current
+    props.disableHealthCheck
+      ? true
+      : Effect.gen(function* () {
+          if (!server.current) return true
+          const { http, type } = server.current
 
-      while (true) {
-        const res = yield* Effect.promise(() => checkServerHealth(http))
-        if (res.healthy) return true
-        if (checkMode() === "background" || type === "http") return false
-      }
-    }).pipe(
-      effectMinDuration(checkMode() === "blocking" ? "1.2 seconds" : 0),
-      Effect.timeoutOrElse({ duration: "10 seconds", onTimeout: () => Effect.succeed(false) }),
-      Effect.ensuring(Effect.sync(() => setCheckMode("background"))),
-      Effect.runPromise,
-    ),
+          while (true) {
+            const res = yield* Effect.promise(() => checkServerHealth(http))
+            if (res.healthy) return true
+            if (checkMode() === "background" || type === "http") return false
+          }
+        }).pipe(
+          effectMinDuration(checkMode() === "blocking" ? "1.2 seconds" : 0),
+          Effect.timeoutOrElse({ duration: "10 seconds", onTimeout: () => Effect.succeed(false) }),
+          Effect.ensuring(Effect.sync(() => setCheckMode("background"))),
+          Effect.runPromise,
+        ),
   )
 
   return (
-    <Show
-      when={checkMode() === "blocking" ? !startupHealthCheck.loading : startupHealthCheck.state !== "pending"}
+    <Suspense
       fallback={
         <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
           <Splash class="w-16 h-20 opacity-50 animate-pulse" />
         </div>
       }
     >
+      {checkMode() === "blocking" ? startupHealthCheck() : startupHealthCheck.latest}
       <Show
         when={startupHealthCheck()}
         fallback={
@@ -211,7 +213,7 @@ function ConnectionGate(props: ParentProps) {
       >
         {props.children}
       </Show>
-    </Show>
+    </Suspense>
   )
 }
 
@@ -261,10 +263,11 @@ export function AppInterface(props: {
   defaultServer: ServerConnection.Key
   servers?: Array<ServerConnection.Any>
   router?: Component<BaseRouterProps>
+  disableHealthCheck?: boolean
 }) {
   return (
     <ServerProvider defaultServer={props.defaultServer} servers={props.servers}>
-      <ConnectionGate>
+      <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
         <GlobalSDKProvider>
           <GlobalSyncProvider>
             <Dynamic

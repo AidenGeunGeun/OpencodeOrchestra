@@ -1,0 +1,55 @@
+{
+  "name": "@opencode-ai/desktop-electron",
+  "private": true,
+  "version": "1.2.2",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/AidenGeunGeun/OpenCodeOrchestra",
+  "author": {
+    "name": "OpenCode Orchestra"
+  },
+  "scripts": {
+    "typecheck": "tsgo -b",
+    "predev": "bun ./scripts/predev.ts",
+    "dev": "electron-vite dev",
+    "prebuild": "bun ./scripts/prebuild.ts",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder --config electron-builder.config.ts",
+    "package:mac": "electron-builder --mac --config electron-builder.config.ts",
+    "package:win": "electron-builder --win --config electron-builder.config.ts",
+    "package:linux": "electron-builder --linux --config electron-builder.config.ts",
+    "native:build": "bun install --cwd native"
+  },
+  "main": "./out/main/index.js",
+  "dependencies": {
+    "effect": "4.0.0-beta.31",
+    "electron-context-menu": "4.1.2",
+    "electron-log": "^5",
+    "electron-store": "^10",
+    "electron-updater": "^6",
+    "electron-window-state": "^5.0.3",
+    "marked": "^15"
+  },
+  "devDependencies": {
+    "@actions/artifact": "4.0.0",
+    "@opencode-ai/app": "workspace:*",
+    "@opencode-ai/ui": "workspace:*",
+    "@solid-primitives/i18n": "2.2.1",
+    "@solid-primitives/storage": "catalog:",
+    "@solidjs/meta": "catalog:",
+    "@solidjs/router": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "@valibot/to-json-schema": "1.6.0",
+    "electron": "40.4.1",
+    "electron-builder": "^26",
+    "electron-vite": "^5",
+    "solid-js": "catalog:",
+    "sury": "11.0.0-alpha.4",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "zod-openapi": "5.4.6"
+  }
+}
