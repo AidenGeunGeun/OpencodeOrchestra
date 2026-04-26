@@ -162,6 +162,41 @@ describe("ProviderTransform.schema - gemini array items", () => {
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
+  const deepSeekModel = {
+    id: "deepseek/deepseek-v4-pro",
+    providerID: "deepseek",
+    api: {
+      id: "deepseek-v4-pro",
+      url: "https://api.deepseek.com",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "DeepSeek V4 Pro",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: {
+        field: "reasoning_content",
+      },
+    },
+    cost: {
+      input: 1.74,
+      output: 3.48,
+      cache: { read: 0.145, write: 0 },
+    },
+    limit: {
+      context: 1_000_000,
+      output: 384_000,
+    },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2026-04-24",
+  } as any
+
   test("DeepSeek V4 with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
       {
@@ -178,44 +213,7 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ] as any[]
 
-    const result = ProviderTransform.message(
-      msgs,
-      {
-        id: "deepseek/deepseek-v4-pro",
-        providerID: "deepseek",
-        api: {
-          id: "deepseek-v4-pro",
-          url: "https://api.deepseek.com",
-          npm: "@ai-sdk/openai-compatible",
-        },
-        name: "DeepSeek V4 Pro",
-        capabilities: {
-          temperature: true,
-          reasoning: true,
-          attachment: false,
-          toolcall: true,
-          input: { text: true, audio: false, image: false, video: false, pdf: false },
-          output: { text: true, audio: false, image: false, video: false, pdf: false },
-          interleaved: {
-            field: "reasoning_content",
-          },
-        },
-        cost: {
-          input: 1.74,
-          output: 3.48,
-          cache: { read: 0.145, write: 0 },
-        },
-        limit: {
-          context: 1_000_000,
-          output: 384_000,
-        },
-        status: "active",
-        options: {},
-        headers: {},
-        release_date: "2026-04-24",
-      },
-      {},
-    )
+    const result = ProviderTransform.message(msgs, deepSeekModel, {})
 
     expect(result).toHaveLength(1)
     expect(result[0].content).toEqual([
@@ -227,6 +225,78 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("Let me think about this...")
+  })
+
+  test("DeepSeek V4 preserves empty reasoning_content in providerOptions", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "" },
+          { type: "text", text: "Answer" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, deepSeekModel, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toEqual([{ type: "text", text: "Answer" }])
+    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("")
+  })
+
+  test("DeepSeek V4 synthesizes empty reasoning_content for mixed-source assistant history", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Prior answer from another model" }],
+      },
+      {
+        role: "assistant",
+        content: "String answer from another model",
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, deepSeekModel, {})
+
+    expect(result).toHaveLength(2)
+    expect(result[0].content).toEqual([{ type: "text", text: "Prior answer from another model" }])
+    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("")
+    expect(result[1].content).toEqual([{ type: "text", text: "String answer from another model" }])
+    expect(result[1].providerOptions?.openaiCompatible?.reasoning_content).toBe("")
+  })
+
+  test("OpenRouter reasoning models skip generic interleaved reasoning_content injection", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "OpenRouter should keep this in content" },
+          { type: "text", text: "Answer" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(
+      msgs,
+      {
+        ...deepSeekModel,
+        id: "openrouter/reasoning-model",
+        providerID: "openrouter",
+        api: {
+          id: "openai/gpt-5",
+          url: "https://openrouter.ai/api/v1",
+          npm: "@openrouter/ai-sdk-provider",
+        },
+      },
+      {},
+    )
+
+    expect(result[0].content).toEqual([
+      { type: "reasoning", text: "OpenRouter should keep this in content" },
+      { type: "text", text: "Answer" },
+    ])
+    expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
   })
 
   test("Non-DeepSeek providers leave reasoning content unchanged", () => {

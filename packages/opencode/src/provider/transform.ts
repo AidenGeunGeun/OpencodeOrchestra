@@ -133,7 +133,29 @@ export namespace ProviderTransform {
       return result
     }
 
-    if (typeof model.capabilities.interleaved === "object" && model.capabilities.interleaved.field) {
+    // Deepseek requires all assistant messages to have reasoning on them
+    if (model.api.id.includes("deepseek")) {
+      msgs = msgs.map((msg) => {
+        if (msg.role !== "assistant") return msg
+        if (Array.isArray(msg.content)) {
+          if (msg.content.some((part) => part.type === "reasoning")) return msg
+          return { ...msg, content: [...msg.content, { type: "reasoning", text: "" }] }
+        }
+        return {
+          ...msg,
+          content: [
+            ...(msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+            { type: "reasoning" as const, text: "" },
+          ],
+        }
+      })
+    }
+
+    if (
+      typeof model.capabilities.interleaved === "object" &&
+      model.capabilities.interleaved.field &&
+      model.api.npm !== "@openrouter/ai-sdk-provider"
+    ) {
       const field = model.capabilities.interleaved.field
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
@@ -143,24 +165,19 @@ export namespace ProviderTransform {
           // Filter out reasoning parts from content
           const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
 
-          // Include reasoning_content | reasoning_details directly on the message for all assistant messages
-          if (reasoningText) {
-            return {
-              ...msg,
-              content: filteredContent,
-              providerOptions: {
-                ...msg.providerOptions,
-                openaiCompatible: {
-                  ...(msg.providerOptions as any)?.openaiCompatible,
-                  [field]: reasoningText,
-                },
-              },
-            }
-          }
-
+          // Include reasoning_content | reasoning_details directly on the message for all assistant messages.
+          // Always set the field even when empty because DeepSeek may return empty reasoning_content
+          // that still needs to be sent back in subsequent requests.
           return {
             ...msg,
             content: filteredContent,
+            providerOptions: {
+              ...msg.providerOptions,
+              openaiCompatible: {
+                ...(msg.providerOptions as any)?.openaiCompatible,
+                [field]: reasoningText,
+              },
+            },
           }
         }
 
