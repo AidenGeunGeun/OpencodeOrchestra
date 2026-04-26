@@ -50,3 +50,7 @@ packages/desktop-electron/resources/oco-cli*
 
 # Sprint specs — scratch work, not shipped
 specs/
+
+# Recall journal + index — local-only project memory
+memory/
+.recall/
