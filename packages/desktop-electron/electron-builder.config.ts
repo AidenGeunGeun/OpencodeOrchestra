@@ -97,6 +97,9 @@ const getBase = (): Configuration => ({
   linux: {
     icon: `resources/icons`,
     category: "Development",
+    // Required by .deb / .rpm packagers when package.json has no author.email.
+    // Kept here instead of in package.json so the build config stays self-contained.
+    maintainer: "OpenCodeOrchestra <noreply@opencode.orchestra>",
     target: ["AppImage", "deb", "rpm"],
   },
 })

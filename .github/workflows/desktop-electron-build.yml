@@ -38,7 +38,7 @@ jobs:
           - name: Windows (x86_64)
             runner: windows-2022
             rust-target: x86_64-pc-windows-msvc
-            sidecar-build-args: --baseline
+            sidecar-build-args: ""
             platform-flag: --win
     steps:
       - uses: actions/checkout@v4
