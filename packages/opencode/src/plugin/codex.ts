@@ -18,6 +18,7 @@ const CODEX_ORIGINATOR = "codex_cli_rs"
 const CODEX_INSTALLATION_ID_FILE = path.join(Global.Path.state, "codex-installation-id")
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+// OCO: ChatGPT/Codex OAuth allowlist includes subscription model families
 // Known debt: replace this string-based allowlist with a live Codex catalog sync.
 const OAUTH_ALLOWED_MODELS = new Set([
   "gpt-5.1-codex-max",
@@ -65,6 +66,7 @@ function generateState(): string {
   return base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
 }
 
+// OCO: allow aliases when their canonical API model is Codex OAuth eligible
 function isAllowedCodexOauthModel(modelID: string, model?: { api?: { id?: string } }) {
   if (modelID.includes("codex")) return true
   const apiID = model?.api?.id
@@ -104,6 +106,7 @@ function codexLineage(headers: Headers) {
   return { sessionID, requestID, windowID }
 }
 
+// OCO: normalize Codex request body with canonical model and lineage metadata
 async function normalizeCodexOauthBody(
   body: RequestInit["body"],
   models: Record<string, { api?: { id?: string } }>,
@@ -447,6 +450,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         const auth = await getAuth()
         if (auth.type !== "oauth") return {}
 
+        // OCO: OAuth auth only exposes ChatGPT/Codex-compatible models
         // Filter models to only allowed Codex models for OAuth
         for (const [modelId, model] of Object.entries(provider.models)) {
           if (isAllowedCodexOauthModel(modelId, model)) continue
@@ -623,6 +627,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
               headers.set("ChatGPT-Account-Id", authWithAccount.accountId)
             }
 
+            // OCO: proxy OpenAI response/chat calls through ChatGPT Codex endpoint
             // Rewrite URL to Codex endpoint
             const parsed =
               requestInput instanceof URL

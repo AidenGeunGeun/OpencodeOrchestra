@@ -50,6 +50,7 @@ type NotificationIndex = {
 
 const MAX_NOTIFICATIONS = 500
 const NOTIFICATION_TTL_MS = 1000 * 60 * 60 * 24 * 30
+const SOUND_DEDUPE_MS = 750
 
 function pruneNotifications(list: Notification[]) {
   const cutoff = Date.now() - NOTIFICATION_TTL_MS
@@ -132,6 +133,7 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
     const [index, setIndex] = createStore<NotificationIndex>(buildNotificationIndex(store.list))
 
     const meta = { pruned: false, disposed: false }
+    const lastSoundPlayedAt = new Map<string, number>()
 
     const updateUnseen = (scope: "session" | "project", key: string, unseen: Notification[]) => {
       setIndex(scope, "unseen", key, unseen)
@@ -233,7 +235,9 @@ export const { use: useNotification, provider: NotificationProvider } = createSi
         if (!session) return
         if (session.parentID) return
 
-        if (settings.sounds.agentEnabled()) {
+        const lastSound = sessionID ? lastSoundPlayedAt.get(sessionID) : undefined
+        if (settings.sounds.agentEnabled() && (!lastSound || time - lastSound >= SOUND_DEDUPE_MS)) {
+          if (sessionID) lastSoundPlayedAt.set(sessionID, time)
           playSound(soundSrc(settings.sounds.agent()))
         }
 

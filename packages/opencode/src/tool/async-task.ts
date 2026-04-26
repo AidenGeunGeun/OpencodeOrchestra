@@ -1,3 +1,5 @@
+// OCO-only file: background subagent execution with async-result delivery. See oco-dev skill deltas-catalog.md.
+
 import { Tool } from "./tool"
 import { Bus } from "../bus"
 import { Session } from "../session"

@@ -59,6 +59,19 @@ export namespace SessionStatus {
   }
 
   export function set(sessionID: string, status: Info) {
+    const current = get(sessionID)
+    if (current.type === status.type) {
+      if (status.type === "idle") return
+      if (status.type === "busy") return
+      if (
+        current.type === "retry" &&
+        current.attempt === status.attempt &&
+        current.message === status.message &&
+        current.next === status.next
+      )
+        return
+    }
+
     Bus.publish(Event.Status, {
       sessionID,
       status,

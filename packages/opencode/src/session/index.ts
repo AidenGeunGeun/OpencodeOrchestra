@@ -17,7 +17,6 @@ import { Log } from "../util/log"
 import { MessageV2 } from "./message-v2"
 import { Instance } from "../project/instance"
 import { SessionPrompt } from "./prompt"
-import { SessionStatus } from "./status"
 import { fn } from "@/util/fn"
 import { Command } from "../command"
 import { Snapshot } from "@/snapshot"
@@ -815,20 +814,7 @@ export namespace Session {
     try {
       const session = await get(sessionID)
       for (const child of await children(sessionID)) {
-        const waitForChildExit =
-          SessionStatus.get(child.id).type === "idle"
-            ? undefined
-            : new Promise<void>((resolve) => {
-                let idleCount = 0
-                const unsubscribe = Bus.subscribe(SessionStatus.Event.Status, (evt) => {
-                  if (evt.properties.sessionID !== child.id) return
-                  if (evt.properties.status.type !== "idle") return
-                  idleCount++
-                  if (idleCount < 2) return
-                  unsubscribe()
-                  resolve()
-                })
-              })
+        const waitForChildExit = SessionPrompt.wait(child.id)
         SessionPrompt.cancel(child.id, { cascadeAsyncChildren: false })
         if (waitForChildExit) {
           await waitForChildExit

@@ -83,6 +83,7 @@ export async function renderTaskDescription(template: string, caller?: Agent.Inf
   )
 }
 
+// OCO: depth walk powers PM/Orchestrator/specialist hierarchy
 async function calculateDepth(sessionID: string): Promise<number> {
   let depth = 0
   let currentID: string | undefined = sessionID
@@ -214,6 +215,7 @@ export async function prepareTaskSession(
 
   const permissionFlags = getTaskPermissionFlags(agent)
   const currentDepth = await calculateDepth(ctx.sessionID)
+  // OCO: root-to-orchestrator is depth 1; other root children are specialists
   const childDepth = (() => {
     if (currentDepth === 0 && params.subagent_type === "orchestrator") {
       return 1
@@ -223,6 +225,7 @@ export async function prepareTaskSession(
     }
     return currentDepth + 1
   })()
+  // OCO: specialists return single-shot; orchestrators can persist until finish_task
   const singleShot = childDepth >= 2 ? true : (agent.singleShot ?? true)
 
   log.info("spawning subagent", {
@@ -246,6 +249,7 @@ export async function prepareTaskSession(
       }
     }
 
+    // OCO: child sessions keep parent and agent identity for navigation/resume
     return Session.create({
       parentID: ctx.sessionID,
       agentID: agent.name,
@@ -267,8 +271,10 @@ export async function prepareTaskSession(
 
   // For async tasks the tool returns immediately, so ctx.abort fires when the parent
   // loop ends naturally — NOT when the user cancels. Wiring it to child cancel would
-  // kill the child on every normal turn completion. Skip the listener for async children;
-  // explicit user cancellation is handled by the cascade in SessionPrompt.cancel().
+  // kill the child on every normal turn completion. Skip the listener for async children
+  // entirely; OCO intentionally does not cascade cancellation to async background work,
+  // so an async subagent runs to completion (or its own timeout) regardless of whether
+  // the parent turn ends naturally or is cancelled.
   if (options.async) {
     const promptParts = await resolveTaskPromptParts(params, ctx)
     return {
@@ -384,6 +390,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         }
       }
 
+      // OCO: persistent orchestrator path blocks until finish_task reports status
       log.info("executing persistent orchestrator", { agent: agent.name, sessionID: session.id })
 
       interface FinishTaskResult {

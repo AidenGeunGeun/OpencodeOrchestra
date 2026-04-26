@@ -1,3 +1,5 @@
+// OCO-only file: project DESIGN.md discovery, guidance, and validation. See oco-dev skill deltas-catalog.md.
+
 import fs from "fs/promises"
 import { constants } from "fs"
 import path from "path"

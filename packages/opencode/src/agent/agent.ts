@@ -28,9 +28,10 @@ import { Skill } from "../skill"
 
 export namespace Agent {
   export const Info = z
-    .object({
-      name: z.string(),
-      displayName: z.string().optional(),
+      .object({
+        name: z.string(),
+        // OCO: display labels prevent PM/custom agents from hardcoded UI aliases
+        displayName: z.string().optional(),
       description: z.string().optional(),
       mode: z.enum(["subagent", "primary", "all"]),
       native: z.boolean().optional(),
@@ -86,6 +87,7 @@ export namespace Agent {
     const user = PermissionNext.fromConfig(cfg.permission ?? {})
 
      const result: Record<string, Info> = {
+       // OCO: build and plan are persistent PM persona entries
        build: {
         name: "build",
         displayName: "PM",

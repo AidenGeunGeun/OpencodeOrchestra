@@ -1,3 +1,5 @@
+// OCO-only file: DESIGN.md load/guidance/validation tool. See oco-dev skill deltas-catalog.md.
+
 import z from "zod"
 import { Tool } from "./tool"
 import { DesignContext } from "../session/design"

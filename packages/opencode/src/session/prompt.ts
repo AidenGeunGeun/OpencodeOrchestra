@@ -86,6 +86,8 @@ export namespace SessionPrompt {
             resolve(input: MessageV2.WithParts): void
             reject(reason?: any): void
           }[]
+          done: Promise<void>
+          resolveDone(): void
         }
       > = {}
       return data
@@ -255,11 +257,21 @@ export namespace SessionPrompt {
     const s = state()
     if (s[sessionID]) return
     const controller = new AbortController()
+    let resolveDone!: () => void
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve
+    })
     s[sessionID] = {
       abort: controller,
       callbacks: [],
+      done,
+      resolveDone,
     }
     return controller.signal
+  }
+
+  export function wait(sessionID: string) {
+    return state()[sessionID]?.done
   }
 
   function resume(sessionID: string) {
@@ -277,7 +289,7 @@ export namespace SessionPrompt {
       delete s[sessionID]
     }
     SessionStatus.set(sessionID, { type: "idle" })
-    if (input?.cascadeAsyncChildren ?? true) {
+    if (input?.cascadeAsyncChildren ?? false) {
       void Session.children(sessionID)
         .then((children) => {
           for (const child of children) {
@@ -316,7 +328,11 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID, { cascadeAsyncChildren: false }))
+    const exit = state()[sessionID]
+    using _ = defer(() => {
+      cancel(sessionID, { cascadeAsyncChildren: false })
+      exit?.resolveDone()
+    })
 
     let structuredOutput: unknown | undefined
 
@@ -1555,10 +1571,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     if (!abort) {
       throw new Session.BusyError(input.sessionID)
     }
+    const exit = state()[input.sessionID]
     using _ = defer(() => {
       const callbacks = state()[input.sessionID]?.callbacks ?? []
       if (callbacks.length === 0) {
         cancel(input.sessionID, { cascadeAsyncChildren: false })
+        exit?.resolveDone()
       } else {
         loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
           log.error("session loop failed to resume after shell command", { sessionID: input.sessionID, error })
