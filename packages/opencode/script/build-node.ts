@@ -27,7 +27,7 @@ const migrations = await Promise.all(
           Number(match[6]),
         )
       : 0
-    return { sql, timestamp }
+    return { sql, timestamp, name }
   }),
 )
 
@@ -36,7 +36,15 @@ await Bun.build({
   outdir: "./dist/node",
   target: "node",
   format: "esm",
-  external: ["@lydell/node-pty", "better-sqlite3"],
+  external: ["@lydell/node-pty", "jsonc-parser"],
+  plugins: [
+    {
+      name: "node-bun-shim",
+      setup(build) {
+        build.onResolve({ filter: /^bun$/ }, () => ({ path: path.join(dir, "src/node-bun-shim.ts") }))
+      },
+    },
+  ],
   conditions: ["node"],
   sourcemap: "external",
   define: {

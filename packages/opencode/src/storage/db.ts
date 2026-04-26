@@ -1,3 +1,4 @@
+import { type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { Context } from "../util/context"
@@ -9,9 +10,9 @@ import z from "zod"
 import path from "path"
 import { existsSync, readFileSync, readdirSync } from "fs"
 import * as schema from "./schema"
-import { init, migrate, type Client as RuntimeClient } from "#db"
+import { init } from "#db"
 
-declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number }[] | undefined
+declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
 export const NotFoundError = NamedError.create(
   "NotFoundError",
@@ -27,9 +28,9 @@ export namespace Database {
   type Schema = typeof schema
   export type Transaction = SQLiteTransaction<"sync", void, Schema>
 
-  type Client = RuntimeClient
+  type Client = SQLiteBunDatabase<Schema>
 
-  type Journal = { sql: string; timestamp: number }[]
+  type Journal = { sql: string; timestamp: number; name: string }[]
 
   function time(tag: string) {
     const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(tag)
@@ -53,20 +54,56 @@ export namespace Database {
       .map((name) => {
         const file = path.join(dir, name, "migration.sql")
         if (!existsSync(file)) return
-        return {
-          sql: readFileSync(file, "utf-8"),
-          timestamp: time(name),
-        }
-      })
+          return {
+            sql: readFileSync(file, "utf-8"),
+            timestamp: time(name),
+            name,
+          }
+        })
       .filter(Boolean) as Journal
 
     return sql.sort((a, b) => a.timestamp - b.timestamp)
   }
 
+  function runMigrations(db: Client, migrations: Journal) {
+    db.run(
+      'CREATE TABLE IF NOT EXISTS "__drizzle_migrations" ' +
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)",
+    )
+    const applied = new Set(
+      db
+        .all<{ created_at: number }>('SELECT created_at FROM "__drizzle_migrations"')
+        .map((row) => Number(row.created_at)),
+    )
+    db.run("BEGIN")
+    try {
+      for (const migration of migrations) {
+        if (applied.has(migration.timestamp)) continue
+        for (const statement of migration.sql.split("--> statement-breakpoint")) {
+          const sql = statement.trim()
+          if (sql.length === 0) continue
+          db.run(sql)
+        }
+        db.run(`INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES ('', ${migration.timestamp})`)
+      }
+      db.run("COMMIT")
+    } catch (error) {
+      db.run("ROLLBACK")
+      throw error
+    }
+  }
+
   export const Client = lazy(() => {
     log.info("opening database", { path: path.join(Global.Path.data, "oco.db") })
 
-    const db = init(path.join(Global.Path.data, "oco.db"))
+    const db = init(path.join(Global.Path.data, "oco.db")) as Client
+
+    db.run("PRAGMA journal_mode = WAL")
+    db.run("PRAGMA synchronous = NORMAL")
+    db.run("PRAGMA busy_timeout = 5000")
+    db.run("PRAGMA cache_size = -64000")
+    db.run("PRAGMA foreign_keys = ON")
+    db.run("PRAGMA wal_checkpoint(PASSIVE)")
 
     // Apply schema migrations
     const entries =
@@ -78,7 +115,7 @@ export namespace Database {
         count: entries.length,
         mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
       })
-      migrate(db, entries)
+      runMigrations(db, entries)
     }
 
     return db
@@ -113,17 +150,19 @@ export namespace Database {
     }
   }
 
-  export function transaction<T>(callback: (tx: TxOrDb) => T): T {
+  type NotPromise<T> = T extends Promise<any> ? never : T
+
+  export function transaction<T>(callback: (tx: TxOrDb) => T): NotPromise<T> {
     try {
-      return callback(ctx.use().tx)
+      return callback(ctx.use().tx) as NotPromise<T>
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
         const result = Client().transaction((tx) => {
-          return ctx.provide({ tx, effects }, () => callback(tx))
+          return ctx.provide({ tx, effects }, () => callback(tx)) as NotPromise<T>
         })
         for (const effect of effects) effect()
-        return result
+        return result as NotPromise<T>
       }
       throw err
     }

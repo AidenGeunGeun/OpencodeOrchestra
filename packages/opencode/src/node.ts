@@ -1,43 +1,31 @@
-import { Hono } from "hono"
-import { adapter } from "#hono"
+import "./node-bun-shim"
+import { Server } from "./server/server"
+import { JsonToSqlite } from "./storage/json-to-sqlite"
 
 export { Database } from "./storage/db"
 export { Log } from "./util/log"
-
-declare const OPENCODE_VERSION: string | undefined
+export { Server } from "./server/server"
+export { JsonToSqlite } from "./storage/json-to-sqlite"
 
 export namespace NodeBackend {
   export function create() {
-    const app = new Hono()
-    const runtime = adapter.create(app)
-
-    app.get("/global/health", (c) =>
-      c.json({ healthy: true, version: typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local" }),
-    )
-    app.get(
-      "/runtime/ws",
-      runtime.upgradeWebSocket(() => ({
-        onMessage(event, ws) {
-          ws.send(String(event.data))
-        },
-      })),
-    )
-
-    return { app, runtime }
+    return Server.App()
   }
 
-  export async function listen(opts: { port: number; hostname: string }) {
-    const backend = create()
-    const listener = await backend.runtime.listen(opts)
-    const urlHostname = opts.hostname === "0.0.0.0" ? "127.0.0.1" : opts.hostname
-    return {
-      url: new URL(`http://${urlHostname}:${listener.port}`),
-      hostname: opts.hostname,
-      port: listener.port,
-      stop(close?: boolean) {
-        return listener.stop(close)
-      },
-    }
+  export async function migrate(opts: { onProgress?: (event: JsonToSqlite.Progress) => void } = {}) {
+    return JsonToSqlite.run({ onProgress: opts.onProgress })
+  }
+
+  export async function listen(opts: {
+    port: number
+    hostname: string
+    mdns?: boolean
+    mdnsDomain?: string
+    cors?: string[]
+    onMigrationProgress?: (event: JsonToSqlite.Progress) => void
+  }) {
+    await migrate({ onProgress: opts.onMigrationProgress })
+    return Server.listen(opts)
   }
 
   export async function probePtyAdapter() {

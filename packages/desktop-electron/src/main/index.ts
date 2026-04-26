@@ -13,6 +13,7 @@ contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithG
 
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
+// OCO: Electron app identity uses OCO names, IDs, and isolated user data
 const APP_NAMES: Record<string, string> = {
   dev: "OpenCodeOrchestra Electron Dev",
   beta: "OpenCodeOrchestra Electron Beta",
@@ -24,7 +25,13 @@ const APP_IDS: Record<string, string> = {
   prod: "ai.opencode.orchestra.electron",
 }
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : APP_NAMES.dev)
-app.setPath("userData", join(app.getPath("appData"), process.env.OCO_ELECTRON_USER_DATA_ID ?? (app.isPackaged ? APP_IDS[CHANNEL] : APP_IDS.dev)))
+app.setPath(
+  "userData",
+  join(
+    app.getPath("appData"),
+    process.env.OCO_ELECTRON_USER_DATA_ID ?? (app.isPackaged ? APP_IDS[CHANNEL] : APP_IDS.dev),
+  ),
+)
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
@@ -67,6 +74,7 @@ function setupApp() {
     return
   }
 
+  // OCO: Electron accepts oco:// deep links from second instance and macOS
   app.on("second-instance", (_event: Event, argv: string[]) => {
     const urls = argv.filter((arg: string) => arg.startsWith("oco://"))
     if (urls.length) {
@@ -97,13 +105,18 @@ function setupApp() {
     })
   }
 
-  void app.whenReady().then(async () => {
-    app.setAsDefaultProtocolClient("oco")
-    setDockIcon()
-    setupAutoUpdater()
-    migrate()
-    await initialize()
-  })
+  void app
+    .whenReady()
+    .then(async () => {
+      app.setAsDefaultProtocolClient("oco")
+      setDockIcon()
+      setupAutoUpdater()
+      migrate()
+      await initialize()
+    })
+    .catch((error) => {
+      void handleStartupFailure(error)
+    })
 }
 
 function emitDeepLinks(urls: string[]) {
@@ -124,6 +137,7 @@ function setInitStep(step: InitStep) {
   initEmitter.emit("step", step)
 }
 
+// OCO: gate main window on backend readiness with migration/loading overlay
 async function initialize() {
   const needsMigration = needsSqliteMigration()
   const sqliteDone = needsMigration ? defer<void>() : undefined
@@ -132,29 +146,34 @@ async function initialize() {
   const port = await getSidecarPort()
   const hostname = "127.0.0.1"
   const url = `http://${hostname}:${port}`
-  const password = randomUUID()
+  const password =
+    process.env.OCO_ELECTRON_SMOKE_PASSWORD ?? process.env.OPENCODE_ELECTRON_SMOKE_PASSWORD ?? randomUUID()
 
-  logger.log("spawning sidecar", { url })
-  const { listener, health } = await spawnLocalServer(hostname, port, password, (progress) => {
+  // Install the migration listener BEFORE spawnLocalServer so we never miss the
+  // first (or last) progress event — the in-process backend can finish migration
+  // synchronously inside `spawnLocalServer` and a late listener would deadlock here.
+  initEmitter.on("sqlite", (progress: SqliteMigrationProgress) => {
+    lastSqliteProgress = progress
+    setInitStep({ phase: "sqlite_waiting" })
+    if (overlay) sendSqliteMigrationProgress(overlay, progress)
+    if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
+    if (progress.type === "Done") sqliteDone?.resolve()
+  })
+
+  logger.log("starting local backend", { url })
+  const { listener, health, mode } = await spawnLocalServer(hostname, port, password, (progress) => {
     initEmitter.emit("sqlite", progress)
   })
+  logger.log("local backend started", { mode, url })
   server = listener
-  serverReady.resolve({
+  const readyData = {
     url,
     username: "oco",
     password,
-  })
+  }
 
   const loadingTask = (async () => {
-    logger.log("sidecar connection started", { url })
-
-    initEmitter.on("sqlite", (progress: SqliteMigrationProgress) => {
-      lastSqliteProgress = progress
-      setInitStep({ phase: "sqlite_waiting" })
-      if (overlay) sendSqliteMigrationProgress(overlay, progress)
-      if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-      if (progress.type === "Done") sqliteDone?.resolve()
-    })
+    logger.log("local backend connection started", { url })
 
     if (needsMigration) {
       await sqliteDone?.promise
@@ -163,12 +182,12 @@ async function initialize() {
     await Promise.race([
       health.wait,
       delay(30_000).then(() => {
-        throw new Error("Sidecar health check timed out")
+        throw new Error(`Local backend health check timed out while starting ${mode} mode`)
       }),
-    ]).catch((error) => {
-      logger.error("sidecar health check failed", error)
-    })
+    ])
 
+    setInitStep({ phase: "done" })
+    serverReady.resolve(readyData)
     logger.log("loading task finished")
   })()
 
@@ -177,17 +196,13 @@ async function initialize() {
     deepLinks: pendingDeepLinks,
   }
 
-  if (needsMigration) {
-    const show = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])
-    if (show) {
-      overlay = createLoadingWindow(globals)
-      if (lastSqliteProgress) sendSqliteMigrationProgress(overlay, lastSqliteProgress)
-      await delay(1_000)
-    }
+  const showOverlay = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])
+  if (showOverlay) {
+    overlay = createLoadingWindow(globals)
+    if (lastSqliteProgress) sendSqliteMigrationProgress(overlay, lastSqliteProgress)
   }
 
   await loadingTask
-  setInitStep({ phase: "done" })
 
   if (overlay) {
     if (lastSqliteProgress?.type === "Done") sendSqliteMigrationProgress(overlay, lastSqliteProgress)
@@ -254,6 +269,20 @@ function killSidecar() {
   server = null
 }
 
+async function handleStartupFailure(error: unknown) {
+  const failure = error instanceof Error ? error : new Error(String(error))
+  logger.error("startup failed", failure)
+  serverReady.reject(failure)
+  killSidecar()
+  await dialog.showMessageBox({
+    type: "error",
+    title: "OpenCodeOrchestra Electron failed to start",
+    message: "The local OCO backend could not start.",
+    detail: `${failure.message}\n\nIf this is a packaged app, rebuild it so the backend bundle, native modules, and sidecar resources are included. To test the sidecar fallback intentionally, launch with OCO_ELECTRON_BACKEND=sidecar.`,
+  })
+  app.quit()
+}
+
 function ensureLoopbackNoProxy() {
   const loopback = ["127.0.0.1", "localhost", "::1"]
   const upsert = (key: string) => {
@@ -274,6 +303,7 @@ function ensureLoopbackNoProxy() {
   upsert("no_proxy")
 }
 
+// OCO: OCO_PORT pins Electron local backend port for smoke/dev runs
 async function getSidecarPort() {
   const fromEnv = process.env.OCO_PORT ?? process.env.OPENCODE_PORT
   if (fromEnv) {

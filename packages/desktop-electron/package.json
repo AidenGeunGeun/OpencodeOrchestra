@@ -15,14 +15,20 @@
     "prebuild": "bun ./scripts/prebuild.ts",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "validate:package": "bun ./scripts/validate-package.ts",
+    "prepackage": "bun run build && bun run validate:package",
     "package": "electron-builder --config electron-builder.config.ts",
+    "prepackage:mac": "bun run build && bun run validate:package",
     "package:mac": "electron-builder --mac --config electron-builder.config.ts",
+    "prepackage:win": "bun run build && bun run validate:package",
     "package:win": "electron-builder --win --config electron-builder.config.ts",
+    "prepackage:linux": "bun run build && bun run validate:package",
     "package:linux": "electron-builder --linux --config electron-builder.config.ts",
     "native:build": "bun install --cwd native"
   },
   "main": "./out/main/index.js",
   "dependencies": {
+    "@lydell/node-pty": "catalog:",
     "effect": "4.0.0-beta.31",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",
@@ -30,6 +36,14 @@
     "electron-updater": "^6",
     "electron-window-state": "^5.0.3",
     "marked": "^15"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-darwin-x64": "1.2.0-beta.10",
+    "@lydell/node-pty-linux-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-linux-x64": "1.2.0-beta.10",
+    "@lydell/node-pty-win32-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-win32-x64": "1.2.0-beta.10"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
@@ -43,7 +57,7 @@
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "@valibot/to-json-schema": "1.6.0",
-    "electron": "40.4.1",
+    "electron": "41.2.1",
     "electron-builder": "^26",
     "electron-vite": "^5",
     "solid-js": "catalog:",

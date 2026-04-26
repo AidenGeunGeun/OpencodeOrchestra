@@ -83,14 +83,18 @@ export function createMainWindow(globals: Globals) {
           titleBarOverlay: overlay({ mode }),
         }
       : {}),
+    // OCO: Electron dogfood windows run sandboxed with isolated preload API
     webPreferences: {
-      preload: join(root, "../preload/index.mjs"),
-      sandbox: false,
+      preload: join(root, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
   })
 
   state.manage(win)
   loadWindow(win, "index.html")
+  // OCO: prevent internal SPA route navigations from reloading the shell
   wireInternalRouteGuard(win)
   wireZoom(win)
   injectGlobals(win, globals)
@@ -110,13 +114,15 @@ function isInternalAppRoute(win: BrowserWindow, url: string) {
     const currentURL = new URL(current)
     const nextURL = new URL(url)
     if (nextURL.origin !== currentURL.origin) return false
-    if (nextURL.pathname === "/" || nextURL.pathname === "/index.html" || nextURL.pathname === "/loading.html") return false
+    if (nextURL.pathname === "/" || nextURL.pathname === "/index.html" || nextURL.pathname === "/loading.html")
+      return false
     return /^\/[A-Za-z0-9_-]+(?:\/session(?:\/[^/?#]+)?)?$/.test(nextURL.pathname)
   } catch {
     return false
   }
 }
 
+// OCO: internal app routes are handled by the renderer router, not navigation
 function wireInternalRouteGuard(win: BrowserWindow) {
   win.webContents.on("will-navigate", (event, url) => {
     if (!isInternalAppRoute(win, url)) return
@@ -142,9 +148,12 @@ export function createLoadingWindow(globals: Globals) {
           titleBarOverlay: overlay({ mode }),
         }
       : {}),
+    // OCO: loading window matches main window sandbox boundaries
     webPreferences: {
-      preload: join(root, "../preload/index.mjs"),
-      sandbox: false,
+      preload: join(root, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
   })
 

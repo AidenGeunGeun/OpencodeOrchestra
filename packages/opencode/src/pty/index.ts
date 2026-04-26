@@ -101,7 +101,8 @@ export namespace Pty {
       args.push("-l")
     }
 
-    const cwd = input.cwd || Instance.directory
+    const directory = Instance.directory
+    const cwd = input.cwd || directory
     const env = {
       ...process.env,
       ...input.env,
@@ -155,7 +156,10 @@ export namespace Pty {
         ws.close()
       }
       session.subscribers.clear()
-      Bus.publish(Event.Exited, { id, exitCode })
+      void Instance.provide({
+        directory,
+        fn: async () => Bus.publish(Event.Exited, { id, exitCode }),
+      }).catch((error) => log.error("failed to publish exit event", { id, error }))
       for (const ws of session.subscribers) {
         ws.close()
       }

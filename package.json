@@ -11,6 +11,10 @@
     "dev:desktop-electron": "bun run --cwd packages/desktop-electron dev",
     "build:electron": "bun run --cwd packages/desktop-electron build",
     "build:desktop-electron": "bun run --cwd packages/desktop-electron build",
+    "package:electron": "bun run --cwd packages/desktop-electron package",
+    "package:electron:mac": "bun run --cwd packages/desktop-electron package:mac",
+    "package:electron:win": "bun run --cwd packages/desktop-electron package:win",
+    "package:electron:linux": "bun run --cwd packages/desktop-electron package:linux",
     "typecheck": "bun turbo typecheck",
     "release": "bun run script/release.ts",
     "prepare": "husky",
@@ -87,6 +91,7 @@
     "printWidth": 120
   },
   "trustedDependencies": [
+    "@lydell/node-pty",
     "esbuild",
     "protobufjs",
     "tree-sitter",

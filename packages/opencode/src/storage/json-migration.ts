@@ -1,5 +1,5 @@
-import { Database } from "bun:sqlite"
-import { drizzle } from "drizzle-orm/bun-sqlite"
+import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
+import type { NodeSQLiteDatabase } from "drizzle-orm/node-sqlite"
 import { Global } from "../global"
 import { Log } from "../util/log"
 import { ProjectTable } from "../project/project.sql"
@@ -21,7 +21,9 @@ export namespace JsonMigration {
     progress?: (event: Progress) => void
   }
 
-  export async function run(sqlite: Database, options?: Options) {
+  type Database = SQLiteBunDatabase<any, any> | NodeSQLiteDatabase<any, any>
+
+  export async function run(db: Database, options?: Options) {
     const storageDir = path.join(Global.Path.data, "storage")
 
     if (!existsSync(storageDir)) {
@@ -41,13 +43,11 @@ export namespace JsonMigration {
     log.info("starting json to sqlite migration", { storageDir })
     const start = performance.now()
 
-    const db = drizzle({ client: sqlite })
-
     // Optimize SQLite for bulk inserts
-    sqlite.exec("PRAGMA journal_mode = WAL")
-    sqlite.exec("PRAGMA synchronous = OFF")
-    sqlite.exec("PRAGMA cache_size = 10000")
-    sqlite.exec("PRAGMA temp_store = MEMORY")
+    db.run("PRAGMA journal_mode = WAL")
+    db.run("PRAGMA synchronous = OFF")
+    db.run("PRAGMA cache_size = 10000")
+    db.run("PRAGMA temp_store = MEMORY")
     const stats = {
       projects: 0,
       sessions: 0,
@@ -149,7 +149,7 @@ export namespace JsonMigration {
 
     progress?.({ current, total, label: "starting" })
 
-    sqlite.exec("BEGIN TRANSACTION")
+    db.run("BEGIN TRANSACTION")
 
     // Migrate projects first (no FK deps)
     // Derive all IDs from file paths, not JSON content
@@ -232,7 +232,7 @@ export namespace JsonMigration {
       log.warn("skipped orphaned sessions", { count: orphans.sessions })
     }
 
-    // OpenCodeOrchestra: Backfill session_agent sidecar files from legacy JSON
+    // OCO: Backfill session_agent sidecars so migrated subagents keep identity
     // Legacy sessions stored agentID inline; new code reads it from sidecar files
     let agentBackfills = 0
     for (let i = 0; i < sessionFiles.length; i += batchSize) {
@@ -429,7 +429,7 @@ export namespace JsonMigration {
       log.warn("skipped orphaned session shares", { count: orphans.shares })
     }
 
-    sqlite.exec("COMMIT")
+    db.run("COMMIT")
 
     log.info("json migration complete", {
       projects: stats.projects,

@@ -4,7 +4,7 @@ import { migrate as runMigrations } from "drizzle-orm/bun-sqlite/migrator"
 import * as schema from "./schema"
 
 export type Client = SQLiteBunDatabase<typeof schema>
-export type Journal = { sql: string; timestamp: number }[]
+export type Journal = { sql: string; timestamp: number; name: string }[]
 
 const rawClients = new WeakMap<Client, Database>()
 
@@ -29,4 +29,8 @@ export function raw(db: Client) {
   const sqlite = rawClients.get(db)
   if (!sqlite) throw new Error("Missing raw SQLite client")
   return sqlite
+}
+
+export function json(sqlite: Database) {
+  return drizzle({ client: sqlite })
 }

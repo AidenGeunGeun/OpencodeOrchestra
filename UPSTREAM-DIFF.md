@@ -1,3 +1,9 @@
+# Superseded
+
+This file is preserved as historical documentation for the old opencode 1.2.27 baseline. The canonical living catalog for OCO fork-maintenance deltas is now bundled in the `oco-dev` skill at `~/.config/oco/skills/oco-dev/references/deltas-catalog.md`.
+
+---
+
 # UPSTREAM-DIFF.md — OpenCodeOrchestra vs opencode 1.2.27
 
 Exhaustive file-by-file documentation of all divergences from upstream opencode 1.2.27.

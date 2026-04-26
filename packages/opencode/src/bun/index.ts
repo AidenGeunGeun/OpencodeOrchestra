@@ -49,8 +49,23 @@ export namespace BunProc {
     return result
   }
 
-  export function which() {
-    return process.execPath
+  export const RuntimeUnavailableError = NamedError.create(
+    "BunRuntimeUnavailableError",
+    z.object({ command: z.string() }),
+  )
+
+  export function which(command = "bun") {
+    const binary = Bun.which(command)
+    if (binary) return binary
+    if (command === "bun" && process.versions.bun) return process.execPath
+    throw new RuntimeUnavailableError(
+      { command },
+      {
+        cause: new Error(
+          `The '${command}' runtime is not available on PATH. Packaged Electron can start normally without global Bun, but package/plugin/LSP installation features need Bun installed or a bundled runtime.`,
+        ),
+      },
+    )
   }
 
   export const InstallFailedError = NamedError.create(
@@ -162,14 +177,7 @@ export namespace BunProc {
       process.env.https_proxy
     )
 
-    const args = [
-      "add",
-      "--force",
-      ...(proxied ? ["--no-cache"] : []),
-      "--cwd",
-      Global.Path.cache,
-      specifier,
-    ]
+    const args = ["add", "--force", ...(proxied ? ["--no-cache"] : []), "--cwd", Global.Path.cache, specifier]
 
     log.info("installing git package", { specifier })
 

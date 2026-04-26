@@ -1,13 +1,24 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import type { Configuration } from "electron-builder"
+import { validatePackagedApp } from "./scripts/package-checks"
 
 const execFileAsync = promisify(execFile)
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+const packageDir = path.dirname(fileURLToPath(import.meta.url))
 const signScript = path.join(rootDir, "script", "sign-windows.ps1")
+const nativeDir = path.join(packageDir, "native")
+const macSigning = process.env.ELECTRON_SIGN === "true" || !!process.env.CSC_LINK || !!process.env.CSC_NAME
+const macNotarize = process.env.ELECTRON_NOTARIZE === "true"
+if (macNotarize && !macSigning) {
+  throw new Error(
+    "ELECTRON_NOTARIZE=true requires Electron macOS signing credentials (CSC_LINK/CSC_NAME or ELECTRON_SIGN=true)",
+  )
+}
 
 async function signWindows(configuration: { path: string }) {
   if (process.platform !== "win32") return
@@ -39,24 +50,32 @@ const getBase = (): Configuration => ({
       to: ".",
       filter: ["icons/**", "oco-cli*"],
     },
-    {
-      from: "native/",
-      to: "native/",
-      filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
-    },
+    ...(existsSync(nativeDir)
+      ? [
+          {
+            from: "native/",
+            to: "native/",
+            filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
+          },
+        ]
+      : []),
   ],
+  afterPack: async (context) => {
+    await validatePackagedApp({ appOutDir: context.appOutDir, electronPlatformName: context.electronPlatformName })
+  },
   mac: {
     category: "public.app-category.developer-tools",
     icon: `resources/icons/icon.icns`,
+    identity: macSigning ? undefined : null,
     hardenedRuntime: true,
     gatekeeperAssess: false,
     entitlements: "resources/entitlements.plist",
     entitlementsInherit: "resources/entitlements.plist",
-    notarize: true,
+    notarize: macNotarize,
     target: ["dmg", "zip"],
   },
   dmg: {
-    sign: true,
+    sign: macSigning,
   },
   protocols: {
     name: "OpenCodeOrchestra",

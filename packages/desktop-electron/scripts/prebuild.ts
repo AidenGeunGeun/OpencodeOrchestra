@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { $ } from "bun"
+import { rm } from "node:fs/promises"
 
 import { copyBinaryToSidecarFolder, getCurrentSidecar, resolveChannel, windowsify } from "./utils"
 
@@ -14,3 +15,5 @@ await (sidecarConfig.ocBinary.includes("-baseline")
   : $`cd ../opencode && bun run build --single`)
 
 await copyBinaryToSidecarFolder(binaryPath)
+await $`bun run --cwd ../opencode build:node`
+await rm("out/backend", { recursive: true, force: true })

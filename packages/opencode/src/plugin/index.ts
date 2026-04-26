@@ -13,11 +13,15 @@ import { NamedError } from "@opencode-ai/util/error"
 import { CopilotAuthPlugin } from "./copilot"
 import { wrapClientForDepthAwareness } from "./client-wrapper"
 import { AnthropicAuthPlugin } from "./anthropic"
+import { createRequire } from "module"
+import { pathToFileURL } from "url"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
+  const req = createRequire(import.meta.url)
 
   const BUILTIN = ["@gitlab/opencode-gitlab-auth@1.3.2"]
+  const reportedPluginLoadErrors = new Set<string>()
 
   // Built-in plugins that are directly imported (not installed from npm)
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin, AnthropicAuthPlugin]
@@ -99,16 +103,30 @@ export namespace Plugin {
         })
         if (!plugin) continue
       }
-      const mod = await import(plugin)
-      // Prevent duplicate initialization when plugins export the same function
-      // as both a named export and default export (e.g., `export const X` and `export default X`).
-      // Object.entries(mod) would return both entries pointing to the same function reference.
-      const seen = new Set<PluginInstance>()
-      for (const [_name, fn] of Object.entries<PluginInstance>(mod)) {
-        if (seen.has(fn)) continue
-        seen.add(fn)
-        const init = await fn(input)
-        hooks.push(init)
+      try {
+        const mod = await import(resolveImport(plugin))
+        // Prevent duplicate initialization when plugins export the same function
+        // as both a named export and default export (e.g., `export const X` and `export default X`).
+        // Object.entries(mod) would return both entries pointing to the same function reference.
+        const seen = new Set<PluginInstance>()
+        for (const [_name, fn] of Object.entries<PluginInstance>(mod)) {
+          if (seen.has(fn)) continue
+          seen.add(fn)
+          const init = await fn(input)
+          hooks.push(init)
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error("failed to load plugin", { path: plugin, error: message })
+        const key = `${plugin}:${message}`
+        if (!reportedPluginLoadErrors.has(key)) {
+          reportedPluginLoadErrors.add(key)
+          Bus.publish(Session.Event.Error, {
+            error: new NamedError.Unknown({
+              message: `Failed to load plugin ${plugin}: ${message}`,
+            }).toObject(),
+          })
+        }
       }
     }
 
@@ -158,5 +176,14 @@ export namespace Plugin {
         })
       }
     })
+  }
+
+  function resolveImport(plugin: string) {
+    if (plugin.startsWith("file://")) return plugin
+    try {
+      return pathToFileURL(req.resolve(plugin)).href
+    } catch {
+      return plugin
+    }
   }
 }
