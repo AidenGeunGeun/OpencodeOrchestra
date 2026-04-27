@@ -5,8 +5,11 @@ name: desktop-electron-build
 #
 # Code signing: not configured (no Apple Developer cert). macOS builds are
 # ad-hoc signed only — users will see a Gatekeeper warning on first launch
-# and need to right-click → Open. Windows builds are unsigned — SmartScreen
-# may warn on first launch. Linux builds are unaffected.
+# and need to right-click → Open. Linux builds are unaffected.
+#
+# Windows is intentionally not built. Tauri never built Windows either; the
+# Bun cross-runtime download for Windows baseline is too unreliable on
+# github-hosted runners. Add it back when there's actual Windows demand.
 
 on:
   push:
@@ -35,11 +38,6 @@ jobs:
             rust-target: x86_64-unknown-linux-gnu
             sidecar-build-args: --baseline
             platform-flag: --linux
-          - name: Windows (x86_64)
-            runner: windows-2022
-            rust-target: x86_64-pc-windows-msvc
-            sidecar-build-args: ""
-            platform-flag: --win
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +99,6 @@ jobs:
             packages/desktop-electron/dist/oco-electron-*.AppImage
             packages/desktop-electron/dist/oco-electron-*.deb
             packages/desktop-electron/dist/oco-electron-*.rpm
-            packages/desktop-electron/dist/oco-electron-*.exe
           tag_name: ${{ github.ref_name }}
           generate_release_notes: false
           append_body: false
@@ -119,4 +116,3 @@ jobs:
             packages/desktop-electron/dist/oco-electron-*.AppImage
             packages/desktop-electron/dist/oco-electron-*.deb
             packages/desktop-electron/dist/oco-electron-*.rpm
-            packages/desktop-electron/dist/oco-electron-*.exe
