@@ -70,3 +70,11 @@ Core workflow:
 2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
 3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
 4. Re-snapshot after page changes
+
+## Agent Visual Check
+
+- Run `bun run --cwd packages/app visual-check` after any task changing visible UI, animations, panels, browser comments, subagents, review UI, Tool Dock behavior, or desktop shell behavior.
+- The workflow uses the sandboxed local e2e backend, so it should not write to real user app data and does not require provider secrets or external services.
+- Artifacts are written under `/tmp/oco-visual-check-*`: one screenshot per Tool Dock tab, one structured state JSON per tab, and `summary.json`.
+- Today it checks the Tool Dock Review, Subagents, and Browser tabs and fails if inactive tool content remains visible when another tab is active.
+- V1 uses the reliable app web renderer with a test-only desktop fallback so the Browser tab can render; it does not yet automate the packaged Electron shell.

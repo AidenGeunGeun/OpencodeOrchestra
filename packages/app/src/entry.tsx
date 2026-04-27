@@ -6,6 +6,7 @@ import { AppBaseProviders, AppInterface } from "@/app"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
+import type { E2EWindow } from "@/testing/terminal"
 import { handleNotificationClick } from "@/utils/notification-click"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
@@ -111,8 +112,14 @@ const getDefaultUrl = () => {
   return getCurrentUrl()
 }
 
+const e2ePlatform = () => {
+  // OCO: let visual-check render desktop-only Tool Dock tabs in the web fallback.
+  if (!import.meta.env.DEV) return undefined
+  return (window as E2EWindow).__opencode_e2e?.platform
+}
+
 const platform: Platform = {
-  platform: "web",
+  platform: e2ePlatform() === "desktop" ? "desktop" : "web",
   version: pkg.version,
   openLink,
   back,

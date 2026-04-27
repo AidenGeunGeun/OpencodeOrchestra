@@ -8,6 +8,7 @@ export type TerminalProbeState = {
 
 export type E2EWindow = Window & {
   __opencode_e2e?: {
+    platform?: "web" | "desktop"
     terminal?: {
       enabled?: boolean
       terminals?: Record<string, TerminalProbeState>

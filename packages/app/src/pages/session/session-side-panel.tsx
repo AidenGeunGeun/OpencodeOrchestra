@@ -412,7 +412,7 @@ export function SessionSidePanel(props: {
                   </div>
 
                   <Show when={reviewTab()}>
-                    <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "review"}>
+                    <Tabs.Content value="review" data-tool-dock-content="review" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "review"}>
                       {props.reviewPanel()}
                     </Tabs.Content>
                   </Show>
@@ -441,13 +441,13 @@ export function SessionSidePanel(props: {
                   </Show>
 
                   <Show when={props.childCount > 0 && props.sessionID}>
-                    <Tabs.Content value="subagents" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "subagents"}>
+                    <Tabs.Content value="subagents" data-tool-dock-content="subagents" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "subagents"}>
                       <SubagentList sessionID={props.sessionID!} onNavigateSession={props.onNavigateSession} />
                     </Tabs.Content>
                   </Show>
 
                   <Show when={browserAvailable()}>
-                    <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "browser"}>
+                    <Tabs.Content value="browser" data-tool-dock-content="browser" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "browser"}>
                       <BrowserTab />
                     </Tabs.Content>
                   </Show>
