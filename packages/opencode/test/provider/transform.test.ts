@@ -1607,7 +1607,26 @@ describe("ProviderTransform.variants", () => {
 
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
+      expect(result.low.thinking.display).toBeUndefined()
       expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
+    })
+
+    test("claude-opus-4-7 includes summarized adaptive thinking display", () => {
+      const model = createMockModel({
+        id: "anthropic/claude-opus-4-7",
+        providerID: "anthropic",
+        api: {
+          id: "claude-opus-4-7",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.low.thinking.display).toBe("summarized")
+      expect(result.xhigh.thinking.display).toBe("summarized")
+      expect(result.max.thinking.display).toBe("summarized")
     })
 
     test("claude-sonnet-4-7 includes adaptive xhigh without max", () => {
@@ -1723,6 +1742,23 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
       expect(result.max).toEqual({ thinking: { type: "adaptive" }, effort: "max" })
+    })
+
+    test("anthropic claude-opus-4-7 keeps adaptive display unchanged", () => {
+      const model = createMockModel({
+        id: "bedrock/claude-opus-4-7",
+        providerID: "bedrock",
+        api: {
+          id: "anthropic.claude-opus-4-7",
+          url: "https://bedrock.amazonaws.com",
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+      })
+
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+      expect(result.low.thinking.display).toBeUndefined()
+      expect(result.max.thinking.display).toBeUndefined()
     })
 
     test("anthropic claude-sonnet-4-7 includes adaptive xhigh", () => {

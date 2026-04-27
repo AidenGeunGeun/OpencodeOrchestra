@@ -376,7 +376,12 @@ export namespace ProviderTransform {
     return Number.parseInt(match[1], 10)
   }
 
-  function claudeAdaptiveVariants(id: string) {
+  function isClaudeOpus47(id: string) {
+    return id.includes("opus-4-7") || id.includes("opus-4.7")
+  }
+
+  function claudeAdaptiveVariants(model: Provider.Model) {
+    const id = model.id.toLowerCase()
     const minor = claude4MinorVersion(id)
     if (minor === undefined || minor < 6) return undefined
 
@@ -385,11 +390,16 @@ export namespace ProviderTransform {
       efforts.push("xhigh")
     }
 
-    const variants: Record<string, { thinking: { type: "adaptive" }; effort: string }> = Object.fromEntries(
-      efforts.map((effort) => [effort, { thinking: { type: "adaptive" }, effort }]),
-    )
+    const display: "summarized" | undefined =
+      (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic") &&
+      isClaudeOpus47(model.api.id.toLowerCase())
+        ? "summarized"
+        : undefined
+    const thinking = () => ({ type: "adaptive" as const, ...(display ? { display } : {}) })
+    const variants: Record<string, { thinking: { type: "adaptive"; display?: "summarized" }; effort: string }> =
+      Object.fromEntries(efforts.map((effort) => [effort, { thinking: thinking(), effort }]))
     if (id.includes("opus")) {
-      variants.max = { thinking: { type: "adaptive" }, effort: "max" }
+      variants.max = { thinking: thinking(), effort: "max" }
     }
     return variants
   }
@@ -398,7 +408,7 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
-    const adaptiveClaudeVariants = claudeAdaptiveVariants(id)
+    const adaptiveClaudeVariants = claudeAdaptiveVariants(model)
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
