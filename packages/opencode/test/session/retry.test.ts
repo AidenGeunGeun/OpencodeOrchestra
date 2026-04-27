@@ -128,4 +128,38 @@ describe("session.message-v2.fromError", () => {
     expect(retryable).toBeDefined()
     expect(retryable).toBe("Connection reset by server")
   })
+
+  test("OpenAI terminated stream fingerprints are retryable as pre-output transport failures", () => {
+    const cases = [
+      { message: "TypeError: terminated" },
+      { message: "stream failed", cause: { code: "UND_ERR_SOCKET", message: "other side closed" } },
+      { message: "read ECONNRESET" },
+      { message: "socket hang up" },
+    ]
+
+    for (const data of cases) {
+      const error = { name: "UnknownError", data }
+      expect(SessionRetry.openAIStreamTransportFailure(error)).toBe(true)
+      expect(SessionRetry.openAIStreamTransportMessage(error)).toBe(data.message)
+    }
+  })
+
+  test("UnknownError preserves top-level and cause details", () => {
+    const socketError = new Error("other side closed") as Error & { code: string }
+    socketError.name = "SocketError"
+    socketError.code = "UND_ERR_SOCKET"
+    const error = new TypeError("terminated", { cause: socketError })
+
+    const result = MessageV2.fromError(error, { providerID: "openai" })
+
+    expect(result.name).toBe("UnknownError")
+    if (result.name !== "UnknownError") throw new Error("expected UnknownError")
+    expect(result.data.message).toBe("TypeError: terminated")
+    expect(result.data.name).toBe("TypeError")
+    expect(result.data.cause).toEqual({
+      name: "SocketError",
+      message: "other side closed",
+      code: "UND_ERR_SOCKET",
+    })
+  })
 })

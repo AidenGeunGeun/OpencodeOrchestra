@@ -1,5 +1,11 @@
 import z from "zod"
 
+const ErrorCause = z.object({
+  name: z.string().optional(),
+  message: z.string().optional(),
+  code: z.string().optional(),
+})
+
 export abstract class NamedError extends Error {
   abstract schema(): z.core.$ZodType
   abstract toObject(): { name: string; data: any }
@@ -49,6 +55,8 @@ export abstract class NamedError extends Error {
     "UnknownError",
     z.object({
       message: z.string(),
+      name: z.string().optional(),
+      cause: ErrorCause.optional(),
     }),
   )
 }

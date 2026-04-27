@@ -6,6 +6,29 @@ export namespace SessionRetry {
   export const RETRY_BACKOFF_FACTOR = 2
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
   export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
+  export const OPENAI_STREAM_TRANSPORT_MAX_ATTEMPTS = 1
+  export const OPENAI_STREAM_TRANSPORT_DELAY = 0
+  const OPENAI_STREAM_TRANSPORT_FINGERPRINTS = [
+    "typeerror: terminated",
+    "und_err_socket",
+    "other side closed",
+    "econnreset",
+    "socket hang up",
+  ]
+
+  function collectStrings(input: unknown, output: string[], seen = new Set<unknown>()) {
+    if (input === undefined || input === null) return
+    if (typeof input === "string") {
+      output.push(input)
+      return
+    }
+    if (typeof input !== "object") return
+    if (seen.has(input)) return
+    seen.add(input)
+    for (const value of Object.values(input as Record<string, unknown>)) {
+      collectStrings(value, output, seen)
+    }
+  }
 
   export async function sleep(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -55,6 +78,20 @@ export namespace SessionRetry {
     }
 
     return Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS)
+  }
+
+  export function openAIStreamTransportFailure(error: ReturnType<NamedError["toObject"]>) {
+    const values: string[] = []
+    collectStrings(error, values)
+    const text = values.join("\n").toLowerCase()
+    return OPENAI_STREAM_TRANSPORT_FINGERPRINTS.some((fingerprint) => text.includes(fingerprint))
+  }
+
+  export function openAIStreamTransportMessage(error: ReturnType<NamedError["toObject"]>) {
+    if (!openAIStreamTransportFailure(error)) return undefined
+    if (MessageV2.APIError.isInstance(error)) return error.data.message
+    if (typeof error.data?.message === "string") return error.data.message
+    return "OpenAI stream connection dropped"
   }
 
   export function retryable(error: ReturnType<NamedError["toObject"]>) {

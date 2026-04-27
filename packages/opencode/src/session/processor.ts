@@ -69,6 +69,7 @@ export namespace SessionProcessor {
     let snapshot: string | undefined
     let blocked = false
     let attempt = 0
+    let openAITransportAttempts = 0
     let needsCompaction = false
 
     const result = {
@@ -83,6 +84,16 @@ export namespace SessionProcessor {
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
+          let streamRetrySafe = true
+          let safeRetryPartIDs: string[] = []
+          const trackSafeRetryPart = (partID: string) => {
+            if (streamRetrySafe) safeRetryPartIDs.push(partID)
+          }
+          const markStreamRetryUnsafe = () => {
+            streamRetrySafe = false
+            safeRetryPartIDs = []
+          }
+
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
@@ -110,6 +121,7 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
+                  trackSafeRetryPart(reasoningPart.id)
                   reasoningMap[value.id] = reasoningPart
                   await Session.updatePart(reasoningPart)
                   break
@@ -119,6 +131,7 @@ export namespace SessionProcessor {
                     const part = reasoningMap[value.id]
                     part.text += value.text
                     if (value.providerMetadata) part.metadata = value.providerMetadata
+                    if (value.text) markStreamRetryUnsafe()
                     if (part.text) await Session.updatePart({ part, delta: value.text })
                   }
                   break
@@ -139,6 +152,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-input-start":
+                  markStreamRetryUnsafe()
                   const part = await Session.updatePart({
                     id: toolcalls[value.id]?.id ?? Identifier.ascending("part"),
                     messageID: input.assistantMessage.id,
@@ -162,6 +176,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-call": {
+                  markStreamRetryUnsafe()
                   const match = toolcalls[value.toolCallId]
                   if (match) {
                     const part = await Session.updatePart({
@@ -208,6 +223,7 @@ export namespace SessionProcessor {
                   break
                 }
                 case "tool-result": {
+                  markStreamRetryUnsafe()
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
                     const attachments = value.output.attachments?.length ? [...value.output.attachments] : undefined
@@ -262,6 +278,7 @@ export namespace SessionProcessor {
                 }
 
                 case "tool-error": {
+                  markStreamRetryUnsafe()
                   const match = toolcalls[value.toolCallId]
                   if (match && match.state.status === "running") {
                     await Session.updatePart({
@@ -292,8 +309,10 @@ export namespace SessionProcessor {
 
                 case "start-step":
                   snapshot = await Snapshot.track()
+                  const stepStartPartID = Identifier.ascending("part")
+                  trackSafeRetryPart(stepStartPartID)
                   await Session.updatePart({
-                    id: Identifier.ascending("part"),
+                    id: stepStartPartID,
                     messageID: input.assistantMessage.id,
                     sessionID: input.sessionID,
                     snapshot,
@@ -302,6 +321,7 @@ export namespace SessionProcessor {
                   break
 
                 case "finish-step":
+                  markStreamRetryUnsafe()
                   const usage = Session.getUsage({
                     model: input.model,
                     usage: value.usage,
@@ -356,6 +376,7 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
+                  trackSafeRetryPart(currentText.id)
                   await Session.updatePart(currentText)
                   break
 
@@ -363,6 +384,7 @@ export namespace SessionProcessor {
                   if (currentText) {
                     currentText.text += value.text
                     if (value.providerMetadata) currentText.metadata = value.providerMetadata
+                    if (value.text) markStreamRetryUnsafe()
                     if (currentText.text)
                       await Session.updatePart({
                         part: currentText,
@@ -373,6 +395,7 @@ export namespace SessionProcessor {
 
                 case "text-end":
                   if (currentText) {
+                    markStreamRetryUnsafe()
                     currentText.text = currentText.text.trimEnd()
                     const textOutput = await Plugin.trigger(
                       "experimental.text.complete",
@@ -411,18 +434,58 @@ export namespace SessionProcessor {
               stack: JSON.stringify(e.stack),
             })
             const error = MessageV2.fromError(e, { providerID: input.model.providerID })
-            const retry = SessionRetry.retryable(error)
-            if (retry !== undefined) {
-              attempt++
-              const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
-              SessionStatus.set(input.sessionID, {
-                type: "retry",
-                attempt,
-                message: retry,
-                next: Date.now() + delay,
+            const openAITransportRetry =
+              input.model.providerID === "openai" ? SessionRetry.openAIStreamTransportMessage(error) : undefined
+            // OCO: retry OpenAI transport drops only before visible output or tools.
+            if (openAITransportRetry !== undefined) {
+              if (streamRetrySafe && openAITransportAttempts < SessionRetry.OPENAI_STREAM_TRANSPORT_MAX_ATTEMPTS) {
+                openAITransportAttempts++
+                attempt++
+                for (const partID of [...safeRetryPartIDs].reverse()) {
+                  await Session.removePart({
+                    sessionID: input.assistantMessage.sessionID,
+                    messageID: input.assistantMessage.id,
+                    partID,
+                  })
+                }
+                snapshot = undefined
+                const delay = SessionRetry.OPENAI_STREAM_TRANSPORT_DELAY
+                log.info("retrying openai stream transport failure", {
+                  sessionID: input.sessionID,
+                  messageID: input.assistantMessage.id,
+                  attempt,
+                  error,
+                })
+                SessionStatus.set(input.sessionID, {
+                  type: "retry",
+                  attempt,
+                  message: openAITransportRetry,
+                  next: Date.now() + delay,
+                })
+                await SessionRetry.sleep(delay, input.abort).catch(() => {})
+                continue
+              }
+              log.warn("not retrying openai stream transport failure", {
+                sessionID: input.sessionID,
+                messageID: input.assistantMessage.id,
+                safe: streamRetrySafe,
+                attempts: openAITransportAttempts,
+                error,
               })
-              await SessionRetry.sleep(delay, input.abort).catch(() => {})
-              continue
+            } else {
+              const retry = SessionRetry.retryable(error)
+              if (retry !== undefined) {
+                attempt++
+                const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
+                SessionStatus.set(input.sessionID, {
+                  type: "retry",
+                  attempt,
+                  message: retry,
+                  next: Date.now() + delay,
+                })
+                await SessionRetry.sleep(delay, input.abort).catch(() => {})
+                continue
+              }
             }
             input.assistantMessage.error = error
             Bus.publish(Session.Event.Error, {

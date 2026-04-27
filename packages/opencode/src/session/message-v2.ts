@@ -18,6 +18,35 @@ export namespace MessageV2 {
     return mime.startsWith("image/") || mime === "application/pdf"
   }
 
+  function errorCauseData(e: unknown) {
+    if (!(e instanceof Error)) return undefined
+    const cause = e.cause
+    if (!cause || typeof cause !== "object") return undefined
+    const record = cause as Record<string, unknown>
+    const result = {
+      name: typeof record.name === "string" ? record.name : undefined,
+      message: typeof record.message === "string" ? record.message : String(cause),
+      code: typeof record.code === "string" ? record.code : undefined,
+    }
+    return Object.values(result).some((value) => value !== undefined) ? result : undefined
+  }
+
+  function unknownErrorData(e: Error) {
+    return {
+      message: e.toString(),
+      name: e.name,
+      cause: errorCauseData(e),
+    }
+  }
+
+  function stringifyUnknownError(e: unknown) {
+    try {
+      return JSON.stringify(e) ?? String(e)
+    } catch {
+      return String(e)
+    }
+  }
+
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
   export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
   export const AuthError = NamedError.create(
@@ -857,7 +886,7 @@ export namespace MessageV2 {
           { cause: e },
         ).toObject()
       case e instanceof Error:
-        return new NamedError.Unknown({ message: e.toString() }, { cause: e }).toObject()
+        return new NamedError.Unknown(unknownErrorData(e), { cause: e }).toObject()
       default:
         try {
           const parsed = ProviderError.parseStreamError(e)
@@ -881,7 +910,7 @@ export namespace MessageV2 {
             ).toObject()
           }
         } catch {}
-        return new NamedError.Unknown({ message: JSON.stringify(e) }, { cause: e })
+        return new NamedError.Unknown({ message: stringifyUnknownError(e) }, { cause: e }).toObject()
     }
   }
 }
