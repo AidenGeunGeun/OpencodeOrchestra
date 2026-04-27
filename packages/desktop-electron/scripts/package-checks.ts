@@ -270,6 +270,22 @@ export async function validatePrePackage() {
   await requireAnyNativeModule(["@lydell/node-pty", nodePtyPlatformPackage()])
 }
 
+// OCO: Channel-aware fallback executable name; matches productName in electron-builder.config.ts.
+const FALLBACK_PRODUCT_NAMES: Record<string, string> = {
+  dev: "OpenCodeOrchestra Dev",
+  beta: "OpenCodeOrchestra Beta",
+  prod: "OpenCodeOrchestra",
+}
+
+function fallbackExecutableName(electronPlatformName: string) {
+  const channel = process.env.OPENCODE_CHANNEL
+  const product =
+    channel === "dev" || channel === "beta" || channel === "prod"
+      ? FALLBACK_PRODUCT_NAMES[channel]
+      : FALLBACK_PRODUCT_NAMES.dev
+  return electronPlatformName === "win32" ? `${product}.exe` : product
+}
+
 async function packagedLayout(context: PackagedContext) {
   if (context.electronPlatformName !== "darwin") {
     const resources = join(context.appOutDir, "resources")
@@ -283,7 +299,7 @@ async function packagedLayout(context: PackagedContext) {
       resources,
       executable: executableEntry
         ? join(context.appOutDir, executableEntry.name)
-        : join(context.appOutDir, "OpenCodeOrchestra Electron Dev"),
+        : join(context.appOutDir, fallbackExecutableName(context.electronPlatformName)),
     }
   }
   const entries = await readdir(context.appOutDir, { withFileTypes: true })

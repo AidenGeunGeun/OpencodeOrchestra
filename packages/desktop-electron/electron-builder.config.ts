@@ -108,11 +108,15 @@ function getConfig() {
   const base = getBase()
 
   switch (channel) {
+    // OCO: productName drops the "Electron" suffix so dev/beta/prod install paths read as
+    // "OpenCodeOrchestra Dev.app", "OpenCodeOrchestra Beta.app", and "OpenCodeOrchestra.app".
+    // Bundle IDs keep the `.electron` segment so existing user data under
+    // `~/Library/Application Support/ai.opencode.orchestra.electron(.dev|.beta)?` is preserved.
     case "dev": {
       return {
         ...base,
         appId: "ai.opencode.orchestra.electron.dev",
-        productName: "OpenCodeOrchestra Electron Dev",
+        productName: "OpenCodeOrchestra Dev",
         rpm: { packageName: "oco-electron-dev" },
       }
     }
@@ -120,8 +124,8 @@ function getConfig() {
       return {
         ...base,
         appId: "ai.opencode.orchestra.electron.beta",
-        productName: "OpenCodeOrchestra Electron Beta",
-        protocols: { name: "OpenCodeOrchestra Electron Beta", schemes: ["oco"] },
+        productName: "OpenCodeOrchestra Beta",
+        protocols: { name: "OpenCodeOrchestra Beta", schemes: ["oco"] },
         publish: { provider: "github", owner: "AidenGeunGeun", repo: "OpenCodeOrchestra", channel: "latest" },
         rpm: { packageName: "oco-electron-beta" },
       }
@@ -130,8 +134,8 @@ function getConfig() {
       return {
         ...base,
         appId: "ai.opencode.orchestra.electron",
-        productName: "OpenCodeOrchestra Electron",
-        protocols: { name: "OpenCodeOrchestra Electron", schemes: ["oco"] },
+        productName: "OpenCodeOrchestra",
+        protocols: { name: "OpenCodeOrchestra", schemes: ["oco"] },
         publish: { provider: "github", owner: "AidenGeunGeun", repo: "OpenCodeOrchestra", channel: "latest" },
         rpm: { packageName: "oco-electron" },
       }

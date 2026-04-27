@@ -11,27 +11,38 @@ import pkg from "electron-updater"
 import contextMenu from "electron-context-menu"
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
 
+// OCO: packaged macOS apps launch with cwd `/`, which breaks ripgrep and any tool
+// that resolves relative paths from the working directory. Move to homedir before
+// any module-init code captures cwd. Upstream chdirs unconditionally; OCO gates on
+// `app.isPackaged` because the OCO-only dev sidecar path in `server.ts` derives the
+// child cwd from `process.cwd()` and assumes it points at `packages/desktop-electron`.
+if (app.isPackaged) {
+  try {
+    process.chdir(homedir())
+  } catch {}
+}
+
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
-// OCO: Electron app identity uses OCO names, IDs, and isolated user data
+// OCO: Electron app identity uses OCO names, IDs, and isolated user data.
+// Display names drop "Electron" so the .app bundle reads as "OpenCodeOrchestra Dev/Beta/.app".
+// Bundle IDs intentionally keep the `.electron` segment to preserve existing user data paths
+// under `~/Library/Application Support/ai.opencode.orchestra.electron(.dev|.beta)?`.
 const APP_NAMES: Record<string, string> = {
-  dev: "OpenCodeOrchestra Electron Dev",
-  beta: "OpenCodeOrchestra Electron Beta",
-  prod: "OpenCodeOrchestra Electron",
+  dev: "OpenCodeOrchestra Dev",
+  beta: "OpenCodeOrchestra Beta",
+  prod: "OpenCodeOrchestra",
 }
 const APP_IDS: Record<string, string> = {
   dev: "ai.opencode.orchestra.electron.dev",
   beta: "ai.opencode.orchestra.electron.beta",
   prod: "ai.opencode.orchestra.electron",
 }
+const appId = app.isPackaged ? APP_IDS[CHANNEL] : APP_IDS.dev
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : APP_NAMES.dev)
-app.setPath(
-  "userData",
-  join(
-    app.getPath("appData"),
-    process.env.OCO_ELECTRON_USER_DATA_ID ?? (app.isPackaged ? APP_IDS[CHANNEL] : APP_IDS.dev),
-  ),
-)
+// OCO: AppUserModelId groups Windows taskbar/notification surface per channel; harmless on macOS/Linux.
+app.setAppUserModelId(appId)
+app.setPath("userData", join(app.getPath("appData"), process.env.OCO_ELECTRON_USER_DATA_ID ?? appId))
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
