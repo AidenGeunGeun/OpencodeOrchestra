@@ -1,5 +1,6 @@
 import type { AgentPart as MessageAgentPart, FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, BrowserCommentAttachmentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import { readBrowserCommentMetadata } from "@/utils/browser-comment"
 
 type Inline =
   | {
@@ -76,10 +77,21 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
 
   const inline: Inline[] = []
   const images: ImageAttachmentPart[] = []
+  const browserComments: BrowserCommentAttachmentPart[] = []
+  const browserScreenshotPartIDs = new Set<string>()
+
+  for (const part of parts) {
+    if (part.type !== "text") continue
+    const metadata = readBrowserCommentMetadata((part as TextPart).metadata)
+    if (!metadata) continue
+    browserComments.push(metadata.comment)
+    browserScreenshotPartIDs.add(metadata.screenshotPartID)
+  }
 
   for (const part of parts) {
     if (part.type === "file") {
       const filePart = part as FilePart
+      if (browserScreenshotPartIDs.has(filePart.id)) continue
       const sourceText = filePart.source?.text
       if (sourceText) {
         const value = sourceText.value
@@ -198,6 +210,6 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
     result.push({ type: "text", content: "", start: 0, end: 0 })
   }
 
-  if (images.length === 0) return result
-  return [...result, ...images]
+  if (images.length === 0 && browserComments.length === 0) return result
+  return [...result, ...images, ...browserComments]
 }

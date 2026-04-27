@@ -2,9 +2,15 @@ import { getFilename } from "@opencode-ai/util/path"
 import { type AgentPartInput, type FilePartInput, type Part, type TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { FileSelection } from "@/context/file"
 import { encodeFilePath } from "@/context/file/path"
-import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
+import type { AgentPart, BrowserCommentAttachmentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
+import {
+  createBrowserCommentBatchMetadata,
+  createBrowserCommentMetadata,
+  formatBrowserComment,
+  formatBrowserCommentBatch,
+} from "@/utils/browser-comment"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -41,6 +47,8 @@ const fileQuery = (selection: FileSelection | undefined) =>
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
 const isAgentAttachment = (part: Prompt[number]): part is AgentPart => part.type === "agent"
+const isBrowserCommentAttachment = (part: Prompt[number]): part is BrowserCommentAttachmentPart =>
+  part.type === "browser-comment"
 
 const toOptimisticPart = (part: PromptRequestPart, sessionID: string, messageID: string): Part => {
   if (part.type === "text") {
@@ -166,7 +174,59 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     } satisfies PromptRequestPart
   })
 
-  requestParts.push(...files, ...context, ...agents, ...images)
+  const browserComments = input.prompt.filter(isBrowserCommentAttachment)
+  const browserCommentConsole = Array.from(
+    new Map(
+      browserComments
+        .flatMap((comment) => comment.console)
+        .map((item) => [`${item.level}\u0000${item.text}\u0000${item.timestamp}`, item]),
+    ).values(),
+  )
+  const browserCommentParts = browserComments.flatMap((comment, index) => {
+    const screenshotPartID = Identifier.ascending("part")
+    return [
+      {
+        id: Identifier.ascending("part"),
+        type: "text",
+        text: formatBrowserComment({ comment, index, total: browserComments.length, screenshotPartID }),
+        synthetic: true,
+        metadata: createBrowserCommentMetadata({ version: 1, id: comment.id, screenshotPartID, comment }),
+      } satisfies PromptRequestPart,
+      {
+        id: screenshotPartID,
+        type: "file",
+        mime: comment.screenshot.mime,
+        url: comment.screenshot.dataUrl,
+        filename: comment.screenshot.filename,
+      } satisfies PromptRequestPart,
+    ]
+  })
+
+  const browserCommentBatch = browserComments[0]
+    ? [
+        {
+          id: Identifier.ascending("part"),
+          type: "text",
+          text: formatBrowserCommentBatch({
+            version: 1,
+            commentIDs: browserComments.map((comment) => comment.id),
+            pageUrl: browserComments[0].page.url,
+            viewport: browserComments[0].viewport,
+            console: browserCommentConsole,
+          }),
+          synthetic: true,
+          metadata: createBrowserCommentBatchMetadata({
+            version: 1,
+            commentIDs: browserComments.map((comment) => comment.id),
+            pageUrl: browserComments[0].page.url,
+            viewport: browserComments[0].viewport,
+            console: browserCommentConsole,
+          }),
+        } satisfies PromptRequestPart,
+      ]
+    : []
+
+  requestParts.push(...files, ...context, ...agents, ...images, ...browserCommentBatch, ...browserCommentParts)
 
   return {
     requestParts,

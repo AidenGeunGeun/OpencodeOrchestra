@@ -35,6 +35,7 @@ export function clonePromptParts(prompt: Prompt): Prompt {
   return prompt.map((part) => {
     if (part.type === "text") return { ...part }
     if (part.type === "image") return { ...part }
+    if (part.type === "browser-comment") return { ...part, screenshot: { ...part.screenshot } }
     if (part.type === "agent") return { ...part }
     return {
       ...part,
@@ -87,8 +88,9 @@ export function prependHistoryEntry(
     .join("")
     .trim()
   const hasImages = prompt.some((part) => part.type === "image")
+  const hasBrowserComments = prompt.some((part) => part.type === "browser-comment")
   const hasComments = comments.some((comment) => !!comment.comment.trim())
-  if (!text && !hasImages && !hasComments) return entries
+  if (!text && !hasImages && !hasComments && !hasBrowserComments) return entries
 
   const entry = {
     prompt: clonePromptParts(prompt),
@@ -137,6 +139,7 @@ function isPromptEqual(promptA: PromptHistoryStoredEntry, promptB: PromptHistory
     }
     if (partA.type === "agent" && partA.name !== (partB.type === "agent" ? partB.name : "")) return false
     if (partA.type === "image" && partA.id !== (partB.type === "image" ? partB.id : "")) return false
+    if (partA.type === "browser-comment" && partA.id !== (partB.type === "browser-comment" ? partB.id : "")) return false
   }
   if (entryA.comments.length !== entryB.comments.length) return false
   for (let i = 0; i < entryA.comments.length; i++) {

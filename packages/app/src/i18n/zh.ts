@@ -66,7 +66,7 @@ export const dict = {
 
   "command.fileTree.toggle": "切换文件树",
 
-  "command.review.toggle": "切换审查",
+  "command.review.toggle": "Toggle Tool Dock",
 
   "command.terminal.new": "新建终端",
   "command.terminal.new.description": "创建新的终端标签页",
@@ -498,7 +498,13 @@ export const dict = {
   "session.tab.session": "会话",
   "session.tab.review": "审查",
   "session.tab.context": "上下文",
-  "session.panel.reviewAndFiles": "审查和文件",
+  "session.panel.reviewAndFiles": "Tool Dock",
+  "session.toolDock.hideTool": "Hide {{tool}}",
+  "session.toolDock.keepOneToolVisible": "At least one tool must stay visible",
+  "session.toolDock.restoreHiddenTool": "Restore hidden tool",
+  "session.toolDock.noHiddenTools": "No hidden tools",
+  "session.toolDock.restoreHiddenTab": "Restore hidden Tool Dock tab",
+  "session.toolDock.hiddenTools": "Hidden tools",
   "session.review.filesChanged": "{{count}} 个文件变更",
   "session.review.change.one": "更改",
   "session.review.change.other": "更改",

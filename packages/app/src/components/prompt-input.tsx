@@ -1,6 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, Show, onCleanup, Switch, Match, createMemo, createSignal, For } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createFocusSignal } from "@solid-primitives/active-element"
 import { useLocal } from "@/context/local"
@@ -12,6 +12,7 @@ import {
   Prompt,
   usePrompt,
   ImageAttachmentPart,
+  BrowserCommentAttachmentPart,
   AgentPart,
   FileAttachmentPart,
 } from "@/context/prompt"
@@ -103,6 +104,7 @@ const EXAMPLES = [
 ] as const
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
+const isEditorPart = (part: ContentPart) => part.type !== "image" && part.type !== "browser-comment"
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
@@ -136,7 +138,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (!editorRef.contains(range.startContainer)) return
 
     const cursor = getCursorPosition(editorRef)
-    const length = promptLength(prompt.current().filter((part) => part.type !== "image"))
+    const length = promptLength(prompt.current().filter(isEditorPart))
     if (cursor >= length) {
       container.scrollTop = container.scrollHeight
       return
@@ -248,6 +250,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
+  const browserCommentAttachments = createMemo(() =>
+    prompt.current().filter((part): part is BrowserCommentAttachmentPart => part.type === "browser-comment"),
+  )
 
   const [store, setStore] = createStore<{
     popover: "at" | "slash" | null
@@ -280,7 +285,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const commentCount = createMemo(() => {
     if (store.mode === "shell") return 0
-    return prompt.context.items().filter((item) => !!item.comment?.trim()).length
+    return prompt.context.items().filter((item) => !!item.comment?.trim()).length + browserCommentAttachments().length
   })
 
   const contextItems = createMemo(() => {
@@ -520,7 +525,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setComposing(false)
     requestAnimationFrame(() => {
       if (composing()) return
-      reconcile(prompt.current().filter((part) => part.type !== "image"))
+      reconcile(prompt.current().filter(isEditorPart))
     })
   }
 
@@ -754,7 +759,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       () => prompt.current(),
       (parts) => {
         if (composing()) return
-        reconcile(parts.filter((part) => part.type !== "image"))
+        reconcile(parts.filter(isEditorPart))
       },
     ),
   )
@@ -844,13 +849,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const handleInput = () => {
     const rawParts = parseFromDOM()
     const images = imageAttachments()
+    const browserComments = browserCommentAttachments()
     const cursorPosition = getCursorPosition(editorRef)
     const rawText =
       rawParts.length === 1 && rawParts[0]?.type === "text"
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
     const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0 && browserComments.length === 0
 
     if (shouldReset) {
       closePopover()
@@ -885,12 +891,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     resetHistoryNavigation()
 
     mirror.input = true
-    prompt.set([...rawParts, ...images], cursorPosition)
+    prompt.set([...rawParts, ...images, ...browserComments], cursorPosition)
     queueScroll()
   }
 
   const addPart = (part: ContentPart) => {
     if (part.type === "image") return false
+    if (part.type === "browser-comment") return false
 
     const selection = window.getSelection()
     if (!selection) return false
@@ -1268,6 +1275,25 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
         />
+        <Show when={browserCommentAttachments().length > 0}>
+          <div class="flex flex-wrap items-center gap-2 px-3 pt-3">
+            <div class="rounded-full border border-border-weak-base bg-background-stronger px-2 py-1 text-11-medium text-text-strong">
+              {browserCommentAttachments().length} browser comment{browserCommentAttachments().length === 1 ? "" : "s"} attached
+            </div>
+            <For each={browserCommentAttachments()}>
+              {(comment) => (
+                <button
+                  type="button"
+                  class="relative size-12 overflow-hidden rounded-md border border-border-base bg-background-base"
+                  onClick={() => dialog.show(() => <ImagePreview src={comment.screenshot.dataUrl} alt={comment.screenshot.filename} />)}
+                  aria-label="Open browser comment preview"
+                >
+                  <img src={comment.screenshot.dataUrl} alt="" class="size-full object-cover" />
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <PromptImageAttachments
           attachments={imageAttachments()}
           onOpen={(attachment) =>

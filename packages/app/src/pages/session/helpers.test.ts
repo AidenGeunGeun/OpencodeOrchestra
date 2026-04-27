@@ -5,8 +5,12 @@ import {
   createOpenReviewFile,
   createOpenSessionFileTab,
   createSessionTabs,
+  canHideToolDockTool,
   focusTerminalById,
   getTabReorderIndex,
+  hiddenToolDockTools,
+  nextVisibleToolDockTool,
+  visibleToolDockTools,
 } from "./helpers"
 
 describe("createOpenReviewFile", () => {
@@ -156,5 +160,47 @@ describe("createSessionTabs", () => {
       expect(result.closableTab()).toBeUndefined()
       dispose()
     })
+  })
+
+  test("keeps reserved hidden tool ids out of file tabs", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "browser" as string | undefined,
+        all: ["browser", "file://src/a.ts"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: (tab) => (tab.startsWith("file://") ? tab.slice("file://".length) : undefined),
+        normalizeTab: (tab) => (tab.startsWith("file://") ? `norm:${tab.slice("file://".length)}` : tab),
+        extras: () => [],
+        reserved: () => ["browser", "subagents"],
+      })
+
+      expect(result.openedTabs()).toEqual(["norm:src/a.ts"])
+      expect(result.activeTab()).toBe("norm:src/a.ts")
+      dispose()
+    })
+  })
+})
+
+describe("Tool Dock tab visibility", () => {
+  const available = ["review", "subagents", "browser"] as const
+
+  test("filters visible and restorable tools", () => {
+    expect(visibleToolDockTools(available, ["browser"])).toEqual(["review", "subagents"])
+    expect(hiddenToolDockTools(available, ["browser", "subagents"])).toEqual(["browser", "subagents"])
+    expect(hiddenToolDockTools(["review", "browser"], ["subagents", "browser"])).toEqual(["browser"])
+  })
+
+  test("protects the last visible tool", () => {
+    expect(canHideToolDockTool(available, [], "review")).toBe(true)
+    expect(canHideToolDockTool(available, ["review", "subagents"], "browser")).toBe(false)
+    expect(canHideToolDockTool(available, ["review"], "review")).toBe(false)
+  })
+
+  test("chooses a visible fallback after hiding the active tool", () => {
+    expect(nextVisibleToolDockTool(available, ["browser"], "browser")).toBe("review")
+    expect(nextVisibleToolDockTool(["browser"], ["browser"], "browser")).toBeUndefined()
   })
 })

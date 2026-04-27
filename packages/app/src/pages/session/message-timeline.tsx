@@ -30,6 +30,7 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
+import { readBrowserCommentMetadata } from "@/utils/browser-comment"
 
 type MessageComment = {
   path: string
@@ -38,6 +39,13 @@ type MessageComment = {
     startLine: number
     endLine: number
   }
+}
+
+type MessageBrowserComment = {
+  id: string
+  note: string
+  screenshot: string
+  filename: string
 }
 
 const emptyMessages: MessageType[] = []
@@ -63,6 +71,21 @@ const messageComments = (parts: Part[]): MessageComment[] =>
               endLine: next.selection.endLine,
             }
           : undefined,
+      },
+    ]
+  })
+
+const messageBrowserComments = (parts: Part[]): MessageBrowserComment[] =>
+  parts.flatMap((part) => {
+    if (part.type !== "text" || !(part as TextPart).synthetic) return []
+    const meta = readBrowserCommentMetadata(part.metadata)
+    if (!meta) return []
+    return [
+      {
+        id: meta.id,
+        note: meta.comment.note,
+        screenshot: meta.comment.screenshot.dataUrl,
+        filename: meta.comment.screenshot.filename,
       },
     ]
   })
@@ -957,6 +980,10 @@ export function MessageTimeline(props: {
                     equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
                   })
                   const commentCount = createMemo(() => comments().length)
+                  const browserComments = createMemo(() => messageBrowserComments(sync.data.part[messageID] ?? []), [], {
+                    equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+                  })
+                  const browserCommentCount = createMemo(() => browserComments().length)
                   return (
                     <div
                       id={props.anchor(messageID)}
@@ -996,6 +1023,36 @@ export function MessageTimeline(props: {
                                           </div>
                                           <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
                                             {c().comment}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </Show>
+                                  )
+                                }}
+                              </Index>
+                            </div>
+                          </div>
+                        </div>
+                      </Show>
+                      <Show when={browserCommentCount() > 0}>
+                        <div class="w-full px-4 md:px-5 pb-2">
+                          <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
+                            <div class="flex w-max min-w-full justify-end gap-2">
+                              <Index each={browserComments()}>
+                                {(commentAccessor: () => MessageBrowserComment) => {
+                                  const comment = createMemo(() => commentAccessor())
+                                  return (
+                                    <Show when={comment()}>
+                                      {(c) => (
+                                        <div class="shrink-0 w-[220px] rounded-[6px] border border-border-weak-base bg-background-stronger overflow-hidden">
+                                           <img src={c().screenshot} alt={c().filename} class="w-full h-24 object-cover bg-white" />
+                                           <div class="px-2.5 py-2">
+                                             <div class="text-11-medium text-text-strong truncate">Browser comment</div>
+                                             <Show when={c().note.trim()}>
+                                              <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
+                                                {c().note}
+                                              </div>
+                                            </Show>
                                           </div>
                                         </div>
                                       )}

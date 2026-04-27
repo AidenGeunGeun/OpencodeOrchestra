@@ -7,7 +7,7 @@ const expanded = async (el: { getAttribute: (name: string) => Promise<string | n
   return value === "true"
 }
 
-test("review panel can be toggled via keybind", async ({ page, gotoSession }) => {
+test("Tool Dock can be toggled via keybind", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const reviewPanel = page.locator("#review-panel")
@@ -17,7 +17,7 @@ test("review panel can be toggled via keybind", async ({ page, gotoSession }) =>
   if (await expanded(treeToggle)) await treeToggle.click()
   await expect(treeToggle).toHaveAttribute("aria-expanded", "false")
 
-  const reviewToggle = page.getByRole("button", { name: "Toggle review" }).first()
+  const reviewToggle = page.getByRole("button", { name: "Toggle Tool Dock" }).first()
   await expect(reviewToggle).toBeVisible()
   if (await expanded(reviewToggle)) await reviewToggle.click()
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "false")

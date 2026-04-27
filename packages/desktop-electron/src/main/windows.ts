@@ -89,6 +89,7 @@ export function createMainWindow(globals: Globals) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   })
 

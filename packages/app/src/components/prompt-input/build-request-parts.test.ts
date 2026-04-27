@@ -283,4 +283,105 @@ describe("buildRequestParts", () => {
       expect(filePart.url).toContain("/..")
     }
   })
+
+  test("serializes browser comments as rich metadata plus screenshot file parts", () => {
+    const prompt: Prompt = [
+      { type: "text", content: "fix this", start: 0, end: 8 },
+      {
+        type: "browser-comment",
+        id: "bc_1",
+        kind: "element",
+        note: "Make this button larger",
+        screenshot: { dataUrl: "data:image/png;base64,BBB", mime: "image/png", filename: "button.png" },
+        rect: { x: 10, y: 20, width: 100, height: 40 },
+        point: { x: 60, y: 40 },
+        page: { url: "http://localhost:5173/", title: "Demo" },
+        viewport: { width: 1200, height: 800, deviceScaleFactor: 2 },
+        console: [{ level: "warning", text: "fixture warning", timestamp: 1 }],
+        element: {
+          tagName: "BUTTON",
+          id: "cta",
+          className: "primary",
+          role: "button",
+          text: "Start",
+          attributes: { id: "cta", class: "primary" },
+        },
+        source: { fileName: "/repo/src/App.tsx", lineNumber: 12, columnNumber: 4, framework: "react-dev" },
+        styles: { color: "rgb(0, 0, 0)", fontSize: "16px" },
+        createdAt: 1,
+      },
+    ]
+
+    const result = buildRequestParts({
+      prompt,
+      context: [],
+      images: [],
+      text: "fix this",
+      messageID: "msg_browser",
+      sessionID: "ses_browser",
+      sessionDirectory: "/repo",
+    })
+
+    const browserText = result.requestParts.find(
+      (part) => part.type === "text" && !!part.metadata?.ocoBrowserComment,
+    )
+    const batchText = result.requestParts.find(
+      (part) => part.type === "text" && !!part.metadata?.ocoBrowserCommentBatch,
+    )
+    const screenshot = result.requestParts.find(
+      (part) => part.type === "file" && part.filename === "button.png" && part.url === "data:image/png;base64,BBB",
+    )
+
+    expect(browserText).toBeDefined()
+    expect(batchText).toBeDefined()
+    expect(screenshot).toBeDefined()
+    if (browserText?.type === "text" && screenshot?.type === "file") {
+      const payload = JSON.parse(browserText.text)
+      expect(payload.note).toBe("Make this button larger")
+      expect(payload.source).toEqual({
+        status: "available",
+        confidence: "high",
+        file: "/repo/src/App.tsx",
+        line: 12,
+        column: 4,
+        framework: "react-dev",
+      })
+      expect(payload.image).toEqual({ partID: screenshot.id, filename: "button.png" })
+      expect((browserText.metadata?.ocoBrowserComment as { id?: string }).id).toBe("bc_1")
+    }
+    if (batchText?.type === "text") {
+      const payload = JSON.parse(batchText.text)
+      expect(payload.console).toEqual([{ level: "warning", text: "fixture warning", count: 1 }])
+    }
+  })
+
+  test("keeps normal image attachments unchanged when browser comments are present", () => {
+    const result = buildRequestParts({
+      prompt: [
+        { type: "text", content: "fix this", start: 0, end: 8 },
+        {
+          type: "browser-comment",
+          id: "bc_img_regression",
+          kind: "area",
+          note: "",
+          screenshot: { dataUrl: "data:image/png;base64,BROWSER", mime: "image/png", filename: "area.png" },
+          rect: { x: 1, y: 2, width: 3, height: 4 },
+          point: { x: 2, y: 3 },
+          page: { url: "http://localhost:3000/" },
+          viewport: { width: 500, height: 400 },
+          console: [],
+          createdAt: 1,
+        },
+      ],
+      context: [],
+      images: [{ type: "image", id: "img_keep", filename: "drop.png", mime: "image/png", dataUrl: "data:image/png;base64,DROP" }],
+      text: "fix this",
+      messageID: "msg_browser_image",
+      sessionID: "ses_browser_image",
+      sessionDirectory: "/repo",
+    })
+
+    expect(result.requestParts.some((part) => part.type === "file" && part.filename === "drop.png")).toBe(true)
+    expect(result.requestParts.some((part) => part.type === "file" && part.filename === "area.png")).toBe(true)
+  })
 })

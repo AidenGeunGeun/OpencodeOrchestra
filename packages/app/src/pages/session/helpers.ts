@@ -4,6 +4,8 @@ import { same } from "@/utils/same"
 
 const emptyTabs: string[] = []
 
+export type ToolDockTool = "review" | "subagents" | "browser"
+
 type Tabs = {
   active: Accessor<string | undefined>
   all: Accessor<string[]>
@@ -16,6 +18,7 @@ type TabsInput = {
   review?: Accessor<boolean>
   hasReview?: Accessor<boolean>
   extras?: Accessor<string[]>
+  reserved?: Accessor<string[]>
 }
 
 export const getSessionKey = (dir: string | undefined, id: string | undefined) => `${dir ?? ""}${id ? `/${id}` : ""}`
@@ -24,6 +27,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)
   const extras = input.extras ?? (() => emptyTabs)
+  const reserved = input.reserved ?? extras
   const contextOpen = createMemo(() => input.tabs().active() === "context" || input.tabs().all().includes("context"))
   const openedTabs = createMemo(
     () => {
@@ -33,6 +37,7 @@ export const createSessionTabs = (input: TabsInput) => {
         .all()
         .flatMap((tab) => {
           if (tab === "context" || tab === "review") return []
+          if (reserved().includes(tab)) return []
           const value = input.pathFromTab(tab) ? input.normalizeTab(tab) : tab
           if (seen.has(value)) return []
           seen.add(value)
@@ -77,6 +82,37 @@ export const createSessionTabs = (input: TabsInput) => {
     closableTab,
   }
 }
+
+export const visibleToolDockTools = (
+  available: readonly ToolDockTool[],
+  hidden: readonly ToolDockTool[],
+): ToolDockTool[] => {
+  const hiddenSet = new Set(hidden)
+  return available.filter((tool) => !hiddenSet.has(tool))
+}
+
+export const hiddenToolDockTools = (
+  available: readonly ToolDockTool[],
+  hidden: readonly ToolDockTool[],
+): ToolDockTool[] => {
+  const availableSet = new Set(available)
+  return hidden.filter((tool) => availableSet.has(tool))
+}
+
+export const canHideToolDockTool = (
+  available: readonly ToolDockTool[],
+  hidden: readonly ToolDockTool[],
+  tool: ToolDockTool,
+): boolean => {
+  const visible = visibleToolDockTools(available, hidden)
+  return visible.includes(tool) && visible.length > 1
+}
+
+export const nextVisibleToolDockTool = (
+  available: readonly ToolDockTool[],
+  hidden: readonly ToolDockTool[],
+  current?: ToolDockTool,
+): ToolDockTool | undefined => visibleToolDockTools(available, hidden).find((tool) => tool !== current)
 
 export const focusTerminalById = (id: string) => {
   const wrapper = document.getElementById(`terminal-wrapper-${id}`)

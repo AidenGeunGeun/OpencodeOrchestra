@@ -1403,7 +1403,11 @@ export default function Page() {
 
   const line = (id: string) => {
     const text = draft(id)
-      .map((part) => (part.type === "image" ? `[image:${part.filename}]` : part.content))
+      .map((part) => {
+        if (part.type === "image") return `[image:${part.filename}]`
+        if (part.type === "browser-comment") return `[browser comment:${part.screenshot.filename}]`
+        return part.content
+      })
       .join("")
       .replace(/\s+/g, " ")
       .trim()
@@ -1472,6 +1476,7 @@ export default function Page() {
     const text = item.prompt
       .map((part) => {
         if (part.type === "image") return `[image:${part.filename}]`
+        if (part.type === "browser-comment") return `[browser comment:${part.screenshot.filename}]`
         if (part.type === "file") return `[file:${part.path}]`
         if (part.type === "agent") return `@${part.name}`
         return part.content
@@ -1761,7 +1766,7 @@ export default function Page() {
           classList={{
             "@container relative shrink-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1 md:flex-none": true,
             "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-              !size.active() && !ui.reviewSnap,
+              !size.active(),
           }}
           style={{
             width: sessionPanelWidth(),
@@ -1898,6 +1903,9 @@ export default function Page() {
           childCount={childCount()}
           onNavigateSession={navigateToSession}
         />
+        <Show when={size.active()}>
+          <div class="fixed inset-0 z-[9999] cursor-col-resize" aria-hidden />
+        </Show>
       </div>
 
       <TerminalPanel />

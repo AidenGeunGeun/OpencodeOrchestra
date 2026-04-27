@@ -35,7 +35,63 @@ export interface ImageAttachmentPart {
   dataUrl: string
 }
 
-export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart
+export type BrowserCommentKind = "element" | "area"
+
+export type BrowserCommentSourceLocation = {
+  fileName: string
+  lineNumber?: number
+  columnNumber?: number
+  framework?: string
+}
+
+export type BrowserCommentAttachmentPart = {
+  type: "browser-comment"
+  id: string
+  kind: BrowserCommentKind
+  note: string
+  screenshot: {
+    dataUrl: string
+    mime: string
+    filename: string
+  }
+  rect: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  point: {
+    x: number
+    y: number
+  }
+  page: {
+    url: string
+    title?: string
+  }
+  viewport: {
+    width: number
+    height: number
+    deviceScaleFactor?: number
+  }
+  console: {
+    level: "warning" | "error"
+    text: string
+    timestamp: number
+  }[]
+  element?: {
+    tagName: string
+    id?: string
+    className?: string
+    role?: string
+    text?: string
+    attributes: Record<string, string>
+  }
+  source?: BrowserCommentSourceLocation
+  styles?: Record<string, string>
+  createdAt: number
+}
+
+export type ContentPart = TextPart | FileAttachmentPart | AgentPart | ImageAttachmentPart | BrowserCommentAttachmentPart
 export type Prompt = ContentPart[]
 
 export type FileContextItem = {
@@ -70,6 +126,8 @@ function isPartEqual(partA: ContentPart, partB: ContentPart) {
       return partB.type === "agent" && partA.name === partB.name
     case "image":
       return partB.type === "image" && partA.id === partB.id
+    case "browser-comment":
+      return partB.type === "browser-comment" && partA.id === partB.id && partA.note === partB.note
   }
 }
 
@@ -89,6 +147,7 @@ function cloneSelection(selection?: FileSelection) {
 function clonePart(part: ContentPart): ContentPart {
   if (part.type === "text") return { ...part }
   if (part.type === "image") return { ...part }
+  if (part.type === "browser-comment") return { ...part, screenshot: { ...part.screenshot } }
   if (part.type === "agent") return { ...part }
   return {
     ...part,

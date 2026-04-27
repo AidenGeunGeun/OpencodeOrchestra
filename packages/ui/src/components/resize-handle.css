@@ -1,11 +1,13 @@
 [data-component="resize-handle"] {
   position: absolute;
-  z-index: 10;
+  z-index: 60;
 
   &::after {
     content: "";
     position: absolute;
     opacity: 0;
+    background: var(--border-strong-base);
+    border-radius: 999px;
     transition: opacity 0.15s ease-in-out;
   }
 
@@ -17,7 +19,7 @@
   &[data-direction="horizontal"] {
     inset-block: 0;
     inset-inline-end: 0;
-    width: 8px;
+    width: 16px;
     transform: translateX(50%);
     cursor: col-resize;
 
@@ -38,7 +40,7 @@
   &[data-direction="vertical"] {
     inset-inline: 0;
     inset-block-start: 0;
-    height: 8px;
+    height: 16px;
     transform: translateY(-50%);
     cursor: row-resize;
 

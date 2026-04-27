@@ -1,29 +1,40 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, batch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import FileTree from "@/components/file-tree"
 import SubagentList from "@/components/subagent-list"
+import { BrowserTab } from "@/pages/session/browser-tab"
 import { SessionContextUsage } from "@/components/session-context-usage"
-import { DialogSelectFile } from "@/components/dialog-select-file"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { usePlatform } from "@/context/platform"
 import { useSync } from "@/context/sync"
 import { createFileTabListSync } from "@/pages/session/file-tab-scroll"
 import { FileTabContent } from "@/pages/session/file-tabs"
-import { createOpenSessionFileTab, createSessionTabs, getTabReorderIndex, type Sizing } from "@/pages/session/helpers"
+import {
+  canHideToolDockTool,
+  createOpenSessionFileTab,
+  createSessionTabs,
+  getTabReorderIndex,
+  hiddenToolDockTools,
+  nextVisibleToolDockTool,
+  visibleToolDockTools,
+  type Sizing,
+  type ToolDockTool,
+} from "@/pages/session/helpers"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
@@ -41,16 +52,22 @@ export function SessionSidePanel(props: {
   const sync = useSync()
   const file = useFile()
   const language = useLanguage()
+  const platform = usePlatform()
   const command = useCommand()
-  const dialog = useDialog()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
   const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const fileOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
+  const browserAvailable = createMemo(() => platform.platform === "desktop")
   const open = createMemo(() => reviewOpen() || fileOpen())
   const reviewTab = createMemo(() => isDesktop())
+  const availableToolTabs = createMemo<ToolDockTool[]>(() => [
+    ...(reviewTab() ? (["review"] as const) : []),
+    ...(props.childCount > 0 ? (["subagents"] as const) : []),
+    ...(browserAvailable() ? (["browser"] as const) : []),
+  ])
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
     if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
@@ -135,13 +152,29 @@ export function SessionSidePanel(props: {
     setActive: tabs().setActive,
   })
 
+  const [store, setStore] = createStore({
+    activeDraggable: undefined as string | undefined,
+    hiddenTools: {} as Partial<Record<ToolDockTool, boolean>>,
+  })
+
+  const hiddenToolTabs = createMemo(() =>
+    hiddenToolDockTools(
+      availableToolTabs(),
+      (["review", "subagents", "browser"] as ToolDockTool[]).filter((tool) => store.hiddenTools[tool]),
+    ),
+  )
+  const visibleToolTabs = createMemo(() => visibleToolDockTools(availableToolTabs(), hiddenToolTabs()))
+  const isToolVisible = (tool: ToolDockTool) => visibleToolTabs().includes(tool)
+  const canHideTool = (tool: ToolDockTool) => canHideToolDockTool(availableToolTabs(), hiddenToolTabs(), tool)
+
   const tabState = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
     normalizeTab,
-    review: reviewTab,
-    hasReview,
-    extras: createMemo(() => (props.childCount > 0 ? ["subagents"] : [])),
+    review: () => reviewTab() && isToolVisible("review"),
+    hasReview: () => hasReview() || visibleToolTabs().length === 1,
+    extras: createMemo(() => visibleToolTabs().filter((tool) => tool !== "review")),
+    reserved: createMemo(() => availableToolTabs().filter((tool) => tool !== "review")),
   })
   const contextOpen = tabState.contextOpen
   const openedTabs = tabState.openedTabs
@@ -155,13 +188,51 @@ export function SessionSidePanel(props: {
     layout.fileTree.setTab(value)
   }
 
-  const showAllFiles = () => {
-    if (fileTreeTab() !== "changes") return
-    layout.fileTree.setTab("all")
+  const toolLabel = (tool: ToolDockTool) => {
+    if (tool === "review") return language.t("session.tab.review")
+    if (tool === "subagents") return "Subagents"
+    return "Browser"
   }
+  const hideToolTitle = (tool: ToolDockTool) =>
+    canHideTool(tool)
+      ? language.t("session.toolDock.hideTool", { tool: toolLabel(tool) })
+      : language.t("session.toolDock.keepOneToolVisible")
+  const hideTool = (tool: ToolDockTool) => {
+    if (!canHideTool(tool)) return
 
-  const [store, setStore] = createStore({
-    activeDraggable: undefined as string | undefined,
+    const nextHidden = [...hiddenToolTabs(), tool]
+    const fallback = nextVisibleToolDockTool(availableToolTabs(), nextHidden, tool)
+    batch(() => {
+      setStore("hiddenTools", tool, true)
+      if (activeTab() === tool && fallback) tabs().setActive(fallback)
+    })
+  }
+  const restoreTool = (tool: ToolDockTool) => {
+    batch(() => {
+      setStore("hiddenTools", tool, false)
+      tabs().setActive(tool)
+    })
+  }
+  const toolCloseButton = (tool: ToolDockTool) => (
+    <Tooltip value={hideToolTitle(tool)} placement="bottom" gutter={10}>
+      <IconButton
+        icon="close-small"
+        variant="ghost"
+        class="h-5 w-5"
+        disabled={!canHideTool(tool)}
+        onClick={(event) => {
+          event.stopPropagation()
+          hideTool(tool)
+        }}
+        aria-label={hideToolTitle(tool)}
+      />
+    </Tooltip>
+  )
+
+  createEffect(() => {
+    const fallback = availableToolTabs()[0]
+    if (!fallback || visibleToolTabs().length > 0) return
+    setStore("hiddenTools", fallback, false)
   })
 
   const handleDragStart = (event: unknown) => {
@@ -216,7 +287,7 @@ export function SessionSidePanel(props: {
         classList={{
           "pointer-events-none": !open(),
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-            !props.size.active() && !props.reviewSnap,
+            !props.size.active(),
         }}
         style={{ width: panelWidth() }}
       >
@@ -246,8 +317,8 @@ export function SessionSidePanel(props: {
                         onCleanup(stop)
                       }}
                     >
-                      <Show when={reviewTab()}>
-                        <Tabs.Trigger value="review">
+                      <Show when={isToolVisible("review")}>
+                        <Tabs.Trigger value="review" closeButton={toolCloseButton("review")}>
                           <div class="flex items-center gap-1.5">
                             <div>{language.t("session.tab.review")}</div>
                             <Show when={hasReview()}>
@@ -284,41 +355,65 @@ export function SessionSidePanel(props: {
                           </div>
                         </Tabs.Trigger>
                       </Show>
-                      <Show when={props.childCount > 0}>
-                        <Tabs.Trigger value="subagents">
+                      <Show when={isToolVisible("subagents")}>
+                        <Tabs.Trigger value="subagents" closeButton={toolCloseButton("subagents")}>
                           <div class="flex items-center gap-1.5">
                             <div>Subagents</div>
                             <div>{props.childCount}</div>
                           </div>
                         </Tabs.Trigger>
                       </Show>
+                      <Show when={isToolVisible("browser")}>
+                        <Tabs.Trigger value="browser" closeButton={toolCloseButton("browser")}>
+                          <div>Browser</div>
+                        </Tabs.Trigger>
+                      </Show>
                       <SortableProvider ids={openedTabs()}>
                         <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                       </SortableProvider>
                       <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                        <TooltipKeybind
-                          title={language.t("command.file.open")}
-                          keybind={command.keybind("file.open")}
-                          class="flex items-center"
-                        >
-                          <IconButton
-                            icon="plus-small"
-                            variant="ghost"
-                            iconSize="large"
-                            class="!rounded-md"
-                            onClick={() =>
-                              dialog.show(() => <DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                            }
-                            aria-label={language.t("command.file.open")}
-                          />
-                        </TooltipKeybind>
+                        <DropdownMenu gutter={4} placement="bottom-end">
+                          <Tooltip
+                            value={language.t(
+                              hiddenToolTabs().length > 0
+                                ? "session.toolDock.restoreHiddenTool"
+                                : "session.toolDock.noHiddenTools",
+                            )}
+                          >
+                            <DropdownMenu.Trigger
+                              as={IconButton}
+                              icon="plus-small"
+                              variant="ghost"
+                              iconSize="large"
+                              class="!rounded-md"
+                              disabled={hiddenToolTabs().length === 0}
+                              aria-label={language.t("session.toolDock.restoreHiddenTab")}
+                            />
+                          </Tooltip>
+                          <DropdownMenu.Portal>
+                            <DropdownMenu.Content>
+                              <DropdownMenu.Group>
+                                <DropdownMenu.GroupLabel>
+                                  {language.t("session.toolDock.hiddenTools")}
+                                </DropdownMenu.GroupLabel>
+                                <For each={hiddenToolTabs()}>
+                                  {(tool) => (
+                                    <DropdownMenu.Item onSelect={() => restoreTool(tool)}>
+                                      <DropdownMenu.ItemLabel>{toolLabel(tool)}</DropdownMenu.ItemLabel>
+                                    </DropdownMenu.Item>
+                                  )}
+                                </For>
+                              </DropdownMenu.Group>
+                            </DropdownMenu.Content>
+                          </DropdownMenu.Portal>
+                        </DropdownMenu>
                       </div>
                     </Tabs.List>
                   </div>
 
                   <Show when={reviewTab()}>
-                    <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict">
-                      <Show when={activeTab() === "review"}>{props.reviewPanel()}</Show>
+                    <Tabs.Content value="review" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "review"}>
+                      {props.reviewPanel()}
                     </Tabs.Content>
                   </Show>
 
@@ -346,10 +441,14 @@ export function SessionSidePanel(props: {
                   </Show>
 
                   <Show when={props.childCount > 0 && props.sessionID}>
-                    <Tabs.Content value="subagents" class="flex flex-col h-full overflow-hidden contain-strict">
-                      <Show when={activeTab() === "subagents"}>
-                        <SubagentList sessionID={props.sessionID!} onNavigateSession={props.onNavigateSession} />
-                      </Show>
+                    <Tabs.Content value="subagents" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "subagents"}>
+                      <SubagentList sessionID={props.sessionID!} onNavigateSession={props.onNavigateSession} />
+                    </Tabs.Content>
+                  </Show>
+
+                  <Show when={browserAvailable()}>
+                    <Tabs.Content value="browser" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "browser"}>
+                      <BrowserTab />
                     </Tabs.Content>
                   </Show>
 
