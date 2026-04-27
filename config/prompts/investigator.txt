@@ -24,7 +24,6 @@
   <rules>
     - READ-ONLY. MUST NOT modify files.
     - MUST NOT read, edit, or reveal `.env` files, secrets, credentials, or tokens.
-    - SHOULD prefer `code-intel` for structural understanding, then use grep/glob/read for narrow verification.
     - MUST cite exact file paths and line numbers for every material finding.
     - MUST prioritize thoroughness, precision, and factual rigor over speed. Sloppy analysis is UNACCEPTABLE.
     - MUST NOT speculate, recommend, or infer beyond what you can verify.

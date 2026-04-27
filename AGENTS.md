@@ -29,7 +29,7 @@ Code comments, commit messages, specs, backlog, and doc file contents: English.
 ## Search Safety
 
 - Never run broad repo searches against `.` parent directories, or large home-level paths such as `/home/skybl`.
-- Always scope `rg`, `grep`, `glob`, and `code-intel` to the exact repository or subdirectory you need.
+- Always scope `rg`, `grep`, and `glob` to the exact repository or subdirectory you need.
 - Prefer the narrowest viable path first; widen only when the smaller scope is proven insufficient.
 - This avoids runaway CPU usage, long hangs, and noisy results from unrelated repositories.
 
