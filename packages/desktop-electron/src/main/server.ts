@@ -5,7 +5,7 @@ import { app } from "electron"
 import type { SqliteMigrationProgress } from "../preload/types"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv } from "./shell-env"
-import { store } from "./store"
+import { getStore } from "./store"
 
 export type WslConfig = { enabled: boolean }
 
@@ -25,26 +25,26 @@ type NodeBackendModule = {
 }
 
 export function getDefaultServerUrl(): string | null {
-  const value = store.get(DEFAULT_SERVER_URL_KEY)
+  const value = getStore().get(DEFAULT_SERVER_URL_KEY)
   return typeof value === "string" ? value : null
 }
 
 export function setDefaultServerUrl(url: string | null) {
   if (url) {
-    store.set(DEFAULT_SERVER_URL_KEY, url)
+    getStore().set(DEFAULT_SERVER_URL_KEY, url)
     return
   }
 
-  store.delete(DEFAULT_SERVER_URL_KEY)
+  getStore().delete(DEFAULT_SERVER_URL_KEY)
 }
 
 export function getWslConfig(): WslConfig {
-  const value = store.get(WSL_ENABLED_KEY)
+  const value = getStore().get(WSL_ENABLED_KEY)
   return { enabled: typeof value === "boolean" ? value : false }
 }
 
 export function setWslConfig(config: WslConfig) {
-  store.set(WSL_ENABLED_KEY, config.enabled)
+  getStore().set(WSL_ENABLED_KEY, config.enabled)
 }
 
 // OCO: Electron can use in-process backend or packaged oco-cli sidecar
