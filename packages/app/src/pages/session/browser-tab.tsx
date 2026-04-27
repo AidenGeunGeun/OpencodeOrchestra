@@ -38,11 +38,13 @@ const webviewReadyEvents = ["dom-ready", "did-finish-load", "did-frame-finish-lo
 
 export function BrowserTab() {
   const prompt = usePrompt()
-  const inspectorNonce = safe(() => crypto.randomUUID()) ?? `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const inspectorNonce =
+    safe(() => crypto.randomUUID()) ?? `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
   let webview: ElectronWebviewTag | undefined
   let unwireWebview = () => {}
   const noteRefs = new Map<string, HTMLTextAreaElement>()
   let noteFocusVersion = 0
+  let renderedPins = ""
 
   const [store, setStore] = createStore({
     urlInput: "http://localhost:3000",
@@ -65,7 +67,8 @@ export function BrowserTab() {
     if (!trimmed) return ""
     const withProtocol = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`
     const parsed = new URL(withProtocol)
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only HTTP and HTTPS URLs can be opened")
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      throw new Error("Only HTTP and HTTPS URLs can be opened")
     return parsed.toString()
   }
 
@@ -77,17 +80,28 @@ export function BrowserTab() {
       urlInput: currentUrl || store.urlInput,
       canGoBack: safe(() => webview!.canGoBack()) ?? false,
       canGoForward: safe(() => webview!.canGoForward()) ?? false,
-      viewport: { width: webview.clientWidth, height: webview.clientHeight, deviceScaleFactor: window.devicePixelRatio || 1 },
+      viewport: {
+        width: webview.clientWidth,
+        height: webview.clientHeight,
+        deviceScaleFactor: window.devicePixelRatio || 1,
+      },
     })
     refreshBatchMetadata()
   }
 
   const installInspector = async () => {
     if (!webview) return
-    const installed = await webview.executeJavaScript("window.__ocoBrowserCommentsInstalled === true").catch(() => false)
-    if (!installed) await webview.executeJavaScript(createBrowserCommentInspectorScript(inspectorNonce)).catch(() => undefined)
+    const installed = await webview
+      .executeJavaScript("window.__ocoBrowserCommentsInstalled === true")
+      .catch(() => false)
+    if (!installed)
+      await webview.executeJavaScript(createBrowserCommentInspectorScript(inspectorNonce)).catch(() => undefined)
     syncSelectionMode()
     renderPins()
+  }
+
+  const invalidateRenderedPins = () => {
+    renderedPins = ""
   }
 
   const syncSelectionMode = () => {
@@ -102,7 +116,8 @@ export function BrowserTab() {
     try {
       const next = normalizeUrl(store.urlInput)
       if (!next) return
-      setStore({ error: "", loading: true, currentUrl: next, console: [] })
+      invalidateRenderedPins()
+      setStore({ error: "", loading: true, ready: false, currentUrl: next, console: [] })
       await webview.loadURL(next)
       updateNavState()
       await installInspector()
@@ -207,20 +222,33 @@ export function BrowserTab() {
   const renderPins = () => {
     if (!webview || !store.ready) return
     const pins = comments().map((comment, index) => ({ id: comment.id, index, x: comment.point.x, y: comment.point.y }))
-    void webview.executeJavaScript(`window.__ocoBrowserComments?.clearPins?.(); ${JSON.stringify(pins)}.forEach((pin) => window.__ocoBrowserComments?.addPin?.(pin));`).catch(() => undefined)
+    const serialized = JSON.stringify(pins)
+    if (serialized === renderedPins) return
+    renderedPins = serialized
+    void webview
+      .executeJavaScript(
+        `window.__ocoBrowserComments?.clearPins?.(); ${serialized}.forEach((pin) => window.__ocoBrowserComments?.addPin?.(pin));`,
+      )
+      .catch(() => undefined)
   }
 
   const wireWebview = (el: ElectronWebviewTag) => {
     unwireWebview()
     webview = el
+    invalidateRenderedPins()
     const onReady = () => {
+      invalidateRenderedPins()
       setStore({ ready: true, loading: false })
       void installInspector()
       updateNavState()
     }
-    const onLoading = () => setStore("loading", true)
+    const onLoading = () => {
+      invalidateRenderedPins()
+      setStore({ loading: true, ready: false })
+    }
     const onLoaded = () => {
-      setStore("loading", false)
+      invalidateRenderedPins()
+      setStore({ loading: false, ready: true })
       updateNavState()
       void installInspector()
     }
@@ -232,7 +260,11 @@ export function BrowserTab() {
         const parsed = parseInspectorMessage(message)
         if (parsed?.nonce !== inspectorNonce) return
         if (parsed?.type === "selection" && store.selectionMode) void addComment(parsed.payload as InspectorPayload)
-        if (parsed?.type === "delete" && store.selectionMode && typeof (parsed.payload as { id?: unknown }).id === "string") {
+        if (
+          parsed?.type === "delete" &&
+          store.selectionMode &&
+          typeof (parsed.payload as { id?: unknown }).id === "string"
+        ) {
           removeComment((parsed.payload as { id: string }).id)
         }
         return
@@ -265,7 +297,9 @@ export function BrowserTab() {
   onCleanup(() => unwireWebview())
 
   createEffect(() => {
-    comments().map((comment) => `${comment.id}:${comment.point.x}:${comment.point.y}:${comment.note}`).join("|")
+    comments()
+      .map((comment) => `${comment.id}:${comment.point.x}:${comment.point.y}`)
+      .join("|")
     renderPins()
   })
 
@@ -284,10 +318,22 @@ export function BrowserTab() {
             void navigate()
           }}
         >
-          <Button type="button" variant="ghost" class="h-7 px-2" disabled={!store.canGoBack} onClick={() => webview?.goBack()}>
+          <Button
+            type="button"
+            variant="ghost"
+            class="h-7 px-2"
+            disabled={!store.canGoBack}
+            onClick={() => webview?.goBack()}
+          >
             Back
           </Button>
-          <Button type="button" variant="ghost" class="h-7 px-2" disabled={!store.canGoForward} onClick={() => webview?.goForward()}>
+          <Button
+            type="button"
+            variant="ghost"
+            class="h-7 px-2"
+            disabled={!store.canGoForward}
+            onClick={() => webview?.goForward()}
+          >
             Forward
           </Button>
           <Button type="button" variant="ghost" class="h-7 px-2" onClick={() => webview?.reload()}>
@@ -308,7 +354,9 @@ export function BrowserTab() {
             placeholder="http://localhost:3000"
             class="min-w-0 flex-1 h-8 rounded-md border border-border-weak-base bg-background-base px-2 text-12-regular text-text-strong outline-none focus:border-border-strong-base"
           />
-          <Button type="submit" variant="primary" class="h-8 px-3">Open</Button>
+          <Button type="submit" variant="primary" class="h-8 px-3">
+            Open
+          </Button>
         </form>
         <Show when={store.error}>
           <div class="px-3 py-2 text-12-regular text-text-danger-base">{store.error}</div>
@@ -348,20 +396,34 @@ export function BrowserTab() {
       <div class="w-64 shrink-0 min-h-0 flex flex-col bg-background-stronger">
         <div class="shrink-0 px-3 py-2 border-b border-border-weaker-base flex items-center justify-between gap-2">
           <div class="text-12-medium text-text-strong">Browser comments ({commentCount()})</div>
-          <Button type="button" variant="ghost" class="h-7 px-2" disabled={commentCount() === 0} onClick={clearComments}>
+          <Button
+            type="button"
+            variant="ghost"
+            class="h-7 px-2"
+            disabled={commentCount() === 0}
+            onClick={clearComments}
+          >
             Clear
           </Button>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-3 space-y-3">
           <Show
             when={commentCount() > 0}
-            fallback={<div class="pt-16 text-center text-12-regular text-text-weak">Selections appear here before you send.</div>}
+            fallback={
+              <div class="pt-16 text-center text-12-regular text-text-weak">
+                Selections appear here before you send.
+              </div>
+            }
           >
             <Index each={comments()}>
               {(comment, index) => (
                 <div class="rounded-lg border border-border-weak-base bg-background-base overflow-hidden">
                   <div class="relative">
-                    <img src={comment().screenshot.dataUrl} alt="Browser comment thumbnail" class="w-full h-28 object-cover bg-white" />
+                    <img
+                      src={comment().screenshot.dataUrl}
+                      alt="Browser comment thumbnail"
+                      class="w-full h-28 object-cover bg-white"
+                    />
                     <div class="absolute top-2 left-2 size-6 rounded-full bg-surface-warning-strong text-white text-12-medium flex items-center justify-center shadow-sm">
                       {index + 1}
                     </div>
@@ -384,9 +446,7 @@ export function BrowserTab() {
                       placeholder="Add a note for the agent"
                       class="w-full min-h-18 resize-y rounded-md border border-border-weak-base bg-background-stronger px-2 py-1.5 text-12-regular text-text-strong outline-none focus:border-border-strong-base"
                     />
-                    <div class="text-10-regular text-text-weak truncate">
-                      {sourcePreview(comment())}
-                    </div>
+                    <div class="text-10-regular text-text-weak truncate">{sourcePreview(comment())}</div>
                   </div>
                 </div>
               )}
@@ -432,7 +492,9 @@ function fallbackImage(kind: string) {
   return `data:image/svg+xml;base64,${btoa(svg)}`
 }
 
-function parseInspectorMessage(message: string): { type: string; payload: InspectorPayload | { id: string }; nonce?: string } | undefined {
+function parseInspectorMessage(
+  message: string,
+): { type: string; payload: InspectorPayload | { id: string }; nonce?: string } | undefined {
   try {
     return JSON.parse(message.slice(marker.length))
   } catch {

@@ -291,7 +291,13 @@ export function SessionSidePanel(props: {
         }}
         style={{ width: panelWidth() }}
       >
-        <div class="size-full flex border-l border-border-weaker-base">
+        <div
+          class="size-full flex border-l border-border-weaker-base transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+          classList={{
+            "opacity-0 translate-x-2": !open(),
+            "opacity-100 translate-x-0 delay-75": open(),
+          }}
+        >
           <div
             aria-hidden={!reviewOpen()}
             inert={!reviewOpen()}
@@ -412,7 +418,13 @@ export function SessionSidePanel(props: {
                   </div>
 
                   <Show when={reviewTab()}>
-                    <Tabs.Content value="review" data-tool-dock-content="review" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "review"}>
+                    <Tabs.Content
+                      value="review"
+                      data-tool-dock-content="review"
+                      class="flex flex-col h-full overflow-hidden contain-strict"
+                      forceMount
+                      hidden={activeTab() !== "review"}
+                    >
                       {props.reviewPanel()}
                     </Tabs.Content>
                   </Show>
@@ -441,13 +453,27 @@ export function SessionSidePanel(props: {
                   </Show>
 
                   <Show when={props.childCount > 0 && props.sessionID}>
-                    <Tabs.Content value="subagents" data-tool-dock-content="subagents" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "subagents"}>
-                      <SubagentList sessionID={props.sessionID!} onNavigateSession={props.onNavigateSession} />
+                    <Tabs.Content
+                      value="subagents"
+                      data-tool-dock-content="subagents"
+                      class="flex flex-col h-full overflow-hidden contain-strict"
+                      forceMount
+                      hidden={activeTab() !== "subagents"}
+                    >
+                      <Show when={activeTab() === "subagents"}>
+                        <SubagentList sessionID={props.sessionID!} onNavigateSession={props.onNavigateSession} />
+                      </Show>
                     </Tabs.Content>
                   </Show>
 
                   <Show when={browserAvailable()}>
-                    <Tabs.Content value="browser" data-tool-dock-content="browser" class="flex flex-col h-full overflow-hidden contain-strict" forceMount hidden={activeTab() !== "browser"}>
+                    <Tabs.Content
+                      value="browser"
+                      data-tool-dock-content="browser"
+                      class="flex flex-col h-full overflow-hidden contain-strict"
+                      forceMount
+                      hidden={activeTab() !== "browser"}
+                    >
                       <BrowserTab />
                     </Tabs.Content>
                   </Show>

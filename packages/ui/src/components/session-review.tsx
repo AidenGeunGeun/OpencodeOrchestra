@@ -25,6 +25,7 @@ import { cloneSelectedLineRange, previewSelectedLines } from "../pierre/selectio
 import { createLineCommentController } from "./line-comment-annotations"
 
 const MAX_DIFF_CHANGED_LINES = 500
+const REVIEW_MOUNT_MARGIN = 300
 
 export type SessionReviewDiffStyle = "unified" | "split"
 
@@ -135,11 +136,18 @@ type SessionReviewSelection = {
 export const SessionReview = (props: SessionReviewProps) => {
   let scroll: HTMLDivElement | undefined
   let focusToken = 0
+  let frame: number | undefined
   const i18n = useI18n()
   const fileComponent = useFileComponent()
   const anchors = new Map<string, HTMLElement>()
-  const [store, setStore] = createStore<{ open: string[]; force: Record<string, boolean> }>({
+  const nodes = new Map<string, HTMLDivElement>()
+  const [store, setStore] = createStore<{
+    open: string[]
+    visible: Record<string, boolean>
+    force: Record<string, boolean>
+  }>({
     open: [],
+    visible: {},
     force: {},
   })
 
@@ -153,10 +161,68 @@ export const SessionReview = (props: SessionReviewProps) => {
   const diffStyle = () => props.diffStyle ?? (props.split ? "split" : "unified")
   const hasDiffs = () => files().length > 0
 
+  const syncVisible = () => {
+    frame = undefined
+    if (!scroll) return
+
+    const root = scroll.getBoundingClientRect()
+    const top = root.top - REVIEW_MOUNT_MARGIN
+    const bottom = root.bottom + REVIEW_MOUNT_MARGIN
+    const openSet = new Set(open())
+    const next: Record<string, boolean> = {}
+
+    for (const [file, el] of nodes) {
+      if (!openSet.has(file)) continue
+      const rect = el.getBoundingClientRect()
+      if (rect.bottom < top || rect.top > bottom) continue
+      next[file] = true
+    }
+
+    const prev = untrack(() => store.visible)
+    const prevKeys = Object.keys(prev)
+    const nextKeys = Object.keys(next)
+    if (prevKeys.length === nextKeys.length && nextKeys.every((file) => prev[file])) return
+    setStore("visible", next)
+  }
+
+  const queueVisibleSync = () => {
+    if (frame !== undefined) return
+    frame = requestAnimationFrame(syncVisible)
+  }
+
+  const pinned = (file: string) =>
+    props.focusedComment?.file === file ||
+    props.focusedFile === file ||
+    selection()?.file === file ||
+    commenting()?.file === file ||
+    opened()?.file === file
+
+  const handleScroll: JSX.EventHandler<HTMLDivElement, Event> = (event) => {
+    queueVisibleSync()
+    const next = props.onScroll
+    if (!next) return
+    if (Array.isArray(next)) {
+      const [fn, data] = next as [(data: unknown, event: Event) => void, unknown]
+      fn(data, event)
+      return
+    }
+    ;(next as JSX.EventHandler<HTMLDivElement, Event>)(event)
+  }
+
+  onCleanup(() => {
+    if (frame !== undefined) cancelAnimationFrame(frame)
+  })
+
+  createEffect(() => {
+    props.open
+    files()
+    queueVisibleSync()
+  })
+
   const handleChange = (open: string[]) => {
     props.onOpenChange?.(open)
-    if (props.open !== undefined) return
-    setStore("open", open)
+    if (props.open === undefined) setStore("open", open)
+    queueVisibleSync()
   }
 
   const handleExpandOrCollapseAll = () => {
@@ -270,8 +336,9 @@ export const SessionReview = (props: SessionReviewProps) => {
         viewportRef={(el) => {
           scroll = el
           props.scrollRef?.(el)
+          queueVisibleSync()
         }}
-        onScroll={props.onScroll as any}
+        onScroll={handleScroll}
         classList={{
           [props.classes?.root ?? ""]: !!props.classes?.root,
         }}
@@ -287,6 +354,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                     const item = createMemo(() => diffs().get(file)!)
 
                     const expanded = createMemo(() => open().includes(file))
+                    const mounted = createMemo(() => expanded() && (!!store.visible[file] || pinned(file)))
                     const force = () => !!store.force[file]
 
                     const comments = createMemo(() => (props.comments ?? []).filter((c) => c.file === file))
@@ -376,6 +444,8 @@ export const SessionReview = (props: SessionReviewProps) => {
 
                     onCleanup(() => {
                       anchors.delete(file)
+                      nodes.delete(file)
+                      queueVisibleSync()
                     })
 
                     const handleLineSelected = (range: SelectedLineRange | null) => {
@@ -460,10 +530,19 @@ export const SessionReview = (props: SessionReviewProps) => {
                             ref={(el) => {
                               wrapper = el
                               anchors.set(file, el)
+                              nodes.set(file, el)
+                              queueVisibleSync()
                             }}
                           >
                             <Show when={expanded()}>
                               <Switch>
+                                <Match when={!mounted() && !tooLarge()}>
+                                  <div
+                                    data-slot="session-review-diff-placeholder"
+                                    class="rounded-lg border border-border-weak-base bg-background-stronger/40"
+                                    style={{ height: "160px" }}
+                                  />
+                                </Match>
                                 <Match when={tooLarge()}>
                                   <div data-slot="session-review-large-diff">
                                     <div data-slot="session-review-large-diff-title">

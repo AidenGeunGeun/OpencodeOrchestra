@@ -8,6 +8,11 @@ import { getSessionContextMetrics } from "@/components/session/session-context-m
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 
+const INITIAL_VISIBLE_SUBAGENTS = 60
+const SUBAGENT_RENDER_BATCH = 40
+const SUBAGENT_HYDRATION_BATCH = 12
+const SUBAGENT_HYDRATION_DELAY_MS = 80
+
 function sortChildren(list: Session[]) {
   return [...list].sort((a, b) => {
     const aTime = a.time.updated ?? a.time.created ?? 0
@@ -61,12 +66,32 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
   const sdk = useSDK()
   const sync = useSync()
   const [children, setChildren] = createSignal<Session[]>([])
+  const [visibleLimit, setVisibleLimit] = createSignal(INITIAL_VISIBLE_SUBAGENTS)
   const [ready, setReady] = createSignal(false)
   const [failedSessions, setFailedSessions] = createSignal<Map<string, number>>(new Map())
   const [removedSessions, setRemovedSessions] = createSignal<Map<string, number>>(new Map())
+  let hydrationTimer: ReturnType<typeof setTimeout> | undefined
 
   const hydrateChild = (sessionID: string) => {
     void sync.session.sync(sessionID).catch(() => undefined)
+  }
+
+  const clearHydrationTimer = () => {
+    if (!hydrationTimer) return
+    clearTimeout(hydrationTimer)
+    hydrationTimer = undefined
+  }
+
+  const hydrateChildrenInBatches = (sessions: Session[]) => {
+    clearHydrationTimer()
+    const ids = sessions.map((session) => session.id)
+    const hydrateBatch = (start: number) => {
+      hydrationTimer = undefined
+      for (const id of ids.slice(start, start + SUBAGENT_HYDRATION_BATCH)) hydrateChild(id)
+      const next = start + SUBAGENT_HYDRATION_BATCH
+      if (next < ids.length) hydrationTimer = setTimeout(() => hydrateBatch(next), SUBAGENT_HYDRATION_DELAY_MS)
+    }
+    hydrateBatch(0)
   }
 
   const syncSessions = (sessions: Session[]) => {
@@ -89,10 +114,12 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     setReady(false)
     try {
       const response = await sdk.client.session.children({ sessionID: props.sessionID })
-      const next = sortChildren((response.data ?? []).filter((session): session is Session => !!session && !session.time.archived))
+      const next = sortChildren(
+        (response.data ?? []).filter((session): session is Session => !!session && !session.time.archived),
+      )
       setChildren((current) => mergeChildren(current, next, removedSessions()))
       syncSessions(next)
-      for (const session of next) hydrateChild(session.id)
+      hydrateChildrenInBatches(next)
     } finally {
       setReady(true)
     }
@@ -103,8 +130,10 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       () => props.sessionID,
       () => {
         setChildren([])
+        setVisibleLimit(INITIAL_VISIBLE_SUBAGENTS)
         setFailedSessions(new Map())
         setRemovedSessions(new Map())
+        clearHydrationTimer()
         void refreshChildren()
       },
       { defer: true },
@@ -192,6 +221,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     })
 
     onCleanup(() => {
+      clearHydrationTimer()
       created()
       updated()
       deleted()
@@ -200,8 +230,17 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     })
   })
 
+  const visibleChildren = createMemo(() => children().slice(0, visibleLimit()))
+  const hasMore = createMemo(() => visibleLimit() < children().length)
+  const showMore = () => setVisibleLimit((limit) => Math.min(children().length, limit + SUBAGENT_RENDER_BATCH))
+  const handleScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
+    const el = event.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 360) return
+    if (hasMore()) showMore()
+  }
+
   const items = createMemo(() =>
-    children().map((session) => {
+    visibleChildren().map((session) => {
       const messages = sync.data.message[session.id] ?? []
       const latest = messages.at(-1)
       const context = getSessionContextMetrics(messages, sync.data.provider?.all ?? []).context
@@ -215,7 +254,8 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
         failedAt > latestTime
       const running = syncStatus === "busy" || syncStatus === "retry"
       const completed = latest?.role === "assistant" && !latest.error && (!!latest.finish || !!latestCompleted)
-      const inProgress = sync.data.message[session.id] === undefined || latest?.role !== "assistant" || (!failed && !completed)
+      const inProgress =
+        sync.data.message[session.id] === undefined || latest?.role !== "assistant" || (!failed && !completed)
       const status: "running" | "completed" | "failed" = failed
         ? "failed"
         : completed
@@ -257,11 +297,13 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
           fallback={
             <div class="h-full px-6 pb-16 flex flex-col items-center justify-center text-center gap-3">
               <div class="text-14-medium text-text-strong">No subagents yet</div>
-              <div class="max-w-56 text-12-regular text-text-weak">Direct child sessions will appear here as they spawn.</div>
+              <div class="max-w-56 text-12-regular text-text-weak">
+                Direct child sessions will appear here as they spawn.
+              </div>
             </div>
           }
         >
-          <div class="h-full overflow-y-auto px-3 pb-4">
+          <div class="h-full overflow-y-auto px-3 pb-4" onScroll={handleScroll}>
             <div class="flex flex-col gap-2">
               <For each={items()}>
                 {(item) => (
@@ -274,7 +316,9 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
                       <div class="mt-0.5 shrink-0">{statusIcon(item.status)}</div>
                       <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 min-w-0">
-                          <div class="truncate text-13-medium text-text-strong">{item.session.title || item.session.id}</div>
+                          <div class="truncate text-13-medium text-text-strong">
+                            {item.session.title || item.session.id}
+                          </div>
                           <Show when={item.agentID}>
                             <div class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-dimmer capitalize">
                               {item.agentID}
@@ -306,6 +350,15 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
                   </button>
                 )}
               </For>
+              <Show when={hasMore()}>
+                <button
+                  type="button"
+                  class="w-full rounded-lg border border-border-weak-base bg-background-base px-3 py-2 text-12-medium text-text-weak transition-colors hover:bg-background-stronger"
+                  onClick={showMore}
+                >
+                  Show {Math.min(SUBAGENT_RENDER_BATCH, children().length - visibleLimit())} more subagents
+                </button>
+              </Show>
             </div>
           </div>
         </Show>

@@ -11,4 +11,22 @@ describe("BrowserTab note editing", () => {
     expect(source).toContain("data-prevent-autofocus")
     expect(source).toContain("next.focus({ preventScroll: true })")
   })
+
+  test("does not rerender webview pins for note-only edits", async () => {
+    const source = await Bun.file(new URL("./browser-tab.tsx", import.meta.url)).text()
+
+    expect(source).toContain('let renderedPins = ""')
+    expect(source).toContain("if (serialized === renderedPins) return")
+    expect(source).toContain("`${comment.id}:${comment.point.x}:${comment.point.y}`")
+    expect(source).not.toContain("${comment.note}")
+  })
+
+  test("invalidates rendered pins while the webview document is loading", async () => {
+    const source = await Bun.file(new URL("./browser-tab.tsx", import.meta.url)).text()
+
+    expect(source).toContain("const invalidateRenderedPins = () =>")
+    expect(source).toContain('setStore({ error: "", loading: true, ready: false, currentUrl: next, console: [] })')
+    expect(source).toContain("setStore({ loading: true, ready: false })")
+    expect(source).toContain("setStore({ loading: false, ready: true })")
+  })
 })
