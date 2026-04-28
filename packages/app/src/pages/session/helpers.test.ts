@@ -6,6 +6,7 @@ import {
   createOpenSessionFileTab,
   createSessionTabs,
   canHideToolDockTool,
+  defaultHiddenToolDockTools,
   focusTerminalById,
   getTabReorderIndex,
   hiddenToolDockTools,
@@ -202,5 +203,12 @@ describe("Tool Dock tab visibility", () => {
   test("chooses a visible fallback after hiding the active tool", () => {
     expect(nextVisibleToolDockTool(available, ["browser"], "browser")).toBe("review")
     expect(nextVisibleToolDockTool(["browser"], ["browser"], "browser")).toBeUndefined()
+  })
+
+  test("defaults the Tool Dock to subagents when available", () => {
+    expect(defaultHiddenToolDockTools(available)).toEqual(["review", "browser"])
+    expect(defaultHiddenToolDockTools(["review", "browser"])).toEqual(["browser"])
+    expect(defaultHiddenToolDockTools(["review", "browser", "subagents"])).toEqual(["review", "browser"])
+    expect(defaultHiddenToolDockTools(["browser"])).toEqual([])
   })
 })

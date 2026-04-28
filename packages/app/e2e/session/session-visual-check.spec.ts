@@ -118,6 +118,15 @@ async function openToolDock(page: Page) {
   await expect(page.locator("#review-panel")).toHaveAttribute("aria-hidden", "false")
 }
 
+async function restoreHiddenTool(page: Page, label: RegExp) {
+  const trigger = page.getByRole("tab", { name: label }).first()
+  if (await trigger.isVisible().catch(() => false)) return
+
+  await page.getByRole("button", { name: /Restore hidden Tool Dock tab/i }).click()
+  await page.getByRole("menuitem", { name: label }).click()
+  await expect(trigger).toBeVisible()
+}
+
 async function collectToolDockState(page: Page, active: ToolDockTab) {
   return page.evaluate((active): ToolDockState => {
     const values: ToolDockTab[] = ["review", "subagents", "browser"]
@@ -216,6 +225,18 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
     try {
       await gotoSession(session.id)
       await openToolDock(page)
+
+      const defaultSubagentsTab = page.getByRole("tab", { name: /Subagents/i }).first()
+      await expect(defaultSubagentsTab).toBeVisible()
+      await expect(defaultSubagentsTab).toHaveAttribute("aria-selected", "true")
+
+      const defaultState = await collectToolDockState(page, "subagents")
+      expect(defaultState.tabs.find((tab) => tab.value === "subagents")?.selected).toBe(true)
+      expect(defaultState.tabs.find((tab) => tab.value === "review")?.exists).toBe(false)
+      expect(defaultState.tabs.find((tab) => tab.value === "browser")?.exists).toBe(false)
+
+      await restoreHiddenTool(page, /Review/i)
+      await restoreHiddenTool(page, /Browser/i)
 
       for (const tab of toolTabs) {
         const trigger = page.getByRole("tab", { name: tab.label }).first()

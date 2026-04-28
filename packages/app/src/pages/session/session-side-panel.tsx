@@ -28,6 +28,7 @@ import {
   canHideToolDockTool,
   createOpenSessionFileTab,
   createSessionTabs,
+  defaultHiddenToolDockTools,
   getTabReorderIndex,
   hiddenToolDockTools,
   nextVisibleToolDockTool,
@@ -155,6 +156,9 @@ export function SessionSidePanel(props: {
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
     hiddenTools: {} as Partial<Record<ToolDockTool, boolean>>,
+    toolDockDefaultsApplied: false,
+    toolDockDefaultMode: undefined as "fallback" | "subagents" | undefined,
+    userCustomizedToolDock: false,
   })
 
   const hiddenToolTabs = createMemo(() =>
@@ -203,12 +207,14 @@ export function SessionSidePanel(props: {
     const nextHidden = [...hiddenToolTabs(), tool]
     const fallback = nextVisibleToolDockTool(availableToolTabs(), nextHidden, tool)
     batch(() => {
+      setStore("userCustomizedToolDock", true)
       setStore("hiddenTools", tool, true)
       if (activeTab() === tool && fallback) tabs().setActive(fallback)
     })
   }
   const restoreTool = (tool: ToolDockTool) => {
     batch(() => {
+      setStore("userCustomizedToolDock", true)
       setStore("hiddenTools", tool, false)
       tabs().setActive(tool)
     })
@@ -230,6 +236,36 @@ export function SessionSidePanel(props: {
   )
 
   createEffect(() => {
+    if (!reviewOpen()) return
+
+    const available = availableToolTabs()
+    if (available.length === 0) return
+    if (store.userCustomizedToolDock) return
+
+    const subagentsAvailable = available.includes("subagents")
+    const hidden = new Set(defaultHiddenToolDockTools(available))
+    const alreadyDefault = (["review", "subagents", "browser"] as ToolDockTool[]).every(
+      (tool) => Boolean(store.hiddenTools[tool]) === hidden.has(tool),
+    )
+
+    if (subagentsAvailable && store.toolDockDefaultMode === "subagents" && alreadyDefault) return
+    if (!subagentsAvailable && store.toolDockDefaultsApplied) return
+
+    batch(() => {
+      for (const tool of ["review", "subagents", "browser"] as ToolDockTool[]) {
+        setStore("hiddenTools", tool, hidden.has(tool))
+      }
+      setStore("toolDockDefaultsApplied", true)
+      setStore("toolDockDefaultMode", subagentsAvailable ? "subagents" : "fallback")
+      if (subagentsAvailable) {
+        tabs().setActive("subagents")
+      }
+    })
+  })
+
+  createEffect(() => {
+    if (!reviewOpen()) return
+
     const fallback = availableToolTabs()[0]
     if (!fallback || visibleToolTabs().length > 0) return
     setStore("hiddenTools", fallback, false)

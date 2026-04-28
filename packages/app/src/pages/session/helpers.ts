@@ -114,6 +114,12 @@ export const nextVisibleToolDockTool = (
   current?: ToolDockTool,
 ): ToolDockTool | undefined => visibleToolDockTools(available, hidden).find((tool) => tool !== current)
 
+export const defaultHiddenToolDockTools = (available: readonly ToolDockTool[]): ToolDockTool[] => {
+  const preferred = available.includes("subagents") ? "subagents" : available[0]
+  if (!preferred) return []
+  return available.filter((tool) => tool !== preferred)
+}
+
 export const focusTerminalById = (id: string) => {
   const wrapper = document.getElementById(`terminal-wrapper-${id}`)
   const terminal = wrapper?.querySelector('[data-component="terminal"]')
