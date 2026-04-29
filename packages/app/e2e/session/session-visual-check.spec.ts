@@ -281,6 +281,27 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
       expect(defaultState.tabs.find((tab) => tab.value === "review")?.exists).toBe(false)
       expect(defaultState.tabs.find((tab) => tab.value === "browser")?.exists).toBe(false)
 
+      const subagentsTab = page.getByRole("tab", { name: /Subagents/i }).first()
+      await subagentsTab.click()
+      await expect(subagentsTab).toHaveAttribute("aria-selected", "true")
+
+      await page.setViewportSize({ width: 1180, height: 820 })
+      await expect
+        .poll(async () => {
+          const issue = problems(await collectToolDockState(page, "subagents"))
+          return !issue.dockOutOfBounds && !issue.horizontalOverflow && !issue.activePanelHidden
+        })
+        .toBe(true)
+
+      shrinkCapture = await captureShrinkState(page)
+      expect(shrinkCapture.problems).toMatchObject({
+        dockHidden: false,
+        dockOutOfBounds: false,
+        horizontalOverflow: false,
+        activePanelHidden: false,
+        inactiveVisible: [],
+      })
+
       await restoreHiddenTool(page, /Review/i)
       await restoreHiddenTool(page, /Browser/i)
 
@@ -304,27 +325,6 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
           wrongSelection: false,
         })
       }
-
-      const subagentsTab = page.getByRole("tab", { name: /Subagents/i }).first()
-      await subagentsTab.click()
-      await expect(subagentsTab).toHaveAttribute("aria-selected", "true")
-
-      await page.setViewportSize({ width: 1180, height: 820 })
-      await expect
-        .poll(async () => {
-          const issue = problems(await collectToolDockState(page, "subagents"))
-          return !issue.dockOutOfBounds && !issue.horizontalOverflow && !issue.activePanelHidden
-        })
-        .toBe(true)
-
-      shrinkCapture = await captureShrinkState(page)
-      expect(shrinkCapture.problems).toMatchObject({
-        dockHidden: false,
-        dockOutOfBounds: false,
-        horizontalOverflow: false,
-        activePanelHidden: false,
-        inactiveVisible: [],
-      })
     } finally {
       await cleanupSession({ sdk, sessionID: child.id })
     }

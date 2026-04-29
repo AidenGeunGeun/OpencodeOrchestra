@@ -75,6 +75,6 @@ Core workflow:
 
 - Run `bun run --cwd packages/app visual-check` after any task changing visible UI, animations, panels, browser comments, subagents, review UI, Tool Dock behavior, or desktop shell behavior.
 - The workflow uses the sandboxed local e2e backend, so it should not write to real user app data and does not require provider secrets or external services.
-- Artifacts are written under `/tmp/oco-visual-check-*`: one screenshot per Tool Dock tab, one structured state JSON per tab, and `summary.json`.
-- Today it checks the Tool Dock Review, Subagents, and Browser tabs and fails if inactive tool content remains visible when another tab is active.
+- Artifacts are written under `/tmp/oco-visual-check-*`: one screenshot and structured state JSON per restored Tool Dock tab, `tool-dock-shrink.png`, `shrink.state.json`, and `summary.json`.
+- Today it checks the Tool Dock Review, Subagents, and Browser tabs, defaults to Subagents when a child session exists, shrinks from a wide saved-layout viewport to laptop width, restores hidden Review/Browser after the shrink, and fails on inactive visible content, hidden active content, wrong selected tab, dock out-of-bounds, or horizontal document overflow.
 - V1 uses the reliable app web renderer with a test-only desktop fallback so the Browser tab can render; it does not yet automate the packaged Electron shell.
