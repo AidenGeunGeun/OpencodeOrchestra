@@ -5,6 +5,8 @@ import { same } from "@/utils/same"
 const emptyTabs: string[] = []
 export const SESSION_PANEL_MIN_WIDTH = 450
 export const TOOL_DOCK_MIN_WIDTH = 360
+export const FILE_TREE_MIN_WIDTH = 200
+export const FILE_TREE_MAX_WIDTH = 480
 
 export type ToolDockTool = "review" | "subagents" | "browser"
 
@@ -124,6 +126,123 @@ export const defaultHiddenToolDockTools = (available: readonly ToolDockTool[]): 
 
 export const getSessionPanelResizeMax = (availableWidth: number, reservedSidePanelWidth = 0) =>
   Math.max(SESSION_PANEL_MIN_WIDTH, availableWidth - reservedSidePanelWidth - TOOL_DOCK_MIN_WIDTH)
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const cleanWidth = (value: number) => (Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0)
+
+const fileTreeResizeBounds = (max: number) => {
+  const fileTreeResizeMax = cleanWidth(max)
+  return {
+    fileTreeResizeMin: Math.min(FILE_TREE_MIN_WIDTH, fileTreeResizeMax),
+    fileTreeResizeMax,
+  }
+}
+
+export type SessionWorkspaceLayout = {
+  sessionWidth: number
+  sidePanelWidth: number
+  toolDockWidth: number
+  fileTreeWidth: number
+  sessionResizeMax: number
+  fileTreeResizeMin: number
+  fileTreeResizeMax: number
+}
+
+export const getSessionWorkspaceLayout = (input: {
+  availableWidth: number
+  toolDockOpen: boolean
+  fileTreeOpen: boolean
+  preferredSessionWidth: number
+  preferredFileTreeWidth: number
+}): SessionWorkspaceLayout => {
+  const availableWidth = cleanWidth(input.availableWidth)
+  const sessionMin = Math.min(SESSION_PANEL_MIN_WIDTH, availableWidth)
+  const preferredSessionWidth = cleanWidth(input.preferredSessionWidth)
+  const preferredFileTreeWidth = clamp(
+    cleanWidth(input.preferredFileTreeWidth),
+    FILE_TREE_MIN_WIDTH,
+    FILE_TREE_MAX_WIDTH,
+  )
+
+  if (!input.toolDockOpen && !input.fileTreeOpen) {
+    const fileTree = fileTreeResizeBounds(FILE_TREE_MAX_WIDTH)
+    return {
+      sessionWidth: availableWidth,
+      sidePanelWidth: 0,
+      toolDockWidth: 0,
+      fileTreeWidth: 0,
+      sessionResizeMax: Math.max(sessionMin, availableWidth),
+      fileTreeResizeMin: fileTree.fileTreeResizeMin,
+      fileTreeResizeMax: fileTree.fileTreeResizeMax,
+    }
+  }
+
+  if (!input.toolDockOpen) {
+    const fileTreeMax = Math.min(FILE_TREE_MAX_WIDTH, Math.max(0, availableWidth - sessionMin))
+    const fileTree = fileTreeResizeBounds(fileTreeMax)
+    const fileTreeWidth = input.fileTreeOpen
+      ? availableWidth >= SESSION_PANEL_MIN_WIDTH + FILE_TREE_MIN_WIDTH
+        ? clamp(preferredFileTreeWidth, FILE_TREE_MIN_WIDTH, fileTreeMax)
+        : fileTreeMax
+      : 0
+    const sessionWidth = Math.max(0, availableWidth - fileTreeWidth)
+
+    return {
+      sessionWidth,
+      sidePanelWidth: fileTreeWidth,
+      toolDockWidth: 0,
+      fileTreeWidth,
+      sessionResizeMax: Math.max(SESSION_PANEL_MIN_WIDTH, sessionWidth),
+      fileTreeResizeMin: fileTree.fileTreeResizeMin,
+      fileTreeResizeMax: fileTree.fileTreeResizeMax,
+    }
+  }
+
+  const sidePanelMinimum = TOOL_DOCK_MIN_WIDTH + (input.fileTreeOpen ? FILE_TREE_MIN_WIDTH : 0)
+  const sessionResizeMax = Math.max(sessionMin, availableWidth - sidePanelMinimum)
+  const sessionWidth = clamp(preferredSessionWidth, sessionMin, sessionResizeMax)
+  const sidePanelWidth = Math.max(0, availableWidth - sessionWidth)
+
+  if (!input.fileTreeOpen) {
+    const fileTree = fileTreeResizeBounds(FILE_TREE_MAX_WIDTH)
+    return {
+      sessionWidth,
+      sidePanelWidth,
+      toolDockWidth: sidePanelWidth,
+      fileTreeWidth: 0,
+      sessionResizeMax,
+      fileTreeResizeMin: fileTree.fileTreeResizeMin,
+      fileTreeResizeMax: fileTree.fileTreeResizeMax,
+    }
+  }
+
+  const sidePanelCanFitMinimums = sidePanelWidth >= TOOL_DOCK_MIN_WIDTH + FILE_TREE_MIN_WIDTH
+  const fileTreeWidth = sidePanelCanFitMinimums
+    ? clamp(
+        preferredFileTreeWidth,
+        FILE_TREE_MIN_WIDTH,
+        Math.min(FILE_TREE_MAX_WIDTH, sidePanelWidth - TOOL_DOCK_MIN_WIDTH),
+      )
+    : Math.round(sidePanelWidth * (FILE_TREE_MIN_WIDTH / (TOOL_DOCK_MIN_WIDTH + FILE_TREE_MIN_WIDTH)))
+  const toolDockWidth = Math.max(0, sidePanelWidth - fileTreeWidth)
+  const fileTree = fileTreeResizeBounds(
+    Math.min(
+      FILE_TREE_MAX_WIDTH,
+      sidePanelCanFitMinimums ? sidePanelWidth - TOOL_DOCK_MIN_WIDTH : sidePanelWidth,
+    ),
+  )
+
+  return {
+    sessionWidth,
+    sidePanelWidth,
+    toolDockWidth,
+    fileTreeWidth,
+    sessionResizeMax,
+    fileTreeResizeMin: fileTree.fileTreeResizeMin,
+    fileTreeResizeMax: fileTree.fileTreeResizeMax,
+  }
+}
 
 export const focusTerminalById = (id: string) => {
   const wrapper = document.getElementById(`terminal-wrapper-${id}`)

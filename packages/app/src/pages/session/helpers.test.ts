@@ -7,9 +7,12 @@ import {
   createSessionTabs,
   canHideToolDockTool,
   defaultHiddenToolDockTools,
+  FILE_TREE_MAX_WIDTH,
+  FILE_TREE_MIN_WIDTH,
   focusTerminalById,
   getTabReorderIndex,
   getSessionPanelResizeMax,
+  getSessionWorkspaceLayout,
   hiddenToolDockTools,
   nextVisibleToolDockTool,
   SESSION_PANEL_MIN_WIDTH,
@@ -228,5 +231,67 @@ describe("Tool Dock sizing", () => {
 
   test("never sets the resize max below the conversation minimum", () => {
     expect(getSessionPanelResizeMax(768)).toBe(SESSION_PANEL_MIN_WIDTH)
+  })
+
+  test("clamps an oversized saved conversation width before rendering the Tool Dock", () => {
+    expect(
+      getSessionWorkspaceLayout({
+        availableWidth: 1200,
+        toolDockOpen: true,
+        fileTreeOpen: false,
+        preferredSessionWidth: 1800,
+        preferredFileTreeWidth: 344,
+      }),
+    ).toMatchObject({
+      sessionWidth: 1200 - TOOL_DOCK_MIN_WIDTH,
+      toolDockWidth: TOOL_DOCK_MIN_WIDTH,
+      sidePanelWidth: TOOL_DOCK_MIN_WIDTH,
+      fileTreeWidth: 0,
+    })
+  })
+
+  test("keeps file tree and Tool Dock inside the current workspace", () => {
+    const layout = getSessionWorkspaceLayout({
+      availableWidth: 1010,
+      toolDockOpen: true,
+      fileTreeOpen: true,
+      preferredSessionWidth: 1200,
+      preferredFileTreeWidth: FILE_TREE_MAX_WIDTH,
+    })
+
+    expect(layout.sessionWidth).toBe(SESSION_PANEL_MIN_WIDTH)
+    expect(layout.toolDockWidth).toBe(TOOL_DOCK_MIN_WIDTH)
+    expect(layout.fileTreeWidth).toBe(1010 - SESSION_PANEL_MIN_WIDTH - TOOL_DOCK_MIN_WIDTH)
+    expect(layout.sessionWidth + layout.toolDockWidth + layout.fileTreeWidth).toBe(1010)
+  })
+
+  test("uses a deterministic compact fallback when normal desktop minimums do not fit", () => {
+    const layout = getSessionWorkspaceLayout({
+      availableWidth: 768,
+      toolDockOpen: true,
+      fileTreeOpen: true,
+      preferredSessionWidth: 1600,
+      preferredFileTreeWidth: FILE_TREE_MAX_WIDTH,
+    })
+
+    expect(layout.sessionWidth).toBe(SESSION_PANEL_MIN_WIDTH)
+    expect(layout.toolDockWidth).toBeGreaterThan(0)
+    expect(layout.fileTreeWidth).toBeGreaterThanOrEqual(0)
+    expect(layout.sessionWidth + layout.toolDockWidth + layout.fileTreeWidth).toBe(768)
+  })
+
+  test("does not let oversized file tree preferences starve the session when Tool Dock is closed", () => {
+    const layout = getSessionWorkspaceLayout({
+      availableWidth: 700,
+      toolDockOpen: false,
+      fileTreeOpen: true,
+      preferredSessionWidth: 600,
+      preferredFileTreeWidth: 2000,
+    })
+
+    expect(layout.sessionWidth).toBe(SESSION_PANEL_MIN_WIDTH)
+    expect(layout.fileTreeWidth).toBe(700 - SESSION_PANEL_MIN_WIDTH)
+    expect(layout.fileTreeResizeMin).toBe(FILE_TREE_MIN_WIDTH)
+    expect(layout.fileTreeResizeMax).toBe(700 - SESSION_PANEL_MIN_WIDTH)
   })
 })

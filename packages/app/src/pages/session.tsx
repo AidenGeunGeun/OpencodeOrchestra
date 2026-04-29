@@ -47,7 +47,7 @@ import {
   createSessionTabs,
   createSizing,
   focusTerminalById,
-  getSessionPanelResizeMax,
+  getSessionWorkspaceLayout,
   SESSION_PANEL_MIN_WIDTH,
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
@@ -394,16 +394,22 @@ export default function Page() {
   const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
   const [sessionWorkspaceWidth, setSessionWorkspaceWidth] = createSignal(0)
-  const sessionPanelResizeMax = createMemo(() =>
-    getSessionPanelResizeMax(
-      sessionWorkspaceWidth() || (typeof window === "undefined" ? 1000 : window.innerWidth),
-      desktopFileTreeOpen() ? layout.fileTree.width() : 0,
-    ),
+  const availableSessionWorkspaceWidth = createMemo(
+    () => sessionWorkspaceWidth() || (typeof window === "undefined" ? 1000 : window.innerWidth),
   )
+  const workspaceLayout = createMemo(() =>
+    getSessionWorkspaceLayout({
+      availableWidth: availableSessionWorkspaceWidth(),
+      toolDockOpen: desktopReviewOpen(),
+      fileTreeOpen: desktopFileTreeOpen(),
+      preferredSessionWidth: layout.session.width(),
+      preferredFileTreeWidth: layout.fileTree.width(),
+    }),
+  )
+  const sessionPanelResizeMax = createMemo(() => workspaceLayout().sessionResizeMax)
   const sessionPanelWidth = createMemo(() => {
     if (!desktopSidePanelOpen()) return "100%"
-    if (desktopReviewOpen()) return `${layout.session.width()}px`
-    return `calc(100% - ${layout.fileTree.width()}px)`
+    return `${workspaceLayout().sessionWidth}px`
   })
   const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
 
@@ -1904,7 +1910,7 @@ export default function Page() {
             <div onPointerDown={() => size.start()}>
               <ResizeHandle
                 direction="horizontal"
-                size={layout.session.width()}
+                size={workspaceLayout().sessionWidth}
                 min={SESSION_PANEL_MIN_WIDTH}
                 max={sessionPanelResizeMax()}
                 onResize={(width) => {
@@ -1924,6 +1930,7 @@ export default function Page() {
           size={size}
           sessionID={params.id}
           childCount={childCount()}
+          workspaceLayout={workspaceLayout}
           onNavigateSession={navigateToSession}
         />
         <Show when={size.active()}>

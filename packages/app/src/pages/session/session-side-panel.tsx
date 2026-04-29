@@ -32,6 +32,7 @@ import {
   getTabReorderIndex,
   hiddenToolDockTools,
   nextVisibleToolDockTool,
+  type SessionWorkspaceLayout,
   visibleToolDockTools,
   type Sizing,
   type ToolDockTool,
@@ -47,6 +48,7 @@ export function SessionSidePanel(props: {
   size: Sizing
   sessionID?: string
   childCount: number
+  workspaceLayout: () => SessionWorkspaceLayout
   onNavigateSession: (sessionID: string) => void
 }) {
   const layout = useLayout()
@@ -71,10 +73,9 @@ export function SessionSidePanel(props: {
   ])
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
-    if (reviewOpen()) return `calc(100% - ${layout.session.width()}px)`
-    return `${layout.fileTree.width()}px`
+    return `${props.workspaceLayout().sidePanelWidth}px`
   })
-  const treeWidth = createMemo(() => (fileOpen() ? `${layout.fileTree.width()}px` : "0px"))
+  const treeWidth = createMemo(() => (fileOpen() ? `${props.workspaceLayout().fileTreeWidth}px` : "0px"))
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const diffs = createMemo(() => (params.id ? (sync.data.session_diff[params.id] ?? []) : []))
@@ -626,9 +627,9 @@ export function SessionSidePanel(props: {
                 <ResizeHandle
                   direction="horizontal"
                   edge="start"
-                  size={layout.fileTree.width()}
-                  min={200}
-                  max={480}
+                  size={props.workspaceLayout().fileTreeWidth}
+                  min={props.workspaceLayout().fileTreeResizeMin}
+                  max={props.workspaceLayout().fileTreeResizeMax}
                   collapseThreshold={160}
                   onResize={(width) => {
                     props.size.touch()

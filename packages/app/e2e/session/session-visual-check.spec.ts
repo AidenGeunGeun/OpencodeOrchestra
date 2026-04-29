@@ -20,6 +20,8 @@ type ToolDockPanelState = {
 
 type ToolDockState = {
   active: ToolDockTab
+  viewport: { width: number; height: number }
+  document: { clientWidth: number; scrollWidth: number; bodyScrollWidth: number }
   dock: {
     exists: boolean
     visible: boolean
@@ -51,9 +53,20 @@ function problems(state: ToolDockState) {
   const activePanel = state.panels.find((panel) => panel.value === state.active)
   const inactiveVisible = state.panels.filter((panel) => panel.value !== state.active && panel.visible).map((panel) => panel.value)
   const selectedTabs = state.tabs.filter((tab) => tab.selected).map((tab) => tab.value)
+  const dock = state.dock.rect
+  const tolerance = 1
 
   return {
     dockHidden: !state.dock.exists || !state.dock.visible || state.dock.ariaHidden === "true",
+    dockOutOfBounds:
+      !dock ||
+      dock.x < -tolerance ||
+      dock.y < -tolerance ||
+      dock.x + dock.width > state.viewport.width + tolerance ||
+      dock.y + dock.height > state.viewport.height + tolerance,
+    horizontalOverflow:
+      state.document.scrollWidth > state.document.clientWidth + tolerance ||
+      state.document.bodyScrollWidth > state.viewport.width + tolerance,
     missingTabs,
     missingPanels,
     activePanelHidden: !activePanel?.visible,
@@ -106,6 +119,19 @@ async function enableDesktopWebFallback(page: Page) {
   })
 }
 
+async function seedOversizedLayout(page: Page, sessionWidth: number) {
+  await page.addInitScript((sessionWidth) => {
+    localStorage.setItem(
+      "opencode.global.dat:layout",
+      JSON.stringify({
+        review: { panelOpened: true },
+        fileTree: { opened: false, width: 344, tab: "changes" },
+        session: { width: sessionWidth },
+      }),
+    )
+  }, sessionWidth)
+}
+
 async function openToolDock(page: Page) {
   const treeToggle = page.getByRole("button", { name: "Toggle file tree" }).first()
   if ((await treeToggle.getAttribute("aria-expanded").catch(() => null)) === "true") await treeToggle.click()
@@ -151,6 +177,15 @@ async function collectToolDockState(page: Page, active: ToolDockTab) {
 
     return {
       active,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      document: {
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        bodyScrollWidth: document.body.scrollWidth,
+      },
       dock: {
         exists: !!dock,
         visible: visible(dock),
@@ -191,6 +226,15 @@ async function captureState(page: Page, tab: (typeof toolTabs)[number]) {
   return { tab: tab.value, screenshot: path.join(artifactDir, tab.screenshot), state, problems: issue }
 }
 
+async function captureShrinkState(page: Page) {
+  const state = await collectToolDockState(page, "subagents")
+  const issue = problems(state)
+  const screenshot = path.join(artifactDir, "tool-dock-shrink.png")
+  await fs.writeFile(path.join(artifactDir, "shrink.state.json"), JSON.stringify({ state, problems: issue }, null, 2))
+  await page.screenshot({ path: screenshot, fullPage: false })
+  return { screenshot, state, problems: issue }
+}
+
 test("Tool Dock detector flags inactive panel overlap", async ({ page }) => {
   await page.setContent(`
     <aside id="review-panel" aria-hidden="false" style="width: 600px; height: 400px; display: block; visibility: visible;">
@@ -212,9 +256,11 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
   test.setTimeout(90_000)
   await page.setViewportSize({ width: 1600, height: 1000 })
   await enableDesktopWebFallback(page)
+  await seedOversizedLayout(page, 1400)
   await fs.mkdir(artifactDir, { recursive: true })
 
   const captures: Awaited<ReturnType<typeof captureState>>[] = []
+  let shrinkCapture: Awaited<ReturnType<typeof captureShrinkState>> | undefined
 
   await withSession(sdk, `visual check ${Date.now()}`, async (session) => {
     const child = await sdk.session
@@ -248,6 +294,8 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
         captures.push(capture)
         expect(capture.problems).toEqual({
           dockHidden: false,
+          dockOutOfBounds: false,
+          horizontalOverflow: false,
           missingTabs: [],
           missingPanels: [],
           activePanelHidden: false,
@@ -256,6 +304,27 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
           wrongSelection: false,
         })
       }
+
+      const subagentsTab = page.getByRole("tab", { name: /Subagents/i }).first()
+      await subagentsTab.click()
+      await expect(subagentsTab).toHaveAttribute("aria-selected", "true")
+
+      await page.setViewportSize({ width: 1180, height: 820 })
+      await expect
+        .poll(async () => {
+          const issue = problems(await collectToolDockState(page, "subagents"))
+          return !issue.dockOutOfBounds && !issue.horizontalOverflow && !issue.activePanelHidden
+        })
+        .toBe(true)
+
+      shrinkCapture = await captureShrinkState(page)
+      expect(shrinkCapture.problems).toMatchObject({
+        dockHidden: false,
+        dockOutOfBounds: false,
+        horizontalOverflow: false,
+        activePanelHidden: false,
+        inactiveVisible: [],
+      })
     } finally {
       await cleanupSession({ sdk, sessionID: child.id })
     }
@@ -270,6 +339,14 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
     checkedTabs: captures.map((capture) => capture.tab),
     screenshots: captures.map((capture) => capture.screenshot),
     stateFiles: captures.map((capture) => path.join(artifactDir, `${capture.tab}.state.json`)),
+    shrinkScenario: shrinkCapture
+      ? {
+          screenshot: shrinkCapture.screenshot,
+          stateFile: path.join(artifactDir, "shrink.state.json"),
+          viewport: shrinkCapture.state.viewport,
+          dock: shrinkCapture.state.dock.rect,
+        }
+      : undefined,
   }
 
   await fs.writeFile(path.join(artifactDir, "summary.json"), JSON.stringify(summary, null, 2))
