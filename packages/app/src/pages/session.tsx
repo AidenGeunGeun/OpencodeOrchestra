@@ -42,7 +42,14 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
-import { createOpenReviewFile, createSessionTabs, createSizing, focusTerminalById } from "@/pages/session/helpers"
+import {
+  createOpenReviewFile,
+  createSessionTabs,
+  createSizing,
+  focusTerminalById,
+  getSessionPanelResizeMax,
+  SESSION_PANEL_MIN_WIDTH,
+} from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -386,6 +393,13 @@ export default function Page() {
   const desktopReviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
   const desktopFileTreeOpen = createMemo(() => isDesktop() && layout.fileTree.opened())
   const desktopSidePanelOpen = createMemo(() => desktopReviewOpen() || desktopFileTreeOpen())
+  const [sessionWorkspaceWidth, setSessionWorkspaceWidth] = createSignal(0)
+  const sessionPanelResizeMax = createMemo(() =>
+    getSessionPanelResizeMax(
+      sessionWorkspaceWidth() || (typeof window === "undefined" ? 1000 : window.innerWidth),
+      desktopFileTreeOpen() ? layout.fileTree.width() : 0,
+    ),
+  )
   const sessionPanelWidth = createMemo(() => {
     if (!desktopSidePanelOpen()) return "100%"
     if (desktopReviewOpen()) return `${layout.session.width()}px`
@@ -745,6 +759,7 @@ export default function Page() {
   }
 
   let inputRef!: HTMLDivElement
+  let sessionWorkspace: HTMLDivElement | undefined
   let promptDock: HTMLDivElement | undefined
   let dockHeight = 0
   let scroller: HTMLDivElement | undefined
@@ -1426,7 +1441,7 @@ export default function Page() {
   const merge = (next: NonNullable<ReturnType<typeof info>>) =>
     sync.set("session", (list) => {
       const idx = list.findIndex((item) => item.id === next.id)
-      if (idx < 0) return list
+      if (idx < 0) return [...list, next].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       const out = list.slice()
       out[idx] = next
       return out
@@ -1570,6 +1585,7 @@ export default function Page() {
           })
           return
         }
+        merge(next)
         navigate(`/${base64Encode(sdk.directory)}/session/${next.id}`)
         requestAnimationFrame(() => {
           prompt.set(value)
@@ -1699,6 +1715,13 @@ export default function Page() {
     },
   )
 
+  createResizeObserver(
+    () => sessionWorkspace,
+    ({ width }) => {
+      setSessionWorkspaceWidth(Math.ceil(width))
+    },
+  )
+
   const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
     sessionKey,
     sessionID: () => params.id,
@@ -1735,7 +1758,7 @@ export default function Page() {
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
-      <div class="flex-1 min-h-0 flex flex-col md:flex-row">
+      <div ref={sessionWorkspace} class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!isDesktop() && !!params.id}>
           <Tabs value={store.mobileTab} class="h-auto">
             <Tabs.List>
@@ -1882,8 +1905,8 @@ export default function Page() {
               <ResizeHandle
                 direction="horizontal"
                 size={layout.session.width()}
-                min={450}
-                max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.45}
+                min={SESSION_PANEL_MIN_WIDTH}
+                max={sessionPanelResizeMax()}
                 onResize={(width) => {
                   size.touch()
                   layout.session.resize(width)

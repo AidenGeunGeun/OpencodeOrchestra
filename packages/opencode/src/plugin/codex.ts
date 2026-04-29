@@ -96,7 +96,71 @@ async function getCodexInstallationId() {
 }
 
 function codexUserAgent() {
-  return `${CODEX_ORIGINATOR}/${Installation.VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`
+  const fallback = `${CODEX_ORIGINATOR}/${Installation.VERSION} (${os.platform()} ${os.release()}; ${os.arch()})`
+  return sanitizeCodexUserAgent(`${fallback} ${codexTerminalUserAgentToken()}`, fallback)
+}
+
+// OCO: match Codex CLI user-agent identity without leaking local paths.
+function codexTerminalUserAgentToken() {
+  const termProgram = nonEmptyEnv("TERM_PROGRAM")
+  if (termProgram) {
+    return formatTerminalVersion(termProgram, nonEmptyEnv("TERM_PROGRAM_VERSION"))
+  }
+
+  if (process.env.WEZTERM_VERSION !== undefined) {
+    return formatTerminalVersion("WezTerm", nonEmptyEnv("WEZTERM_VERSION"))
+  }
+  if (
+    process.env.ITERM_SESSION_ID !== undefined ||
+    process.env.ITERM_PROFILE !== undefined ||
+    process.env.ITERM_PROFILE_NAME !== undefined
+  ) {
+    return "iTerm.app"
+  }
+  if (process.env.TERM_SESSION_ID !== undefined) return "Apple_Terminal"
+
+  const term = nonEmptyEnv("TERM")
+  if (process.env.KITTY_WINDOW_ID !== undefined || term?.includes("kitty")) return "kitty"
+  if (process.env.ALACRITTY_SOCKET !== undefined || term === "alacritty") return "Alacritty"
+  if (process.env.KONSOLE_VERSION !== undefined) {
+    return formatTerminalVersion("Konsole", nonEmptyEnv("KONSOLE_VERSION"))
+  }
+  if (process.env.GNOME_TERMINAL_SCREEN !== undefined) return "gnome-terminal"
+  if (process.env.VTE_VERSION !== undefined) {
+    return formatTerminalVersion("VTE", nonEmptyEnv("VTE_VERSION"))
+  }
+  if (process.env.WT_SESSION !== undefined) return "WindowsTerminal"
+  if (term) return sanitizeCodexUserAgentToken(term)
+
+  return "unknown"
+}
+
+function nonEmptyEnv(name: string) {
+  const value = process.env[name]
+  return value && value.trim() ? value : undefined
+}
+
+function formatTerminalVersion(name: string, version: string | undefined) {
+  const safeName = sanitizeCodexUserAgentToken(name)
+  return version ? `${safeName}/${sanitizeCodexUserAgentToken(version)}` : safeName
+}
+
+function sanitizeCodexUserAgentToken(value: string) {
+  return sanitizeCodexUserAgentSegment(stripPathLikePrefix(value))
+}
+
+function sanitizeCodexUserAgentSegment(value: string) {
+  return value.replace(/[^A-Za-z0-9._-]/g, "_") || "unknown"
+}
+
+function stripPathLikePrefix(value: string) {
+  const parts = value.split(/[\\/]+/).filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : value
+}
+
+function sanitizeCodexUserAgent(candidate: string, fallback: string) {
+  const sanitized = candidate.replace(/[^\x20-\x7E]/g, "_")
+  return sanitized.trim() ? sanitized : fallback
 }
 
 function codexLineage(headers: Headers) {

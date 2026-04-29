@@ -181,6 +181,17 @@ export interface Hooks {
     input: { command: string; sessionID: string; arguments: string },
     output: { parts: Part[] },
   ) => Promise<void>
+  "session.fork"?: (
+    input: {
+      sourceSessionID: string
+      targetSessionID: string
+      cutoffMessageID?: string
+      messageIDMap: Record<string, string>
+      toolIDsByMessageID: Record<string, string[]>
+      childSessionIDMap: Record<string, string>
+    },
+    output: {},
+  ) => Promise<void>
   "tool.execute.before"?: (
     input: { tool: string; sessionID: string; callID: string },
     output: { args: any },

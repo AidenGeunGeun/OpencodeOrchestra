@@ -171,6 +171,8 @@ GitHub deps: `bun add` does NOT run lifecycle scripts for git dependencies. The 
 
 - `src/plugin/codex.ts` handles the OpenAI / ChatGPT subscription-backed OAuth path.
 - That Codex OAuth path allows the GPT-5.4 and GPT-5.5 subscription families and normalizes aliases to canonical upstream model IDs via `api.id`.
+- Rewritten Codex OAuth Responses requests intentionally identify as Codex CLI traffic: `originator: codex_cli_rs`, a Codex-shaped `User-Agent` with sanitized terminal metadata, version/session/request/window headers, prompt-cache key, and installation metadata.
+- GPT-5.x Fast/priority compute stays explicit and model-scoped: use a model alias with canonical `id`/`api.id` plus `options.serviceTier: "priority"`; do not add a global `/fast` toggle for the multi-provider app without a new product decision.
 - GPT-5.5 stays capped at a 272K Codex client window until OpenAI raises the catalog `max_context_window`, even though the public announcement mentions 400K.
 - `src/plugin/anthropic.ts` handles Anthropic OAuth directly in-tree.
 - Anthropic token exchange / refresh requests use `application/x-www-form-urlencoded` plus the auth-side `User-Agent: claude-cli/2.1.80`; do not send the OpenCode CLI fingerprint on OAuth token calls because it is prone to `429` failures.

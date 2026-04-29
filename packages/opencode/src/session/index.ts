@@ -128,6 +128,77 @@ export namespace Session {
     return typeof metadata?.sessionId === "string" ? metadata.sessionId : undefined
   }
 
+  function remapReferenceString(value: string, idMap: Map<string, string>) {
+    let result = value
+    for (const [source, target] of idMap) {
+      result = result.split(source).join(target)
+    }
+    return result
+  }
+
+  function remapSessionReferences<T>(value: T, idMap: Map<string, string>): T {
+    if (typeof value === "string") return remapReferenceString(value, idMap) as T
+    if (Array.isArray(value)) return value.map((item) => remapSessionReferences(item, idMap)) as T
+    if (!value || typeof value !== "object") return value
+
+    const result: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = remapSessionReferences(child, idMap)
+    }
+    return result as T
+  }
+
+  function remapPartSessionReferences(part: MessageV2.Part, idMap: Map<string, string>): MessageV2.Part {
+    if (part.type !== "tool" || idMap.size === 0) return part
+
+    const cloned = structuredClone(part)
+    const state = cloned.state
+    if ("metadata" in state && state.metadata) {
+      state.metadata = remapSessionReferences(state.metadata, idMap)
+    }
+    if ("output" in state && typeof state.output === "string") {
+      state.output = remapReferenceString(state.output, idMap)
+    }
+    if (cloned.metadata) {
+      cloned.metadata = remapSessionReferences(cloned.metadata, idMap)
+    }
+    return cloned
+  }
+
+  function toolIDsByMessage(messages: MessageV2.WithParts[]) {
+    const result = new Map<string, string[]>()
+    for (const message of messages) {
+      const ids = message.parts
+        .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+        .map((part) => part.callID)
+        .filter((id, index, list) => list.indexOf(id) === index)
+      if (ids.length > 0) result.set(message.info.id, ids)
+    }
+    return result
+  }
+
+  function referencedChildSessionIDs(messages: MessageV2.WithParts[], directChildIDs: Set<string>) {
+    const result = new Set<string>()
+    for (const message of messages) {
+      for (const part of message.parts) {
+        if (part.type !== "tool") continue
+        const childSessionID = getTaskSessionID(part)
+        if (!childSessionID || !directChildIDs.has(childSessionID)) continue
+        result.add(childSessionID)
+      }
+    }
+    return result
+  }
+
+  function recordFromMap<T>(map: Map<string, T>) {
+    return Object.fromEntries(map) as Record<string, T>
+  }
+
+  function getForkCutoffTime(messages: MessageV2.WithParts[], messageID: string | undefined) {
+    if (!messageID) return undefined
+    return messages.find((msg) => msg.info.id >= messageID)?.info.time.created
+  }
+
   function getTaskModel(part: MessageV2.ToolPart): TaskCompletionModel | undefined {
     const metadata = getToolStateMetadata(part)
     const model = metadata?.model
@@ -482,33 +553,149 @@ export namespace Session {
         directory: Instance.directory,
       })
       const msgs = await messages({ sessionID: input.sessionID })
-      const idMap = new Map<string, string>()
+      const copiedRootMessages = msgs.filter((msg) => !input.messageID || msg.info.id < input.messageID)
+      const cutoffTime = getForkCutoffTime(msgs, input.messageID)
+      const childSessions = await forkChildSessions(input.sessionID, copiedRootMessages, input.messageID, cutoffTime)
+      const sessionIDMap = new Map<string, string>([[input.sessionID, session.id]])
 
-      for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
-        const newID = Identifier.ascending("message")
-        idMap.set(msg.info.id, newID)
-
-        const parentID = msg.info.role === "assistant" && msg.info.parentID ? idMap.get(msg.info.parentID) : undefined
-        const cloned = await updateMessage({
-          ...msg.info,
-          sessionID: session.id,
-          id: newID,
-          ...(parentID && { parentID }),
+      for (const child of childSessions) {
+        const parentID = child.parentID ? sessionIDMap.get(child.parentID) : undefined
+        if (!parentID) continue
+        const cloned = await createNext({
+          directory: child.directory,
+          parentID,
+          agentID: child.agentID,
+          async: child.async,
+          title: child.title,
+          permission: child.permission,
         })
-
-        for (const part of msg.parts) {
-          await updatePart({
-            ...part,
-            id: Identifier.ascending("part"),
-            messageID: cloned.id,
-            sessionID: session.id,
-          })
-        }
+        sessionIDMap.set(child.id, cloned.id)
       }
+
+      const rootClone = await cloneSessionMessages({
+        sourceSessionID: input.sessionID,
+        targetSessionID: session.id,
+        sourceMessages: msgs,
+        beforeMessageID: input.messageID,
+        sessionIDMap,
+      })
+
+      for (const child of childSessions) {
+        const targetSessionID = sessionIDMap.get(child.id)
+        if (!targetSessionID) continue
+        await cloneSessionMessages({
+          sourceSessionID: child.id,
+          targetSessionID,
+          beforeTime: cutoffTime,
+          sessionIDMap,
+        })
+      }
+
+      await triggerForkHook({
+        sourceSessionID: input.sessionID,
+        targetSessionID: session.id,
+        cutoffMessageID: input.messageID,
+        messageIDMap: recordFromMap(rootClone.messageIDMap),
+        toolIDsByMessageID: recordFromMap(rootClone.toolIDsByMessageID),
+        childSessionIDMap: recordFromMap(new Map([...sessionIDMap].filter(([source]) => source !== input.sessionID))),
+      })
       return session
     },
   )
+
+  async function forkChildSessions(
+    sourceSessionID: string,
+    copiedRootMessages: MessageV2.WithParts[],
+    cutoffMessageID: string | undefined,
+    cutoffTime: number | undefined,
+  ) {
+    const inCutoff = (session: Info) => cutoffTime === undefined || session.time.created < cutoffTime
+    const directChildren = (await children(sourceSessionID)).filter((child) => !child.time.archived && inCutoff(child))
+    if (directChildren.length === 0) return []
+
+    let selectedDirectChildren = directChildren
+    if (cutoffMessageID) {
+      const directChildIDs = new Set(directChildren.map((child) => child.id))
+      const referenced = referencedChildSessionIDs(copiedRootMessages, directChildIDs)
+      if (referenced.size > 0) {
+        selectedDirectChildren = directChildren.filter((child) => referenced.has(child.id))
+      } else {
+        selectedDirectChildren = cutoffTime !== undefined ? directChildren : []
+      }
+    }
+
+    const result: Info[] = []
+    const seen = new Set<string>()
+    const queue = [...selectedDirectChildren]
+    while (queue.length > 0) {
+      const child = queue.shift()!
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      result.push(child)
+      queue.push(...(await children(child.id)).filter((nested) => !nested.time.archived && inCutoff(nested)))
+    }
+    return result
+  }
+
+  async function cloneSessionMessages(input: {
+    sourceSessionID: string
+    targetSessionID: string
+    sourceMessages?: MessageV2.WithParts[]
+    beforeMessageID?: string
+    beforeTime?: number
+    sessionIDMap: Map<string, string>
+  }) {
+    const sourceMessages = input.sourceMessages ?? (await messages({ sessionID: input.sourceSessionID }))
+    const messageIDMap = new Map<string, string>()
+    const copiedMessages: MessageV2.WithParts[] = []
+
+    for (const msg of sourceMessages) {
+      if (input.beforeMessageID && msg.info.id >= input.beforeMessageID) break
+      if (input.beforeTime !== undefined && msg.info.time.created >= input.beforeTime) break
+      const newID = Identifier.ascending("message")
+      messageIDMap.set(msg.info.id, newID)
+      copiedMessages.push(msg)
+
+      const clonedInfo = structuredClone(msg.info)
+      clonedInfo.id = newID
+      clonedInfo.sessionID = input.targetSessionID
+      if (clonedInfo.role === "assistant") {
+        clonedInfo.parentID = messageIDMap.get(clonedInfo.parentID) ?? clonedInfo.parentID
+      }
+      const cloned = await updateMessage(clonedInfo)
+
+      for (const sourcePart of msg.parts) {
+        const part = remapPartSessionReferences(sourcePart, input.sessionIDMap)
+        await updatePart({
+          ...part,
+          id: Identifier.ascending("part"),
+          messageID: cloned.id,
+          sessionID: input.targetSessionID,
+        })
+      }
+    }
+
+    return {
+      messageIDMap,
+      toolIDsByMessageID: toolIDsByMessage(copiedMessages),
+    }
+  }
+
+  async function triggerForkHook(input: {
+    sourceSessionID: string
+    targetSessionID: string
+    cutoffMessageID?: string
+    messageIDMap: Record<string, string>
+    toolIDsByMessageID: Record<string, string[]>
+    childSessionIDMap: Record<string, string>
+  }) {
+    try {
+      const { Plugin } = await import("../plugin")
+      await Plugin.trigger("session.fork", input, {})
+    } catch (error) {
+      log.warn("fork plugin hook failed", { error })
+    }
+  }
 
   export const touch = fn(Identifier.schema("session"), async (sessionID) => {
     await update(sessionID, (draft) => {

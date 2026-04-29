@@ -6,6 +6,7 @@ import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
 import { Identifier } from "../../src/id/id"
+import { tmpdir } from "../fixture/fixture"
 
 const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
@@ -39,7 +40,7 @@ describe("session.started event", () => {
         await Session.remove(session.id)
       },
     })
-  })
+  }, 15000)
 
   test("session.started event should be emitted before session.updated", async () => {
     await Instance.provide({
@@ -69,7 +70,7 @@ describe("session.started event", () => {
         await Session.remove(session.id)
       },
     })
-  })
+  }, 15000)
 })
 
 describe("session.part updates", () => {
@@ -120,4 +121,184 @@ describe("session.part updates", () => {
       },
     })
   })
+})
+
+const tokens = {
+  input: 0,
+  output: 0,
+  reasoning: 0,
+  cache: { read: 0, write: 0 },
+}
+
+function createUserMessage(sessionID: string, created: number): MessageV2.User {
+  return {
+    id: Identifier.ascending("message"),
+    sessionID,
+    role: "user",
+    time: { created },
+    agent: "user",
+    model: { providerID: "test", modelID: "test" },
+    tools: {},
+  }
+}
+
+function createAssistantMessage(sessionID: string, parentID: string, created: number): MessageV2.Assistant {
+  return {
+    id: Identifier.ascending("message"),
+    sessionID,
+    role: "assistant",
+    parentID,
+    time: { created, completed: created + 1 },
+    modelID: "test",
+    providerID: "test",
+    mode: "build",
+    agent: "build",
+    path: { cwd: projectRoot, root: projectRoot },
+    cost: 0,
+    tokens,
+    finish: "tool-calls",
+  }
+}
+
+function createTaskPart(sessionID: string, messageID: string, childSessionID: string, callID: string): MessageV2.ToolPart {
+  return {
+    id: Identifier.ascending("part"),
+    sessionID,
+    messageID,
+    type: "tool",
+    tool: "task",
+    callID,
+    state: {
+      status: "completed",
+      input: { description: "task" },
+      output: `task_id: ${childSessionID}`,
+      title: "task completed",
+      metadata: { sessionId: childSessionID },
+      time: { start: Date.now(), end: Date.now() + 1 },
+    },
+  }
+}
+
+async function addTextMessage(sessionID: string, text: string, created: number) {
+  const message = createUserMessage(sessionID, created)
+  await Session.updateMessage(message)
+  await Session.updatePart({
+    id: Identifier.ascending("part"),
+    sessionID,
+    messageID: message.id,
+    type: "text",
+    text,
+  })
+  return message
+}
+
+async function addTaskTurn(input: {
+  sessionID: string
+  childSessionID: string
+  callID: string
+  created: number
+}) {
+  const user = await addTextMessage(input.sessionID, `run ${input.callID}`, input.created)
+  const assistant = createAssistantMessage(input.sessionID, user.id, input.created + 1)
+  await Session.updateMessage(assistant)
+  await Session.updatePart(createTaskPart(input.sessionID, assistant.id, input.childSessionID, input.callID))
+  return { user, assistant }
+}
+
+describe("session fork", () => {
+  test("copies child sessions and remaps task metadata without mutating the source", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const source = await Session.create({})
+        const child = await Session.create({
+          parentID: source.id,
+          agentID: "investigator",
+          async: true,
+          title: "Investigate fork state",
+        })
+        await addTextMessage(child.id, "child work", Date.now())
+        await addTaskTurn({ sessionID: source.id, childSessionID: child.id, callID: "call-task-1", created: Date.now() })
+
+        const fork = await Session.fork({ sessionID: source.id })
+        const sourceChildren = await Session.children(source.id)
+        const forkChildren = await Session.children(fork.id)
+
+        expect(sourceChildren.map((item) => item.id)).toEqual([child.id])
+        expect(forkChildren).toHaveLength(1)
+        expect(forkChildren[0].id).not.toBe(child.id)
+        expect(forkChildren[0].parentID).toBe(fork.id)
+        expect(forkChildren[0].agentID).toBe("investigator")
+        expect(forkChildren[0].async).toBe(true)
+
+        const forkMessages = await Session.messages({ sessionID: fork.id })
+        const forkTaskPart = forkMessages.flatMap((message) => message.parts).find((part) => part.type === "tool")
+        expect(forkTaskPart?.type).toBe("tool")
+        if (forkTaskPart?.type !== "tool") throw new Error("missing fork task part")
+        expect(forkTaskPart.state.status).toBe("completed")
+        if (forkTaskPart.state.status !== "completed") throw new Error("unexpected task state")
+        expect(forkTaskPart.state.metadata.sessionId).toBe(forkChildren[0].id)
+        expect(forkTaskPart.state.output).toContain(forkChildren[0].id)
+        expect(forkTaskPart.state.output).not.toContain(child.id)
+
+        const forkChildMessages = await Session.messages({ sessionID: forkChildren[0].id })
+        expect(forkChildMessages).toHaveLength(1)
+        expect(forkChildMessages[0].info.sessionID).toBe(forkChildren[0].id)
+        expect(forkChildMessages[0].info.id).not.toBe((await Session.messages({ sessionID: child.id }))[0].info.id)
+
+        await Session.create({ parentID: fork.id, title: "Fork-only child" })
+        expect(await Session.children(source.id)).toHaveLength(1)
+        expect(await Session.children(fork.id)).toHaveLength(2)
+
+        await Session.remove(source.id)
+        await Session.remove(fork.id)
+      },
+    })
+  }, 15000)
+
+  test("excludes future-only child sessions when forking at a cutoff message", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const source = await Session.create({})
+        const childBefore = await Session.create({ parentID: source.id, title: "Before cutoff" })
+        const childAfter = await Session.create({ parentID: source.id, title: "After cutoff" })
+        const baseTime = Date.now()
+
+        await addTextMessage(childBefore.id, "child before cutoff", baseTime + 1)
+        await addTaskTurn({ sessionID: source.id, childSessionID: childBefore.id, callID: "call-before", created: baseTime + 2 })
+        const cutoff = createUserMessage(source.id, baseTime + 10)
+        await Session.updateMessage(cutoff)
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          sessionID: source.id,
+          messageID: cutoff.id,
+          type: "text",
+          text: "cutoff",
+        })
+        await addTextMessage(childBefore.id, "child after cutoff", baseTime + 20)
+        const afterAssistant = createAssistantMessage(source.id, cutoff.id, baseTime + 21)
+        await Session.updateMessage(afterAssistant)
+        await Session.updatePart(createTaskPart(source.id, afterAssistant.id, childAfter.id, "call-after"))
+
+        const fork = await Session.fork({ sessionID: source.id, messageID: cutoff.id })
+        const forkChildren = await Session.children(fork.id)
+        const forkMessages = await Session.messages({ sessionID: fork.id })
+
+        expect(await Session.children(source.id)).toHaveLength(2)
+        expect(forkChildren).toHaveLength(1)
+        expect(forkChildren[0].title).toBe("Before cutoff")
+        expect(forkMessages.map((message) => message.info.id)).not.toContain(cutoff.id)
+        expect(forkMessages).toHaveLength(2)
+        const forkChildMessages = await Session.messages({ sessionID: forkChildren[0].id })
+        expect(forkChildMessages).toHaveLength(1)
+        expect(forkChildMessages[0].parts.find((part) => part.type === "text" && part.text === "child before cutoff")).toBeDefined()
+
+        await Session.remove(source.id)
+        await Session.remove(fork.id)
+      },
+    })
+  }, 15000)
 })

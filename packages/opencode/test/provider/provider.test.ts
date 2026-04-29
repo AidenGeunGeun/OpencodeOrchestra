@@ -269,7 +269,7 @@ test("openai custom model alias via config", async () => {
   })
 })
 
-test("openai GPT-5.5 FAST alias via config keeps canonical api id, priority tier, and generated variants", async () => {
+test("openai GPT-5.5 FAST alias via config keeps priority scoped to the selected model", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -285,6 +285,10 @@ test("openai GPT-5.5 FAST alias via config keeps canonical api id, priority tier
                   options: {
                     serviceTier: "priority",
                   },
+                },
+                "gpt-5.5-standard": {
+                  id: "gpt-5.5",
+                  name: "GPT-5.5 Standard",
                 },
               },
             },
@@ -308,6 +312,12 @@ test("openai GPT-5.5 FAST alias via config keeps canonical api id, priority tier
       expect(model.options.serviceTier).toBe("priority")
       expect(model.variants?.none?.reasoningEffort).toBe("none")
       expect(model.variants?.xhigh?.reasoningEffort).toBe("xhigh")
+
+      const standard = providers["openai"].models["gpt-5.5-standard"]
+      expect(standard).toBeDefined()
+      expect(standard.api.id).toBe("gpt-5.5")
+      expect(standard.options.serviceTier).toBeUndefined()
+      expect(standard.variants?.xhigh?.reasoningEffort).toBe("xhigh")
     },
   })
 })
@@ -378,7 +388,7 @@ test("openai OAuth custom model alias via config keeps canonical api id and FAST
   }
 })
 
-test("openai OAuth GPT-5.5 FAST alias via config keeps canonical api id and FAST service tier", async () => {
+test("openai OAuth GPT-5.5 FAST alias via config keeps priority model-scoped", async () => {
   const authPath = path.join(Global.Path.data, "auth.json")
   const originalAuth = await Bun.file(authPath)
     .text()
@@ -399,6 +409,10 @@ test("openai OAuth GPT-5.5 FAST alias via config keeps canonical api id and FAST
                   options: {
                     serviceTier: "priority",
                   },
+                },
+                "gpt-5.5-standard": {
+                  id: "gpt-5.5",
+                  name: "GPT-5.5 Standard",
                 },
               },
             },
@@ -433,6 +447,9 @@ test("openai OAuth GPT-5.5 FAST alias via config keeps canonical api id and FAST
         expect(providers["openai"].models["gpt-5.5-fast"]).toBeDefined()
         expect(providers["openai"].models["gpt-5.5-fast"].api.id).toBe("gpt-5.5")
         expect(providers["openai"].models["gpt-5.5-fast"].options.serviceTier).toBe("priority")
+        expect(providers["openai"].models["gpt-5.5-standard"]).toBeDefined()
+        expect(providers["openai"].models["gpt-5.5-standard"].api.id).toBe("gpt-5.5")
+        expect(providers["openai"].models["gpt-5.5-standard"].options.serviceTier).toBeUndefined()
       },
     })
   } finally {

@@ -9,8 +9,11 @@ import {
   defaultHiddenToolDockTools,
   focusTerminalById,
   getTabReorderIndex,
+  getSessionPanelResizeMax,
   hiddenToolDockTools,
   nextVisibleToolDockTool,
+  SESSION_PANEL_MIN_WIDTH,
+  TOOL_DOCK_MIN_WIDTH,
   visibleToolDockTools,
 } from "./helpers"
 
@@ -210,5 +213,20 @@ describe("Tool Dock tab visibility", () => {
     expect(defaultHiddenToolDockTools(["review", "browser"])).toEqual(["browser"])
     expect(defaultHiddenToolDockTools(["review", "browser", "subagents"])).toEqual(["review", "browser"])
     expect(defaultHiddenToolDockTools(["browser"])).toEqual([])
+  })
+})
+
+describe("Tool Dock sizing", () => {
+  test("lets the conversation expand while keeping a compact dock", () => {
+    expect(getSessionPanelResizeMax(1600)).toBe(1600 - TOOL_DOCK_MIN_WIDTH)
+    expect(getSessionPanelResizeMax(3000)).toBe(3000 - TOOL_DOCK_MIN_WIDTH)
+  })
+
+  test("reserves file tree width before preserving the dock minimum", () => {
+    expect(getSessionPanelResizeMax(1600, 344)).toBe(1600 - 344 - TOOL_DOCK_MIN_WIDTH)
+  })
+
+  test("never sets the resize max below the conversation minimum", () => {
+    expect(getSessionPanelResizeMax(768)).toBe(SESSION_PANEL_MIN_WIDTH)
   })
 })

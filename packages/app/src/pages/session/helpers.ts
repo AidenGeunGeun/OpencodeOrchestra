@@ -3,6 +3,8 @@ import { createStore } from "solid-js/store"
 import { same } from "@/utils/same"
 
 const emptyTabs: string[] = []
+export const SESSION_PANEL_MIN_WIDTH = 450
+export const TOOL_DOCK_MIN_WIDTH = 360
 
 export type ToolDockTool = "review" | "subagents" | "browser"
 
@@ -119,6 +121,9 @@ export const defaultHiddenToolDockTools = (available: readonly ToolDockTool[]): 
   if (!preferred) return []
   return available.filter((tool) => tool !== preferred)
 }
+
+export const getSessionPanelResizeMax = (availableWidth: number, reservedSidePanelWidth = 0) =>
+  Math.max(SESSION_PANEL_MIN_WIDTH, availableWidth - reservedSidePanelWidth - TOOL_DOCK_MIN_WIDTH)
 
 export const focusTerminalById = (id: string) => {
   const wrapper = document.getElementById(`terminal-wrapper-${id}`)

@@ -14,6 +14,30 @@ function createTestJwt(payload: object): string {
   return `${header}.${body}.sig`
 }
 
+async function withEnv<T>(values: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>()
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key])
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+
+  try {
+    return await fn()
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
 describe("plugin.codex", () => {
   describe("parseJwtClaims", () => {
     test("parses valid JWT with claims", () => {
@@ -299,19 +323,26 @@ describe("plugin.codex", () => {
       globalThis.fetch = mockFetch as unknown as typeof fetch
 
       try {
-        await options.fetch("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
-            "Content-Type": "application/json",
-            session_id: "session-456",
+        await withEnv(
+          {
+            TERM_PROGRAM: "/Applications/Codex Test Terminal.app",
+            TERM_PROGRAM_VERSION: "/private/version-cache/1.0\nbeta",
           },
-          body: JSON.stringify({
-            model: "gpt-5.5-fast",
-            input: [],
-            service_tier: "priority",
-          }),
-        })
+          () =>
+            options.fetch("https://api.openai.com/v1/responses", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${OAUTH_DUMMY_KEY}`,
+                "Content-Type": "application/json",
+                session_id: "session-456",
+              },
+              body: JSON.stringify({
+                model: "gpt-5.5-fast",
+                input: [],
+                service_tier: "priority",
+              }),
+            }),
+        )
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -320,6 +351,11 @@ describe("plugin.codex", () => {
       expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
       expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
       expect(seenHeaders?.get("originator")).toBe("codex_cli_rs")
+      expect(seenHeaders?.get("User-Agent")).toStartWith("codex_cli_rs/")
+      expect(seenHeaders?.get("User-Agent")).toContain(" Codex_Test_Terminal.app/1.0_beta")
+      expect(seenHeaders?.get("User-Agent")).not.toContain("/Applications")
+      expect(seenHeaders?.get("User-Agent")).not.toContain("private")
+      expect(seenHeaders?.get("User-Agent")).not.toContain("\n")
       expect(seenHeaders?.get("session_id")).toBe("session-456")
       expect(seenHeaders?.get("x-client-request-id")).toBe("session-456")
       expect(seenHeaders?.get("x-codex-window-id")).toBe("session-456:0")
@@ -388,6 +424,8 @@ describe("plugin.codex", () => {
       expect(seenHeaders?.get("authorization")).toBe("Bearer oauth-access-token")
       expect(seenHeaders?.get("ChatGPT-Account-Id")).toBe("acc-123")
       expect(seenHeaders?.get("originator")).toBeNull()
+      expect(seenHeaders?.get("User-Agent")).toBeNull()
+      expect(seenHeaders?.get("version")).toBeNull()
       expect(seenHeaders?.get("x-codex-window-id")).toBeNull()
       expect(seenHeaders?.get("x-client-request-id")).toBeNull()
       expect(seenBody).toBeUndefined()
