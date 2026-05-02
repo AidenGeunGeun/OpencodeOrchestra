@@ -1,8 +1,14 @@
-Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
+Executes a given bash command in a local shell process with optional timeout, ensuring proper handling and security measures.
 
 All commands run in ${directory} by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd <directory> && <command>` patterns - use `workdir` instead.
 
 IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
+
+IMPORTANT: This tool is blocking. The agent waits until the local command exits, errors, times out, or is aborted. It is not an async job manager, terminal multiplexer, or durable background process registry.
+
+Remote or external work may outlive the local command. If a command starts cloud resources, SSH commands, containers, services, tmux/nohup jobs, detached processes, uploads, or other long-running work, those may keep running even if this bash call times out, is aborted, or loses its connection. A timeout only proves the local process was terminated; it does not prove remote work or paid infrastructure stopped.
+
+For long-running, metered, or externally managed work, split the workflow into short observable phases. Persist recovery information before starting work that may continue independently, then use separate short commands to launch, poll, sync logs/artifacts, and clean up. Do not hide setup, upload, launch, polling, and cleanup inside one long blocking bash command.
 
 Before executing the command, please follow these steps:
 
