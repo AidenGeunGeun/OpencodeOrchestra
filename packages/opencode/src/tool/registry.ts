@@ -30,6 +30,7 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 import { PlanExitTool, PlanEnterTool } from "./plan"
 import { ApplyPatchTool } from "./apply_patch"
+import { SecretRedaction } from "@/secret/redaction"
 // import { ProjectStateReadTool, ProjectStateWriteTool } from "./project-state"
 
 export namespace ToolRegistry {
@@ -74,10 +75,11 @@ export namespace ToolRegistry {
             worktree: Instance.worktree,
           } as unknown as PluginToolContext
           const result = await def.execute(args as any, pluginCtx)
-          const out = await Truncate.output(result, {}, initCtx?.agent)
+          const redacted = await SecretRedaction.forCurrentProject(result)
+          const out = await Truncate.output(redacted, {}, initCtx?.agent)
           return {
             title: "",
-            output: out.truncated ? out.content : result,
+            output: out.truncated ? out.content : redacted,
             metadata: { truncated: out.truncated, outputPath: out.truncated ? out.outputPath : undefined },
           }
         },

@@ -25,6 +25,7 @@ import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
 import { Global } from "@/global"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
+import { SecretRedaction } from "@/secret/redaction"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -1109,8 +1110,9 @@ export namespace Session {
   ])
 
   export const updatePart = fn(UpdatePartInput, async (input) => {
-    const part = "delta" in input ? input.part : input
-    const delta = "delta" in input ? input.delta : undefined
+    const originalPart = "delta" in input ? input.part : input
+    const part = await SecretRedaction.forSession(originalPart.sessionID, originalPart)
+    const delta = "delta" in input ? await SecretRedaction.forSession(originalPart.sessionID, input.delta) : undefined
     const { id, messageID, sessionID, ...data } = part
     const time_created = Date.now()
     Database.use((db) => {

@@ -2,3 +2,4 @@ export { AccountTable, AccountStateTable, ControlAccountTable } from "../account
 export { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
 export { SessionShareTable } from "../share/share.sql"
 export { ProjectTable } from "../project/project.sql"
+export { SecretProfileTable, SecretEntryTable } from "../secret/vault.sql"

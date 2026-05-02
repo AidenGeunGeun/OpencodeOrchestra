@@ -42,6 +42,7 @@ import type {
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
+  GlobalReloadResponses,
   InstanceDisposeResponses,
   LspStatusResponses,
   McpAddErrors,
@@ -99,6 +100,26 @@ import type {
   QuestionRejectResponses,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  SecretAdminEntryCreateErrors,
+  SecretAdminEntryCreateResponses,
+  SecretAdminEntryDeleteErrors,
+  SecretAdminEntryDeleteResponses,
+  SecretAdminEntryUpdateErrors,
+  SecretAdminEntryUpdateResponses,
+  SecretAdminEntryValueErrors,
+  SecretAdminEntryValueResponses,
+  SecretAdminImportEnvErrors,
+  SecretAdminImportEnvResponses,
+  SecretAdminProfileCreateErrors,
+  SecretAdminProfileCreateResponses,
+  SecretAdminProfileDeleteErrors,
+  SecretAdminProfileDeleteResponses,
+  SecretAdminProfileUpdateErrors,
+  SecretAdminProfileUpdateResponses,
+  SecretAdminTokenResponses,
+  SecretEntriesErrors,
+  SecretEntriesResponses,
+  SecretProfilesResponses,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionChildrenErrors,
@@ -254,6 +275,18 @@ export class Global extends HeyApiClient {
   public dispose<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).post<GlobalDisposeResponses, unknown, ThrowOnError>({
       url: "/global/dispose",
+      ...options,
+    })
+  }
+
+  /**
+   * Reload configuration
+   *
+   * Reload all configuration, skills, and prompts from disk without restarting the server.
+   */
+  public reload<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalReloadResponses, unknown, ThrowOnError>({
+      url: "/global/reload",
       ...options,
     })
   }
@@ -1165,6 +1198,7 @@ export class Session extends HeyApiClient {
       workspace?: string
       parentID?: string
       agentID?: string
+      async?: boolean
       title?: string
       permission?: PermissionRuleset
     },
@@ -1179,6 +1213,7 @@ export class Session extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "parentID" },
             { in: "body", key: "agentID" },
+            { in: "body", key: "async" },
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
           ],
@@ -2209,6 +2244,479 @@ export class Permission extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+}
+
+export class Profile extends HeyApiClient {
+  /**
+   * Create secret profile
+   *
+   * Protected human/admin route for creating a project-scoped secret profile.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      label?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "label" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SecretAdminProfileCreateResponses,
+      SecretAdminProfileCreateErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete secret profile
+   *
+   * Protected human/admin route for deleting a secret profile and its entries.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      SecretAdminProfileDeleteResponses,
+      SecretAdminProfileDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update secret profile
+   *
+   * Protected human/admin route for renaming or disabling a secret profile.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      label?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "label" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      SecretAdminProfileUpdateResponses,
+      SecretAdminProfileUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Entry extends HeyApiClient {
+  /**
+   * Create secret entry
+   *
+   * Protected human/admin route for creating a named secret value.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      label?: string
+      risk?: "low" | "medium" | "high" | "production"
+      value?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "label" },
+            { in: "body", key: "risk" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SecretAdminEntryCreateResponses,
+      SecretAdminEntryCreateErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}/entries",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete secret entry
+   *
+   * Protected human/admin route for deleting a secret entry.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      entryID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "path", key: "entryID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      SecretAdminEntryDeleteResponses,
+      SecretAdminEntryDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}/entries/{entryID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update secret entry
+   *
+   * Protected human/admin route for updating metadata, disabled state, or value for a secret entry.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      entryID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      label?: string
+      risk?: "low" | "medium" | "high" | "production"
+      enabled?: boolean
+      value?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "path", key: "entryID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "label" },
+            { in: "body", key: "risk" },
+            { in: "body", key: "enabled" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      SecretAdminEntryUpdateResponses,
+      SecretAdminEntryUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}/entries/{entryID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Reveal secret value
+   *
+   * Protected human/admin route for intentionally revealing a secret value.
+   */
+  public value<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      entryID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "path", key: "entryID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SecretAdminEntryValueResponses,
+      SecretAdminEntryValueErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}/entries/{entryID}/value",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Import extends HeyApiClient {
+  /**
+   * Import env content
+   *
+   * Protected human/admin route for importing .env-style content without exposing raw files to agents.
+   */
+  public env<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      directory?: string
+      workspace?: string
+      content?: string
+      overwrite?: boolean
+      risk?: "low" | "medium" | "high" | "production"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "content" },
+            { in: "body", key: "overwrite" },
+            { in: "body", key: "risk" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SecretAdminImportEnvResponses,
+      SecretAdminImportEnvErrors,
+      ThrowOnError
+    >({
+      url: "/secret/admin/profiles/{profileID}/import-env",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Admin extends HeyApiClient {
+  private _profile?: Profile
+  get profile(): Profile {
+    return (this._profile ??= new Profile({ client: this.client }))
+  }
+
+  private _entry?: Entry
+  get entry(): Entry {
+    return (this._entry ??= new Entry({ client: this.client }))
+  }
+
+  private _import?: Import
+  get import(): Import {
+    return (this._import ??= new Import({ client: this.client }))
+  }
+}
+
+export class Secret extends HeyApiClient {
+  /**
+   * List secret profiles
+   *
+   * List agent-safe project secret profiles without secret values or value-derived hints.
+   */
+  public profiles<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SecretProfilesResponses, unknown, ThrowOnError>({
+      url: "/secret/profiles",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Mint secret-vault admin token
+   *
+   * Mints a short-lived admin token for the desktop renderer so it can call protected /secret/admin* routes (create/update/delete entries, reveal value, import-env). Gated by an Origin header check that mirrors the server's CORS allow-list. Note: the Origin gate is defense-in-depth only. The real protection that prevents agent models from seeing stored secret values is the SecretRedaction layer applied to all model-visible tool output. This route exists so the renderer can manage entries without each click round-tripping a separate auth handshake.
+   */
+  public adminToken<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SecretAdminTokenResponses, unknown, ThrowOnError>({
+      url: "/secret/admin-token",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List secret entries
+   *
+   * List agent-safe project secret entry metadata without secret values or value-derived hints.
+   */
+  public entries<ThrowOnError extends boolean = false>(
+    parameters: {
+      profileID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "profileID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SecretEntriesResponses, SecretEntriesErrors, ThrowOnError>({
+      url: "/secret/profiles/{profileID}/entries",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _admin?: Admin
+  get admin(): Admin {
+    return (this._admin ??= new Admin({ client: this.client }))
   }
 }
 
@@ -3786,6 +4294,11 @@ export class OpencodeClient extends HeyApiClient {
   private _permission?: Permission
   get permission(): Permission {
     return (this._permission ??= new Permission({ client: this.client }))
+  }
+
+  private _secret?: Secret
+  get secret(): Secret {
+    return (this._secret ??= new Secret({ client: this.client }))
   }
 
   private _question?: Question

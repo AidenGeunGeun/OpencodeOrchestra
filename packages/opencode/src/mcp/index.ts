@@ -23,6 +23,7 @@ import { BusEvent } from "../bus/bus-event"
 import { Bus } from "@/bus"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import open from "open"
+import { SecretRedaction } from "@/secret/redaction"
 
 export namespace MCP {
   const log = Log.create({ service: "mcp" })
@@ -132,7 +133,7 @@ export namespace MCP {
       description: mcpTool.description ?? "",
       inputSchema: jsonSchema(schema),
       execute: async (args: unknown) => {
-        return client.callTool(
+        return SecretRedaction.forCurrentProject(await client.callTool(
           {
             name: mcpTool.name,
             arguments: args as Record<string, unknown>,
@@ -142,7 +143,7 @@ export namespace MCP {
             resetTimeoutOnProgress: true,
             timeout,
           },
-        )
+        ))
       },
     })
   }
@@ -419,8 +420,12 @@ export namespace MCP {
           ...mcp.environment,
         },
       })
+      let stderrOutput = ""
       transport.stderr?.on("data", (chunk: Buffer) => {
-        log.info(`mcp stderr: ${chunk.toString()}`, { key })
+        stderrOutput += chunk.toString()
+        void SecretRedaction.patternsForCurrentProject().then((patterns) => {
+          log.info(`mcp stderr: ${SecretRedaction.applyStreaming(stderrOutput, patterns)}`, { key })
+        })
       })
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT

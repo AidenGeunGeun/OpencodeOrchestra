@@ -10,6 +10,7 @@ import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
 import { Identifier } from "../id/id"
 import { assertExternalDirectory } from "./external-directory"
+import { InternalPath } from "@/security/internal-path"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -79,25 +80,29 @@ export const ReadTool = Tool.define("read", {
       const dirents = await fs.readdir(filepath, { withFileTypes: true })
       const entries = await Promise.all(
         dirents.map(async (dirent) => {
+          const entryPath = path.join(filepath, dirent.name)
+          if (InternalPath.contains(entryPath)) return
           if (dirent.isDirectory()) return dirent.name + "/"
           if (dirent.isSymbolicLink()) {
-            const target = await fs.stat(path.join(filepath, dirent.name)).catch(() => undefined)
+            const target = await fs.stat(entryPath).catch(() => undefined)
             if (target?.isDirectory()) return dirent.name + "/"
           }
           return dirent.name
         }),
       )
-      entries.sort((a, b) => a.localeCompare(b))
+      const visibleEntries = entries.filter((entry) => entry !== undefined)
+      visibleEntries.sort((a, b) => a.localeCompare(b))
 
       const limit = params.limit ?? DEFAULT_READ_LIMIT
       const offset = params.offset ?? 1
       const start = offset - 1
-      const offsetOutOfRange = (entries.length === 0 && offset > 1) || (entries.length > 0 && start >= entries.length)
+      const offsetOutOfRange =
+        (visibleEntries.length === 0 && offset > 1) || (visibleEntries.length > 0 && start >= visibleEntries.length)
       if (offsetOutOfRange) {
-        throw new Error(`Offset ${offset} is out of range for this directory (${entries.length} entries)`)
+        throw new Error(`Offset ${offset} is out of range for this directory (${visibleEntries.length} entries)`)
       }
-      const sliced = entries.slice(start, start + limit)
-      const truncated = start + sliced.length < entries.length
+      const sliced = visibleEntries.slice(start, start + limit)
+      const truncated = start + sliced.length < visibleEntries.length
 
       const output = [
         `<path>${filepath}</path>`,
@@ -105,8 +110,8 @@ export const ReadTool = Tool.define("read", {
         `<entries>`,
         sliced.join("\n"),
         truncated
-          ? `\n(Showing ${sliced.length} of ${entries.length} entries. Use 'offset' parameter to read beyond entry ${offset + sliced.length})`
-          : `\n(${entries.length} entries)`,
+          ? `\n(Showing ${sliced.length} of ${visibleEntries.length} entries. Use 'offset' parameter to read beyond entry ${offset + sliced.length})`
+          : `\n(${visibleEntries.length} entries)`,
         `</entries>`,
       ].join("\n")
 

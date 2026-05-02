@@ -1,6 +1,7 @@
 import path from "path"
 import type { Tool } from "./tool"
 import { Instance } from "../project/instance"
+import { InternalPath } from "@/security/internal-path"
 
 type Kind = "file" | "directory"
 
@@ -11,6 +12,8 @@ type Options = {
 
 export async function assertExternalDirectory(ctx: Tool.Context, target?: string, options?: Options) {
   if (!target) return
+
+  InternalPath.assertAllowed(target)
 
   if (options?.bypass) return
 

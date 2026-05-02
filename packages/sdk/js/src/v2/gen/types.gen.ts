@@ -152,6 +152,12 @@ export type UnknownError = {
   name: "UnknownError"
   data: {
     message: string
+    name?: string
+    cause?: {
+      name?: string
+      message?: string
+      code?: string
+    }
   }
 }
 
@@ -793,6 +799,7 @@ export type Session = {
   directory: string
   parentID?: string
   agentID?: string
+  async?: boolean
   summary?: {
     additions: number
     deletions: number
@@ -2121,6 +2128,36 @@ export type SubtaskPartInput = {
   command?: string
 }
 
+export type SecretProfile = {
+  id: string
+  projectID: string
+  name: string
+  label?: string
+  enabled: boolean
+  timeCreated: number
+  timeUpdated: number
+}
+
+export type SecretAdminToken = {
+  token: string
+  projectID: string
+  expiresAt: number
+}
+
+export type SecretEntry = {
+  id: string
+  projectID: string
+  profileID: string
+  name: string
+  label?: string
+  risk: "low" | "medium" | "high" | "production"
+  enabled: boolean
+  hasValue: true
+  timeUsed?: number
+  timeCreated: number
+  timeUpdated: number
+}
+
 export type ProviderAuthMethod = {
   type: "oauth" | "api"
   label: string
@@ -2317,6 +2354,22 @@ export type GlobalDisposeResponses = {
 }
 
 export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]
+
+export type GlobalReloadData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/reload"
+}
+
+export type GlobalReloadResponses = {
+  /**
+   * Reload complete
+   */
+  200: boolean
+}
+
+export type GlobalReloadResponse = GlobalReloadResponses[keyof GlobalReloadResponses]
 
 export type AuthRemoveData = {
   body?: never
@@ -3021,6 +3074,7 @@ export type SessionCreateData = {
   body?: {
     parentID?: string
     agentID?: string
+    async?: boolean
     title?: string
     permission?: PermissionRuleset
   }
@@ -3826,6 +3880,10 @@ export type SessionCommandResponses = {
     info: AssistantMessage
     parts: Array<Part>
   }
+  /**
+   * Command handled with no response body
+   */
+  204: void
 }
 
 export type SessionCommandResponse = SessionCommandResponses[keyof SessionCommandResponses]
@@ -3981,6 +4039,358 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
+
+export type SecretProfilesData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/profiles"
+}
+
+export type SecretProfilesResponses = {
+  /**
+   * Secret profiles
+   */
+  200: Array<SecretProfile>
+}
+
+export type SecretProfilesResponse = SecretProfilesResponses[keyof SecretProfilesResponses]
+
+export type SecretAdminTokenData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin-token"
+}
+
+export type SecretAdminTokenResponses = {
+  /**
+   * Admin token
+   */
+  200: SecretAdminToken
+}
+
+export type SecretAdminTokenResponse = SecretAdminTokenResponses[keyof SecretAdminTokenResponses]
+
+export type SecretEntriesData = {
+  body?: never
+  path: {
+    profileID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/profiles/{profileID}/entries"
+}
+
+export type SecretEntriesErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretEntriesError = SecretEntriesErrors[keyof SecretEntriesErrors]
+
+export type SecretEntriesResponses = {
+  /**
+   * Secret entries
+   */
+  200: Array<SecretEntry>
+}
+
+export type SecretEntriesResponse = SecretEntriesResponses[keyof SecretEntriesResponses]
+
+export type SecretAdminProfileCreateData = {
+  body?: {
+    name: string
+    label?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles"
+}
+
+export type SecretAdminProfileCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SecretAdminProfileCreateError = SecretAdminProfileCreateErrors[keyof SecretAdminProfileCreateErrors]
+
+export type SecretAdminProfileCreateResponses = {
+  /**
+   * Secret profile
+   */
+  200: SecretProfile
+}
+
+export type SecretAdminProfileCreateResponse =
+  SecretAdminProfileCreateResponses[keyof SecretAdminProfileCreateResponses]
+
+export type SecretAdminProfileDeleteData = {
+  body?: never
+  path: {
+    profileID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}"
+}
+
+export type SecretAdminProfileDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminProfileDeleteError = SecretAdminProfileDeleteErrors[keyof SecretAdminProfileDeleteErrors]
+
+export type SecretAdminProfileDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: boolean
+}
+
+export type SecretAdminProfileDeleteResponse =
+  SecretAdminProfileDeleteResponses[keyof SecretAdminProfileDeleteResponses]
+
+export type SecretAdminProfileUpdateData = {
+  body?: {
+    name?: string
+    label?: string
+    enabled?: boolean
+  }
+  path: {
+    profileID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}"
+}
+
+export type SecretAdminProfileUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminProfileUpdateError = SecretAdminProfileUpdateErrors[keyof SecretAdminProfileUpdateErrors]
+
+export type SecretAdminProfileUpdateResponses = {
+  /**
+   * Secret profile
+   */
+  200: SecretProfile
+}
+
+export type SecretAdminProfileUpdateResponse =
+  SecretAdminProfileUpdateResponses[keyof SecretAdminProfileUpdateResponses]
+
+export type SecretAdminEntryCreateData = {
+  body?: {
+    name: string
+    label?: string
+    risk?: "low" | "medium" | "high" | "production"
+    value: string
+  }
+  path: {
+    profileID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}/entries"
+}
+
+export type SecretAdminEntryCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminEntryCreateError = SecretAdminEntryCreateErrors[keyof SecretAdminEntryCreateErrors]
+
+export type SecretAdminEntryCreateResponses = {
+  /**
+   * Secret entry
+   */
+  200: SecretEntry
+}
+
+export type SecretAdminEntryCreateResponse = SecretAdminEntryCreateResponses[keyof SecretAdminEntryCreateResponses]
+
+export type SecretAdminEntryDeleteData = {
+  body?: never
+  path: {
+    profileID: string
+    entryID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}/entries/{entryID}"
+}
+
+export type SecretAdminEntryDeleteErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminEntryDeleteError = SecretAdminEntryDeleteErrors[keyof SecretAdminEntryDeleteErrors]
+
+export type SecretAdminEntryDeleteResponses = {
+  /**
+   * Deleted
+   */
+  200: boolean
+}
+
+export type SecretAdminEntryDeleteResponse = SecretAdminEntryDeleteResponses[keyof SecretAdminEntryDeleteResponses]
+
+export type SecretAdminEntryUpdateData = {
+  body?: {
+    name?: string
+    label?: string
+    risk?: "low" | "medium" | "high" | "production"
+    enabled?: boolean
+    value?: string
+  }
+  path: {
+    profileID: string
+    entryID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}/entries/{entryID}"
+}
+
+export type SecretAdminEntryUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminEntryUpdateError = SecretAdminEntryUpdateErrors[keyof SecretAdminEntryUpdateErrors]
+
+export type SecretAdminEntryUpdateResponses = {
+  /**
+   * Secret entry
+   */
+  200: SecretEntry
+}
+
+export type SecretAdminEntryUpdateResponse = SecretAdminEntryUpdateResponses[keyof SecretAdminEntryUpdateResponses]
+
+export type SecretAdminEntryValueData = {
+  body?: never
+  path: {
+    profileID: string
+    entryID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}/entries/{entryID}/value"
+}
+
+export type SecretAdminEntryValueErrors = {
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminEntryValueError = SecretAdminEntryValueErrors[keyof SecretAdminEntryValueErrors]
+
+export type SecretAdminEntryValueResponses = {
+  /**
+   * Secret value
+   */
+  200: {
+    value: string
+  }
+}
+
+export type SecretAdminEntryValueResponse = SecretAdminEntryValueResponses[keyof SecretAdminEntryValueResponses]
+
+export type SecretAdminImportEnvData = {
+  body?: {
+    content: string
+    overwrite?: boolean
+    risk?: "low" | "medium" | "high" | "production"
+  }
+  path: {
+    profileID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/secret/admin/profiles/{profileID}/import-env"
+}
+
+export type SecretAdminImportEnvErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SecretAdminImportEnvError = SecretAdminImportEnvErrors[keyof SecretAdminImportEnvErrors]
+
+export type SecretAdminImportEnvResponses = {
+  /**
+   * Imported secret entries
+   */
+  200: Array<SecretEntry>
+}
+
+export type SecretAdminImportEnvResponse = SecretAdminImportEnvResponses[keyof SecretAdminImportEnvResponses]
 
 export type PermissionReplyData = {
   body?: {

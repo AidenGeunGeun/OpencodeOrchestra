@@ -3,6 +3,7 @@ import type { MessageV2 } from "../session/message-v2"
 import type { Agent } from "../agent/agent"
 import type { PermissionNext } from "../permission/next"
 import { Truncate } from "./truncation"
+import { SecretRedaction } from "@/secret/redaction"
 
 export namespace Tool {
   interface Metadata {
@@ -66,7 +67,13 @@ export namespace Tool {
               { cause: error },
             )
           }
-          const result = await execute(args, ctx)
+          const redactingCtx = {
+            ...ctx,
+            metadata(input: { title?: string; metadata?: Result }) {
+              void SecretRedaction.forCurrentProject(input).then((redacted) => ctx.metadata(redacted))
+            },
+          }
+          const result = await SecretRedaction.forCurrentProject(await execute(args, redactingCtx))
           // skip truncation for tools that handle it themselves
           if (result.metadata.truncated !== undefined) {
             return result

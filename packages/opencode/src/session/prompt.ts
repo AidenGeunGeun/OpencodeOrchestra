@@ -50,6 +50,7 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { SecretRedaction } from "@/secret/redaction"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -872,7 +873,7 @@ export namespace SessionPrompt {
             always: ["*"],
           })
           const result = await item.execute(args, ctx)
-          const output = {
+          let output = {
             ...result,
             attachments: result.attachments?.map((attachment) => ({
               ...attachment,
@@ -891,6 +892,7 @@ export namespace SessionPrompt {
             },
             output,
           )
+          output = await SecretRedaction.forSession(ctx.sessionID, output)
           return output
         },
       })
@@ -925,7 +927,7 @@ export namespace SessionPrompt {
           always: ["*"],
         })
 
-        const result = await execute(args, opts)
+        let result = await execute(args, opts)
 
         await Plugin.trigger(
           "tool.execute.after",
@@ -937,6 +939,7 @@ export namespace SessionPrompt {
           },
           result,
         )
+        result = await SecretRedaction.forSession(ctx.sessionID, result)
 
         const textParts: string[] = []
         const attachments: MessageV2.FilePart[] = []

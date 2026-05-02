@@ -6,6 +6,7 @@ import DESCRIPTION from "./grep.txt"
 import { Instance } from "../project/instance"
 import path from "path"
 import { assertExternalDirectory } from "./external-directory"
+import { InternalPath } from "@/security/internal-path"
 
 const MAX_LINE_LENGTH = 2000
 
@@ -93,6 +94,7 @@ export const GrepTool = Tool.define("grep", {
       const file = Bun.file(filePath)
       const stats = await file.stat().catch(() => null)
       if (!stats) continue
+      if (InternalPath.contains(filePath)) continue
 
       matches.push({
         path: filePath,

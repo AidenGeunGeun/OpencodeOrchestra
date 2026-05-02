@@ -11,10 +11,13 @@ import { Language } from "web-tree-sitter"
 
 import { $ } from "bun"
 import * as fs from "fs/promises"
-import { Filesystem } from "@/util/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@/flag/flag.ts"
 import { Shell } from "@/shell/shell"
+import { SecretVault } from "@/secret/vault"
+import { SecretRedaction } from "@/secret/redaction"
+import { SecretScope } from "@/secret/scope"
+import { InternalPath } from "@/security/internal-path"
 
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
@@ -78,10 +81,15 @@ export const BashTool = Tool.define("bash", async () => {
     }),
     async execute(params, ctx) {
       const cwd = params.workdir || Instance.directory
+      InternalPath.assertAllowed(cwd)
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
       const timeout = params.timeout ?? DEFAULT_TIMEOUT
+      const secureEnvScope = (await SecretScope.forDirectory(cwd)).id
+      const secureEnvEntries = await SecretVault.sensitiveEntries(secureEnvScope)
+      const secureEnv = Object.fromEntries(secureEnvEntries.map((entry) => [entry.name, entry.value]))
+      const redactionPatterns = await SecretRedaction.patterns(secureEnvScope)
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")
@@ -136,6 +144,7 @@ export const BashTool = Tool.define("bash", async () => {
             }
             log.info("resolved path", { arg, resolved })
             if (resolved) {
+              InternalPath.assertAllowed(resolved)
               if (!Instance.containsPath(resolved)) directories.add(resolved)
             }
           }
@@ -171,6 +180,7 @@ export const BashTool = Tool.define("bash", async () => {
         cwd,
         env: {
           ...process.env,
+          ...secureEnv,
         },
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
@@ -188,10 +198,11 @@ export const BashTool = Tool.define("bash", async () => {
 
       const append = (chunk: Buffer) => {
         output += chunk.toString()
+        const redactedOutput = SecretRedaction.applyStreaming(output, redactionPatterns)
         ctx.metadata({
           metadata: {
             // truncate the metadata to avoid GIANT blobs of data (has nothing to do w/ what agent can access)
-            output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
+            output: redactedOutput.length > MAX_METADATA_LENGTH ? redactedOutput.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : redactedOutput,
             description: params.description,
           },
         })
@@ -256,14 +267,15 @@ export const BashTool = Tool.define("bash", async () => {
         output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
       }
 
+      const redactedOutput = SecretRedaction.apply(output, redactionPatterns)
       return {
         title: params.description,
         metadata: {
-          output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
+          output: redactedOutput.length > MAX_METADATA_LENGTH ? redactedOutput.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : redactedOutput,
           exit: proc.exitCode,
           description: params.description,
         },
-        output,
+        output: redactedOutput,
       }
     },
   }

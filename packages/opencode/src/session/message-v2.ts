@@ -12,6 +12,7 @@ import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
 import { type SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
+import { SecretRedaction } from "@/secret/redaction"
 
 export namespace MessageV2 {
   export function isMedia(mime: string) {
@@ -504,6 +505,7 @@ export namespace MessageV2 {
   ): Promise<ModelMessage[]> {
     const result: UIMessage[] = []
     const toolNames = new Set<string>()
+    const redactedInput = await Promise.all(input.map((msg) => SecretRedaction.forSession(msg.info.sessionID, msg)))
 
     const toModelOutput = (output: unknown) => {
       if (typeof output === "string") {
@@ -573,7 +575,7 @@ export namespace MessageV2 {
       return { type: "json", value: output as never }
     }
 
-    for (const msg of input) {
+    for (const msg of redactedInput) {
       if (msg.parts.length === 0) continue
 
       if (msg.info.role === "user") {

@@ -48,10 +48,12 @@ export namespace Plugin {
       $: Bun.$,
     }
 
+    const internalHooks: Hooks[] = []
     for (const plugin of INTERNAL_PLUGINS) {
       log.info("loading internal plugin", { name: plugin.name })
       const init = await plugin(input)
       hooks.push(init)
+      internalHooks.push(init)
     }
 
     const plugins = [...(config.plugin ?? [])]
@@ -132,9 +134,15 @@ export namespace Plugin {
 
     return {
       hooks,
+      internalHooks,
       input,
     }
   })
+
+  async function activeHooks() {
+    const current = await state()
+    return current.hooks
+  }
 
   export async function trigger<
     Name extends Exclude<keyof Required<Hooks>, "auth" | "event" | "tool">,
@@ -142,7 +150,7 @@ export namespace Plugin {
     Output = Parameters<Required<Hooks>[Name]>[1],
   >(name: Name, input: Input, output: Output): Promise<Output> {
     if (!name) return output
-    for (const hook of await state().then((x) => x.hooks)) {
+    for (const hook of await activeHooks()) {
       const fn = hook[name]
       if (!fn) continue
       // @ts-expect-error if you feel adventurous, please fix the typing, make sure to bump the try-counter if you
@@ -154,11 +162,11 @@ export namespace Plugin {
   }
 
   export async function list() {
-    return state().then((x) => x.hooks)
+    return activeHooks()
   }
 
   export async function init() {
-    const hooks = await state().then((x) => x.hooks)
+    const hooks = await activeHooks()
     const config = await Config.get()
     for (const hook of hooks) {
       try {
@@ -169,7 +177,7 @@ export namespace Plugin {
       }
     }
     Bus.subscribeAll(async (input) => {
-      const hooks = await state().then((x) => x.hooks)
+      const hooks = await activeHooks()
       for (const hook of hooks) {
         hook["event"]?.({
           event: input,

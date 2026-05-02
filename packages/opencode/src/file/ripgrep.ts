@@ -9,6 +9,7 @@ import { $ } from "bun"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
+import { InternalPath } from "@/security/internal-path"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -203,6 +204,37 @@ export namespace Ripgrep {
     return filepath
   }
 
+  function allowedFileResult(cwd: string, line: string) {
+    if (!line) return false
+    return !InternalPath.contains(path.resolve(cwd, line))
+  }
+
+  export async function* parseFilesOutput(cwd: string, stdout: ReadableStream<Uint8Array>) {
+    const reader = stdout.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        // Handle both Unix (\n) and Windows (\r\n) line endings
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || ""
+
+        for (const line of lines) {
+          if (allowedFileResult(cwd, line)) yield line
+        }
+      }
+
+      if (allowedFileResult(cwd, buffer)) yield buffer
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
   export async function* files(input: {
     cwd: string
     glob?: string[]
@@ -237,28 +269,9 @@ export namespace Ripgrep {
       maxBuffer: 1024 * 1024 * 20,
     })
 
-    const reader = proc.stdout.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
-
     try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        // Handle both Unix (\n) and Windows (\r\n) line endings
-        const lines = buffer.split(/\r?\n/)
-        buffer = lines.pop() || ""
-
-        for (const line of lines) {
-          if (line) yield line
-        }
-      }
-
-      if (buffer) yield buffer
+      yield* parseFilesOutput(input.cwd, proc.stdout)
     } finally {
-      reader.releaseLock()
       await proc.exited
     }
   }
@@ -372,36 +385,42 @@ export namespace Ripgrep {
     limit?: number
     follow?: boolean
   }) {
-    const args = [`${await filepath()}`, "--json", "--hidden", "--glob='!.git/*'"]
+    const args = [await filepath(), "--json", "--hidden", "--glob", "!.git/*"]
     if (input.follow !== false) args.push("--follow")
 
     if (input.glob) {
       for (const g of input.glob) {
-        args.push(`--glob=${g}`)
+        args.push("--glob", g)
       }
     }
 
     if (input.limit) {
-      args.push(`--max-count=${input.limit}`)
+      args.push("--max-count", String(input.limit))
     }
 
     args.push("--")
     args.push(input.pattern)
+    args.push(input.cwd)
 
-    const command = args.join(" ")
-    const result = await $`${{ raw: command }}`.cwd(input.cwd).quiet().nothrow()
-    if (result.exitCode !== 0) {
+    const proc = Bun.spawn(args, {
+      stdout: "pipe",
+      stderr: "ignore",
+    })
+    const text = await new Response(proc.stdout).text()
+    const exitCode = await proc.exited
+    if (exitCode !== 0) {
       return []
     }
 
     // Handle both Unix (\n) and Windows (\r\n) line endings
-    const lines = result.text().trim().split(/\r?\n/).filter(Boolean)
+    const lines = text.trim().split(/\r?\n/).filter(Boolean)
     // Parse JSON lines from ripgrep output
 
     return lines
       .map((line) => JSON.parse(line))
       .map((parsed) => Result.parse(parsed))
       .filter((r) => r.type === "match")
+      .filter((r) => !InternalPath.contains(r.data.path.text))
       .map((r) => r.data)
   }
 }

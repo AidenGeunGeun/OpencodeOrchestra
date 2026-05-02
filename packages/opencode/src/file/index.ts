@@ -12,6 +12,7 @@ import { Instance } from "../project/instance"
 import { Ripgrep } from "./ripgrep"
 import fuzzysort from "fuzzysort"
 import { Global } from "../global"
+import { InternalPath } from "@/security/internal-path"
 
 export namespace File {
   const log = Log.create({ service: "file" })
@@ -72,6 +73,18 @@ export namespace File {
       ref: "FileContent",
     })
   export type Content = z.infer<typeof Content>
+
+  export function isInternalPath(file: string) {
+    return InternalPath.contains(file)
+  }
+
+  export function overlapsInternalPath(file: string) {
+    return InternalPath.overlaps(file)
+  }
+
+  function assertNotInternalPath(file: string) {
+    InternalPath.assertAllowed(file)
+  }
 
   async function shouldEncode(file: BunFile): Promise<boolean> {
     const type = file.type?.toLowerCase()
@@ -168,6 +181,7 @@ export namespace File {
 
       const set = new Set<string>()
       for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
+        if (isInternalPath(path.join(Instance.directory, file))) continue
         result.files.push(file)
         let current = file
         while (true) {
@@ -276,6 +290,7 @@ export namespace File {
     using _ = log.time("read", { file })
     const project = Instance.project
     const full = path.join(Instance.directory, file)
+    assertNotInternalPath(full)
 
     // TODO: Filesystem.contains is lexical only - symlinks inside the project can escape.
     // TODO: On Windows, cross-drive paths bypass this check. Consider realpath canonicalization.
@@ -336,6 +351,7 @@ export namespace File {
       ignored = ig.ignores.bind(ig)
     }
     const resolved = dir ? path.join(Instance.directory, dir) : Instance.directory
+    assertNotInternalPath(resolved)
 
     // TODO: Filesystem.contains is lexical only - symlinks inside the project can escape.
     // TODO: On Windows, cross-drive paths bypass this check. Consider realpath canonicalization.
@@ -351,6 +367,7 @@ export namespace File {
       .catch(() => [])) {
       if (exclude.includes(entry.name)) continue
       const fullPath = path.join(resolved, entry.name)
+      if (isInternalPath(fullPath)) continue
       const relativePath = path.relative(Instance.directory, fullPath)
       const type = entry.isDirectory() ? "directory" : "file"
       nodes.push({

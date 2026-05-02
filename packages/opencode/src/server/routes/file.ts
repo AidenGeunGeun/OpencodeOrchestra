@@ -34,6 +34,7 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const pattern = c.req.valid("query").pattern
+        if (File.overlapsInternalPath(Instance.directory)) return c.json([])
         const result = await Ripgrep.search({
           cwd: Instance.directory,
           pattern,
