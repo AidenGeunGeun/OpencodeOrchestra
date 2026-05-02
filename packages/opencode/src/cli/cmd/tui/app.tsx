@@ -3,7 +3,7 @@ import { Clipboard } from "@tui/util/clipboard"
 import { Selection } from "@tui/util/selection"
 import { MouseButton, TextAttributes } from "@opentui/core"
 import { RouteProvider, useRoute } from "@tui/context/route"
-import { Switch, Match, createEffect, untrack, ErrorBoundary, createSignal, onMount, batch, Show, on } from "solid-js"
+import { Switch, Match, createEffect, createMemo, untrack, ErrorBoundary, createSignal, onMount, batch, Show, on } from "solid-js"
 import { win32DisableProcessedInput, win32FlushInputBuffer, win32InstallCtrlCGuard } from "./win32"
 import { Installation } from "@/installation"
 import { Flag } from "@/flag/flag"
@@ -38,6 +38,7 @@ import { ArgsProvider, useArgs, type Args } from "./context/args"
 import open from "open"
 import { writeHeapSnapshot } from "v8"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
+import { PermissionAutoAcceptProvider, usePermissionAutoAccept } from "./context/permission-auto-accept"
 
 async function getTerminalBackgroundColor(): Promise<"dark" | "light"> {
   // can't set raw mode if not a TTY
@@ -149,19 +150,21 @@ export function tui(input: {
                           <ThemeProvider mode={mode}>
                             <LocalProvider>
                               <KeybindProvider>
-                                <PromptStashProvider>
-                                  <DialogProvider>
-                                    <CommandProvider>
-                                      <FrecencyProvider>
-                                        <PromptHistoryProvider>
-                                          <PromptRefProvider>
-                                            <App />
-                                          </PromptRefProvider>
-                                        </PromptHistoryProvider>
-                                      </FrecencyProvider>
-                                    </CommandProvider>
-                                  </DialogProvider>
-                                </PromptStashProvider>
+                                <PermissionAutoAcceptProvider>
+                                  <PromptStashProvider>
+                                    <DialogProvider>
+                                      <CommandProvider>
+                                        <FrecencyProvider>
+                                          <PromptHistoryProvider>
+                                            <PromptRefProvider>
+                                              <App />
+                                            </PromptRefProvider>
+                                          </PromptHistoryProvider>
+                                        </FrecencyProvider>
+                                      </CommandProvider>
+                                    </DialogProvider>
+                                  </PromptStashProvider>
+                                </PermissionAutoAcceptProvider>
                               </KeybindProvider>
                             </LocalProvider>
                           </ThemeProvider>
@@ -210,6 +213,7 @@ function App() {
   const sync = useSync()
   const exit = useExit()
   const promptRef = usePromptRef()
+  const permissionAutoAccept = usePermissionAutoAccept()
 
   useKeyboard((evt) => {
     if (!Flag.OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT) return
@@ -349,6 +353,11 @@ function App() {
   )
 
   const connected = useConnected()
+  const autoAcceptActive = createMemo(() => {
+    const directory = permissionAutoAccept.directory()
+    if (route.data.type === "session") return permissionAutoAccept.isAutoAccepting(route.data.sessionID, directory)
+    return permissionAutoAccept.isDirectoryAutoAccepting(directory)
+  })
   command.register(() => [
     {
       title: "Switch session",
@@ -511,6 +520,42 @@ function App() {
           }
         }
         local.agent.move(-1)
+      },
+    },
+    {
+      title: autoAcceptActive() ? "Stop auto-accepting permissions" : "Auto-accept permissions",
+      description:
+        route.data.type === "session"
+          ? "Automatically allow permission prompts for this session and its subagents"
+          : "Automatically allow permission prompts for this directory",
+      value: "permissions.autoaccept",
+      suggested: route.data.type === "session",
+      enabled: !!permissionAutoAccept.directory(),
+      slash: {
+        name: "autoaccept",
+      },
+      category: "Permissions",
+      onSelect: (dialog) => {
+        const directory = permissionAutoAccept.directory()
+        if (!directory) {
+          toast.show({
+            variant: "warning",
+            title: "Directory not ready",
+            message: "Auto-accept can be toggled after the TUI finishes syncing this workspace.",
+            duration: 3000,
+          })
+          return
+        }
+        if (route.data.type === "session") permissionAutoAccept.toggleSession(route.data.sessionID, directory)
+        else permissionAutoAccept.toggleDirectory(directory)
+        const active = autoAcceptActive()
+        toast.show({
+          variant: active ? "success" : "info",
+          title: active ? "Auto-accepting permissions" : "Stopped auto-accepting permissions",
+          message: active ? "Permission requests will be approved automatically." : "Permission requests will ask again.",
+          duration: 3000,
+        })
+        dialog.clear()
       },
     },
     {

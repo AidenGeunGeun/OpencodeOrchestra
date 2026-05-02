@@ -5,6 +5,7 @@ import { useDirectory } from "../../context/directory"
 import { useConnected } from "../../component/dialog-model"
 import { createStore } from "solid-js/store"
 import { useRoute } from "../../context/route"
+import { usePermissionAutoAccept } from "../../context/permission-auto-accept"
 
 export function Footer() {
   const { theme } = useTheme()
@@ -31,6 +32,11 @@ export function Footer() {
   })
   const directory = useDirectory()
   const connected = useConnected()
+  const permissionAutoAccept = usePermissionAutoAccept()
+  const autoAccepting = createMemo(() => {
+    if (route.data.type !== "session") return false
+    return permissionAutoAccept.isAutoAccepting(route.data.sessionID, permissionAutoAccept.directory())
+  })
 
   const [store, setStore] = createStore({
     welcome: false,
@@ -77,6 +83,9 @@ export function Footer() {
                 <span style={{ fg: theme.warning }}>△</span> {permissions().length} Permission
                 {permissions().length > 1 ? "s" : ""}
               </text>
+            </Show>
+            <Show when={autoAccepting()}>
+              <text fg={theme.success}>» Auto-accept</text>
             </Show>
             <text fg={theme.text}>
               <span style={{ fg: lsp().length > 0 ? theme.success : theme.textMuted }}>•</span> {lsp().length} LSP

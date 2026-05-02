@@ -32,6 +32,7 @@ import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
+import { usePermissionAutoAccept } from "../../context/permission-auto-accept"
 
 export type PromptProps = {
   sessionID?: string
@@ -75,6 +76,7 @@ export function Prompt(props: PromptProps) {
   const renderer = useRenderer()
   const { theme, syntax } = useTheme()
   const kv = useKV()
+  const permissionAutoAccept = usePermissionAutoAccept()
 
   function promptModelWarning() {
     toast.show({
@@ -137,6 +139,13 @@ export function Prompt(props: PromptProps) {
     }
     const agent = sync.data.agent.find((item) => item.name === agentID)
     return agent?.displayName ?? agentID
+  })
+
+  const autoAccepting = createMemo(() => {
+    const directory = permissionAutoAccept.directory()
+    if (!directory) return false
+    if (props.sessionID) return permissionAutoAccept.isAutoAccepting(props.sessionID, directory)
+    return permissionAutoAccept.isDirectoryAutoAccepting(directory)
   })
 
   const [store, setStore] = createStore<{
@@ -1027,7 +1036,11 @@ export function Prompt(props: PromptProps) {
                     <text fg={theme.textMuted}>·</text>
                     <text>
                       <span style={{ fg: theme.warning, bold: true }}>{local.model.variant.current()}</span>
-                    </text>
+                      </text>
+                    </Show>
+                  <Show when={autoAccepting()}>
+                    <text fg={theme.textMuted}>·</text>
+                    <text fg={theme.success}>Auto-accept ON</text>
                   </Show>
                 </box>
               </Show>
