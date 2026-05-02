@@ -7,6 +7,7 @@ import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Sh
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { isActiveSubagentStatus, selectSubagentsForAutoHydration } from "./subagent-list-helpers"
 
 const INITIAL_VISIBLE_SUBAGENTS = 60
 const SUBAGENT_RENDER_BATCH = 40
@@ -70,9 +71,14 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
   const [ready, setReady] = createSignal(false)
   const [failedSessions, setFailedSessions] = createSignal<Map<string, number>>(new Map())
   const [removedSessions, setRemovedSessions] = createSignal<Map<string, number>>(new Map())
+  const [hydrationRequested, setHydrationRequested] = createSignal<Set<string>>(new Set())
   let hydrationTimer: ReturnType<typeof setTimeout> | undefined
 
   const hydrateChild = (sessionID: string) => {
+    setHydrationRequested((current) => {
+      if (current.has(sessionID)) return current
+      return new Set(current).add(sessionID)
+    })
     void sync.session.sync(sessionID).catch(() => undefined)
   }
 
@@ -82,9 +88,9 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
     hydrationTimer = undefined
   }
 
-  const hydrateChildrenInBatches = (sessions: Session[]) => {
+  const hydrateChildrenInBatches = (sessionIDs: string[]) => {
     clearHydrationTimer()
-    const ids = sessions.map((session) => session.id)
+    const ids = [...sessionIDs]
     const hydrateBatch = (start: number) => {
       hydrationTimer = undefined
       for (const id of ids.slice(start, start + SUBAGENT_HYDRATION_BATCH)) hydrateChild(id)
@@ -92,6 +98,24 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       if (next < ids.length) hydrationTimer = setTimeout(() => hydrateBatch(next), SUBAGENT_HYDRATION_DELAY_MS)
     }
     hydrateBatch(0)
+  }
+
+  const loadedSessionIDs = () => {
+    const loaded = new Set(hydrationRequested())
+    for (const session of children()) {
+      if (sync.data.message[session.id] !== undefined) loaded.add(session.id)
+    }
+    return loaded
+  }
+
+  const hydrateEligibleChildren = () => {
+    const ids = selectSubagentsForAutoHydration({
+      children: children(),
+      statuses: sync.data.session_status,
+      hydrated: loadedSessionIDs(),
+    })
+    if (ids.length === 0) return
+    hydrateChildrenInBatches(ids)
   }
 
   const syncSessions = (sessions: Session[]) => {
@@ -119,7 +143,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       )
       setChildren((current) => mergeChildren(current, next, removedSessions()))
       syncSessions(next)
-      hydrateChildrenInBatches(next)
+      hydrateEligibleChildren()
     } finally {
       setReady(true)
     }
@@ -133,6 +157,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
         setVisibleLimit(INITIAL_VISIBLE_SUBAGENTS)
         setFailedSessions(new Map())
         setRemovedSessions(new Map())
+        setHydrationRequested(new Set<string>())
         clearHydrationTimer()
         void refreshChildren()
       },
@@ -188,6 +213,7 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       })
       if (session.parentID === props.sessionID && !session.time.archived) {
         syncSessions([session])
+        if (isActiveSubagentStatus(sync.data.session_status[session.id])) hydrateChild(session.id)
       }
     })
 
@@ -220,6 +246,14 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       hydrateChild(sessionID)
     })
 
+    const status = sdk.event.on("session.status", (event) => {
+      const sessionID = event.properties.sessionID
+      if (!sessionID) return
+      if (!children().some((item) => item.id === sessionID)) return
+      if (!isActiveSubagentStatus(event.properties.status)) return
+      hydrateChild(sessionID)
+    })
+
     onCleanup(() => {
       clearHydrationTimer()
       created()
@@ -227,8 +261,17 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       deleted()
       errored()
       idled()
+      status()
     })
   })
+
+  createEffect(
+    on(
+      () => [children().map((session) => session.id).join("\n"), Object.keys(sync.data.session_status).join("\n")],
+      () => hydrateEligibleChildren(),
+      { defer: true },
+    ),
+  )
 
   const visibleChildren = createMemo(() => children().slice(0, visibleLimit()))
   const hasMore = createMemo(() => visibleLimit() < children().length)
@@ -245,6 +288,9 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       const latest = messages.at(-1)
       const context = getSessionContextMetrics(messages, sync.data.provider?.all ?? []).context
       const syncStatus = sync.data.session_status[session.id]?.type
+      const active = syncStatus === "busy" || syncStatus === "retry"
+      const loaded = sync.data.message[session.id] !== undefined
+      const loading = sync.session.history.loading(session.id)
       const latestCompleted = latest && "completed" in latest.time ? latest.time.completed : undefined
       const latestTime = latestCompleted ?? latest?.time.created ?? 0
       const failedAt = failedSessions().get(session.id) ?? 0
@@ -256,7 +302,9 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
       const completed = latest?.role === "assistant" && !latest.error && (!!latest.finish || !!latestCompleted)
       const inProgress =
         sync.data.message[session.id] === undefined || latest?.role !== "assistant" || (!failed && !completed)
-      const status: "running" | "completed" | "failed" = failed
+      const status: "running" | "completed" | "failed" | "unloaded" = !loaded && !active && !failed
+        ? "unloaded"
+        : failed
         ? "failed"
         : completed
           ? "completed"
@@ -267,25 +315,31 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
         session,
         status,
         context,
-        hydrating: sync.data.message[session.id] === undefined,
+        active,
+        loaded,
+        loading,
         agentID: (session as Session & { agentID?: string }).agentID,
         isAsync: (session as Session & { async?: boolean }).async === true,
       }
     }),
   )
 
-  const statusIcon = (status: "running" | "completed" | "failed") => {
+  const statusIcon = (status: "running" | "completed" | "failed" | "unloaded") => {
     if (status === "running") {
       return <Spinner class="size-3.5 text-icon-info-base" />
     }
     if (status === "failed") {
       return <Icon name="close-small" size="small" class="text-icon-critical-base" />
     }
+    if (status === "unloaded") {
+      return <Icon name="status" size="small" class="text-icon-weak" />
+    }
     return <Icon name="check-small" size="small" class="text-icon-success-base" />
   }
 
-  const statusLabel = (status: "running" | "completed" | "failed", isAsync: boolean) => {
-    const base = status === "running" ? "Running" : status === "failed" ? "Failed" : "Completed"
+  const statusLabel = (status: "running" | "completed" | "failed" | "unloaded", isAsync: boolean) => {
+    const base = status === "running" ? "Running" : status === "failed" ? "Failed" : status === "unloaded" ? "Context not loaded" : "Completed"
+    if (status === "unloaded") return base
     return isAsync ? `Async ${base.toLowerCase()}` : base
   }
 
@@ -307,10 +361,16 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
             <div class="flex flex-col gap-2">
               <For each={items()}>
                 {(item) => (
-                  <button
-                    type="button"
-                    class="w-full rounded-lg border border-border-weak-base bg-background-base px-3 py-3 text-left transition-colors hover:bg-background-stronger"
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    class="w-full cursor-pointer rounded-lg border border-border-weak-base bg-background-base px-3 py-3 text-left transition-colors hover:bg-background-stronger focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
                     onClick={() => props.onNavigateSession(item.session.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      props.onNavigateSession(item.session.id)
+                    }}
                   >
                     <div class="flex items-start gap-3">
                       <div class="mt-0.5 shrink-0">{statusIcon(item.status)}</div>
@@ -330,24 +390,39 @@ export default function SubagentList(props: { sessionID: string; onNavigateSessi
                             </div>
                           </Show>
                         </div>
-                        <div class="mt-1 flex items-center gap-2 text-11-regular text-text-weak">
+                        <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-11-regular text-text-weak">
                           <span>{statusLabel(item.status, item.isAsync)}</span>
-                          <Show when={item.hydrating && !item.context}>
-                            <span>Syncing context...</span>
+                          <Show when={!item.loaded && item.loading}>
+                            <span>Loading context...</span>
+                          </Show>
+                          <Show when={!item.loaded && !item.loading && !item.active}>
+                            <button
+                              type="button"
+                              class="rounded-full border border-border-weak-base px-2 py-0.5 text-11-medium text-text-weak transition-colors hover:border-border-strong hover:text-text-strong"
+                              onKeyDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                hydrateChild(item.session.id)
+                              }}
+                            >
+                              Click to load context
+                            </button>
                           </Show>
                         </div>
                       </div>
                       <div class="shrink-0 flex items-center gap-2 text-icon-weak">
-                        <ContextHealth
-                          current={item.context?.total}
-                          limit={item.context?.limit}
-                          usage={item.context?.usage}
-                          class="hidden sm:inline-flex"
-                        />
+                        <Show when={item.loaded}>
+                          <ContextHealth
+                            current={item.context?.total}
+                            limit={item.context?.limit}
+                            usage={item.context?.usage}
+                            class="hidden sm:inline-flex"
+                          />
+                        </Show>
                         <Icon name="chevron-right" size="small" />
                       </div>
                     </div>
-                  </button>
+                  </div>
                 )}
               </For>
               <Show when={hasMore()}>
