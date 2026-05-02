@@ -25,18 +25,49 @@ export function ResizeHandle(props: ResizeHandleProps) {
     "classList",
   ])
 
-  const handleMouseDown = (e: MouseEvent) => {
+  const handlePointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) {
+      e.stopPropagation()
+      return
+    }
     e.preventDefault()
     const edge = local.edge ?? (local.direction === "vertical" ? "start" : "end")
     const start = local.direction === "horizontal" ? e.clientX : e.clientY
     const startSize = local.size
     let current = startSize
+    let ended = false
+    const pointerID = e.pointerId
+    const target = e.currentTarget as HTMLDivElement
+    const cursor = local.direction === "horizontal" ? "col-resize" : "row-resize"
+    const previousUserSelect = document.body.style.userSelect
+    const previousOverflow = document.body.style.overflow
+    const previousCursor = document.body.style.cursor
+    const overlay = document.createElement("div")
+
+    overlay.setAttribute("data-component", "resize-capture-overlay")
+    Object.assign(overlay.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "2147483647",
+      cursor,
+      background: "transparent",
+      touchAction: "none",
+      userSelect: "none",
+    })
 
     document.body.style.userSelect = "none"
     document.body.style.overflow = "hidden"
+    document.body.style.cursor = cursor
+    document.body.appendChild(overlay)
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const pos = local.direction === "horizontal" ? moveEvent.clientX : moveEvent.clientY
+    try {
+      target.setPointerCapture(pointerID)
+    } catch {
+      // Some embedded desktop surfaces do not allow pointer capture here.
+    }
+
+    const resize = (clientX: number, clientY: number) => {
+      const pos = local.direction === "horizontal" ? clientX : clientY
       const delta =
         local.direction === "vertical"
           ? edge === "end"
@@ -50,11 +81,26 @@ export function ResizeHandle(props: ResizeHandleProps) {
       local.onResize(clamped)
     }
 
-    const onMouseUp = () => {
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
-      document.removeEventListener("mousemove", onMouseMove)
-      document.removeEventListener("mouseup", onMouseUp)
+    const end = () => {
+      if (ended) return
+      ended = true
+      document.body.style.userSelect = previousUserSelect
+      document.body.style.overflow = previousOverflow
+      document.body.style.cursor = previousCursor
+      overlay.remove()
+      window.removeEventListener("pointermove", onPointerMove, true)
+      window.removeEventListener("pointerup", onPointerEnd, true)
+      window.removeEventListener("pointercancel", onPointerEnd, true)
+      window.removeEventListener("mouseup", onMouseUpFallback, true)
+      window.removeEventListener("blur", end, true)
+      document.removeEventListener("visibilitychange", onVisibilityChange, true)
+      target.removeEventListener("lostpointercapture", onPointerEnd)
+
+      try {
+        if (target.hasPointerCapture(pointerID)) target.releasePointerCapture(pointerID)
+      } catch {
+        // Pointer capture may already have been released by the browser.
+      }
 
       const threshold = local.collapseThreshold ?? 0
       if (local.onCollapse && threshold > 0 && current < threshold) {
@@ -62,8 +108,34 @@ export function ResizeHandle(props: ResizeHandleProps) {
       }
     }
 
-    document.addEventListener("mousemove", onMouseMove)
-    document.addEventListener("mouseup", onMouseUp)
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerID) return
+      if (moveEvent.buttons === 0) {
+        end()
+        return
+      }
+      const pos = local.direction === "horizontal" ? moveEvent.clientX : moveEvent.clientY
+      if (Number.isFinite(pos)) resize(moveEvent.clientX, moveEvent.clientY)
+    }
+
+    const onPointerEnd = (event: PointerEvent) => {
+      if (event.pointerId !== pointerID) return
+      end()
+    }
+
+    const onMouseUpFallback = () => end()
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") end()
+    }
+
+    window.addEventListener("pointermove", onPointerMove, true)
+    window.addEventListener("pointerup", onPointerEnd, true)
+    window.addEventListener("pointercancel", onPointerEnd, true)
+    window.addEventListener("mouseup", onMouseUpFallback, true)
+    window.addEventListener("blur", end, true)
+    document.addEventListener("visibilitychange", onVisibilityChange, true)
+    target.addEventListener("lostpointercapture", onPointerEnd)
   }
 
   return (
@@ -76,7 +148,7 @@ export function ResizeHandle(props: ResizeHandleProps) {
         ...(local.classList ?? {}),
         [local.class ?? ""]: !!local.class,
       }}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
     />
   )
 }
