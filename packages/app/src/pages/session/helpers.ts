@@ -8,7 +8,13 @@ export const TOOL_DOCK_MIN_WIDTH = 360
 export const FILE_TREE_MIN_WIDTH = 200
 export const FILE_TREE_MAX_WIDTH = 480
 
-export type ToolDockTool = "review" | "subagents" | "browser"
+export type ToolDockTool = "review" | "subagents" | "browser" | "secret"
+
+const ALL_TOOL_DOCK_TOOLS: readonly ToolDockTool[] = ["review", "subagents", "browser", "secret"] as const
+
+export function allToolDockTools(): readonly ToolDockTool[] {
+  return ALL_TOOL_DOCK_TOOLS
+}
 
 type Tabs = {
   active: Accessor<string | undefined>

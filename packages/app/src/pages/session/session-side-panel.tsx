@@ -14,6 +14,7 @@ import { ConstrainDragYAxis, getDraggableId } from "@/utils/solid-dnd"
 import FileTree from "@/components/file-tree"
 import SubagentList from "@/components/subagent-list"
 import { BrowserTab } from "@/pages/session/browser-tab"
+import { SecureEnvTab } from "@/pages/session/secure-env-tab"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
 import { useCommand } from "@/context/command"
@@ -70,6 +71,7 @@ export function SessionSidePanel(props: {
     ...(reviewTab() ? (["review"] as const) : []),
     ...(props.childCount > 0 ? (["subagents"] as const) : []),
     ...(browserAvailable() ? (["browser"] as const) : []),
+    "secret" as const,
   ])
   const panelWidth = createMemo(() => {
     if (!open()) return "0px"
@@ -166,7 +168,7 @@ export function SessionSidePanel(props: {
   const hiddenToolTabs = createMemo(() =>
     hiddenToolDockTools(
       availableToolTabs(),
-      (["review", "subagents", "browser"] as ToolDockTool[]).filter((tool) => store.hiddenTools[tool]),
+      (["review", "subagents", "browser", "secret"] as ToolDockTool[]).filter((tool) => store.hiddenTools[tool]),
     ),
   )
   const visibleToolTabs = createMemo(() => visibleToolDockTools(availableToolTabs(), hiddenToolTabs()))
@@ -198,6 +200,7 @@ export function SessionSidePanel(props: {
   const toolLabel = (tool: ToolDockTool) => {
     if (tool === "review") return language.t("session.tab.review")
     if (tool === "subagents") return "Subagents"
+    if (tool === "secret") return language.t("session.tab.secureEnv")
     return "Browser"
   }
   const hideToolTitle = (tool: ToolDockTool) =>
@@ -219,8 +222,8 @@ export function SessionSidePanel(props: {
     batch(() => {
       setStore("userCustomizedToolDock", true)
       setStore("hiddenTools", tool, false)
-      tabs().setActive(tool)
     })
+    queueMicrotask(() => tabs().setActive(tool))
   }
   const toolCloseButton = (tool: ToolDockTool) => (
     <Tooltip value={hideToolTitle(tool)} placement="bottom" gutter={10}>
@@ -252,7 +255,7 @@ export function SessionSidePanel(props: {
 
     const subagentsAvailable = available.includes("subagents")
     const hidden = new Set(defaultHiddenToolDockTools(available))
-    const alreadyDefault = (["review", "subagents", "browser"] as ToolDockTool[]).every(
+    const alreadyDefault = (["review", "subagents", "browser", "secret"] as ToolDockTool[]).every(
       (tool) => Boolean(store.hiddenTools[tool]) === hidden.has(tool),
     )
 
@@ -260,7 +263,7 @@ export function SessionSidePanel(props: {
     if (!subagentsAvailable && store.toolDockDefaultsApplied) return
 
     batch(() => {
-      for (const tool of ["review", "subagents", "browser"] as ToolDockTool[]) {
+      for (const tool of ["review", "subagents", "browser", "secret"] as ToolDockTool[]) {
         setStore("hiddenTools", tool, hidden.has(tool))
       }
       setStore("toolDockDefaultsApplied", true)
@@ -418,6 +421,11 @@ export function SessionSidePanel(props: {
                           <div>Browser</div>
                         </Tabs.Trigger>
                       </Show>
+                      <Show when={isToolVisible("secret")}>
+                        <Tabs.Trigger value="secret" closeButton={toolCloseButton("secret")}>
+                          <div>{language.t("session.tab.secureEnv")}</div>
+                        </Tabs.Trigger>
+                      </Show>
                       <SortableProvider ids={openedTabs()}>
                         <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                       </SortableProvider>
@@ -523,6 +531,18 @@ export function SessionSidePanel(props: {
                       </Show>
                     </Tabs.Content>
                   </Show>
+
+                  <Tabs.Content
+                    value="secret"
+                    data-tool-dock-content="secret"
+                    class="flex flex-col h-full overflow-hidden contain-strict"
+                    forceMount
+                    hidden={activeTab() !== "secret"}
+                  >
+                    <Show when={activeTab() === "secret"}>
+                      <SecureEnvTab />
+                    </Show>
+                  </Tabs.Content>
 
                   <Show when={activeFileTab()} keyed>
                     {(tab) => <FileTabContent tab={tab} />}

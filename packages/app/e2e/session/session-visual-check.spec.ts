@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test"
 import { cleanupSession, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 
-type ToolDockTab = "review" | "subagents" | "browser"
+type ToolDockTab = "review" | "subagents" | "browser" | "secret"
 
 type ToolDockPanelState = {
   value: ToolDockTab
@@ -42,6 +42,7 @@ const toolTabs: Array<{ value: ToolDockTab; label: RegExp; screenshot: string }>
   { value: "review", label: /Review/i, screenshot: "tool-dock-review.png" },
   { value: "subagents", label: /Subagents/i, screenshot: "tool-dock-subagents.png" },
   { value: "browser", label: /Browser/i, screenshot: "tool-dock-browser.png" },
+  { value: "secret", label: /Secure Env/i, screenshot: "tool-dock-secret.png" },
 ]
 
 const runId = (process.env.OCO_VISUAL_CHECK_RUN_ID ?? String(Date.now())).replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -155,7 +156,7 @@ async function restoreHiddenTool(page: Page, label: RegExp) {
 
 async function collectToolDockState(page: Page, active: ToolDockTab) {
   return page.evaluate((active): ToolDockState => {
-    const values: ToolDockTab[] = ["review", "subagents", "browser"]
+    const values: ToolDockTab[] = ["review", "subagents", "browser", "secret"]
     const dock = document.querySelector("#review-panel")
 
     const rect = (el: Element | null) => {
@@ -280,6 +281,7 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
       expect(defaultState.tabs.find((tab) => tab.value === "subagents")?.selected).toBe(true)
       expect(defaultState.tabs.find((tab) => tab.value === "review")?.exists).toBe(false)
       expect(defaultState.tabs.find((tab) => tab.value === "browser")?.exists).toBe(false)
+      expect(defaultState.tabs.find((tab) => tab.value === "secret")?.exists).toBe(false)
 
       const subagentsTab = page.getByRole("tab", { name: /Subagents/i }).first()
       await subagentsTab.click()
@@ -304,6 +306,7 @@ test("captures Tool Dock visual check artifacts", async ({ page, sdk, gotoSessio
 
       await restoreHiddenTool(page, /Review/i)
       await restoreHiddenTool(page, /Browser/i)
+      await restoreHiddenTool(page, /Secure Env/i)
 
       for (const tab of toolTabs) {
         const trigger = page.getByRole("tab", { name: tab.label }).first()
