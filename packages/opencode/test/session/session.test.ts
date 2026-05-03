@@ -179,6 +179,48 @@ function createTaskPart(sessionID: string, messageID: string, childSessionID: st
   }
 }
 
+function createRunningTaskPart(
+  sessionID: string,
+  messageID: string,
+  childSessionID: string,
+  callID: string,
+): MessageV2.ToolPart {
+  return {
+    id: Identifier.ascending("part"),
+    sessionID,
+    messageID,
+    type: "tool",
+    tool: "task",
+    callID,
+    state: {
+      status: "running",
+      input: { description: "task" },
+      title: "task running",
+      metadata: { sessionId: childSessionID },
+      time: { start: Date.now() },
+    },
+  }
+}
+
+function createFinishTaskPart(sessionID: string, messageID: string): MessageV2.ToolPart {
+  return {
+    id: Identifier.ascending("part"),
+    sessionID,
+    messageID,
+    type: "tool",
+    tool: "finish_task",
+    callID: "call-finish-task",
+    state: {
+      status: "completed",
+      input: { summary: "done", status: "completed", learnings: [] },
+      output: "Task completed. Control returned to parent agent.",
+      title: "Task completed: done",
+      metadata: { status: "completed", summary: "done", learnings: [] },
+      time: { start: Date.now(), end: Date.now() + 1 },
+    },
+  }
+}
+
 async function addTextMessage(sessionID: string, text: string, created: number) {
   const message = createUserMessage(sessionID, created)
   await Session.updateMessage(message)
@@ -204,6 +246,49 @@ async function addTaskTurn(input: {
   await Session.updatePart(createTaskPart(input.sessionID, assistant.id, input.childSessionID, input.callID))
   return { user, assistant }
 }
+
+describe("session messages", () => {
+  test("does not repair running task parts while reading messages", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const parent = await Session.create({})
+        const child = await Session.create({ parentID: parent.id, agentID: "orchestrator", title: "Child task" })
+        const baseTime = Date.now()
+
+        const childUser = await addTextMessage(child.id, "finish", baseTime)
+        const childAssistant = createAssistantMessage(child.id, childUser.id, baseTime + 1)
+        await Session.updateMessage(childAssistant)
+        await Session.updatePart(createFinishTaskPart(child.id, childAssistant.id))
+
+        const parentUser = await addTextMessage(parent.id, "run task", baseTime + 2)
+        const parentAssistant = createAssistantMessage(parent.id, parentUser.id, baseTime + 3)
+        await Session.updateMessage(parentAssistant)
+        const runningTask = createRunningTaskPart(parent.id, parentAssistant.id, child.id, "call-task-running")
+        await Session.updatePart(runningTask)
+
+        let repaired = false
+        const unsub = Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
+          if (event.properties.part.id === runningTask.id) repaired = true
+        })
+
+        const messages = await Session.messages({ sessionID: parent.id })
+        const taskPart = messages.flatMap((message) => message.parts).find((part) => part.id === runningTask.id)
+
+        unsub()
+
+        expect(taskPart?.type).toBe("tool")
+        if (taskPart?.type !== "tool") throw new Error("missing task part")
+        expect(taskPart.state.status).toBe("running")
+        expect(repaired).toBe(false)
+
+        await Session.remove(parent.id)
+        await Session.remove(child.id)
+      },
+    })
+  }, 15000)
+})
 
 describe("session fork", () => {
   test("copies child sessions and remaps task metadata without mutating the source", async () => {

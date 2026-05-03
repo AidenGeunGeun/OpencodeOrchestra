@@ -14,6 +14,7 @@ import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
 import { createEmptyChildState } from "./global-sync/child-store"
+import { perfDuration, perfLog } from "@/utils/perf"
 
 function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
@@ -116,7 +117,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       return globalSync.child(directory)
     }
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
-    const messagePageSize = 200
+    const messagePageSize = 50
     const inflight = new Map<string, Promise<void>>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
@@ -199,17 +200,45 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       evict(directory, setStore, stale)
     }
 
-    const fetchMessages = async (input: { client: typeof sdk.client; sessionID: string; limit: number }) => {
+    const fetchMessages = async (input: {
+      client: typeof sdk.client
+      directory: string
+      sessionID: string
+      limit: number
+      kind: "active" | "older-history"
+    }) => {
+      const start = performance.now()
       const messages = await retry(() =>
         input.client.session.messages({ sessionID: input.sessionID, limit: input.limit }),
-      )
+      ).catch((error) => {
+        perfLog("session.messages.client", {
+          kind: input.kind,
+          directory: input.directory,
+          sessionID: input.sessionID,
+          limit: input.limit,
+          ok: false,
+          durationMs: perfDuration(start),
+        })
+        throw error
+      })
       const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
       const session = items.map((x) => x.info).sort((a, b) => cmp(a.id, b.id))
       const part = items.map((message) => ({ id: message.info.id, part: sortParts(message.parts) }))
+      const complete = session.length < input.limit
+      perfLog("session.messages.client", {
+        kind: input.kind,
+        directory: input.directory,
+        sessionID: input.sessionID,
+        limit: input.limit,
+        count: session.length,
+        complete,
+        ok: true,
+        durationMs: perfDuration(start),
+      })
       return {
         session,
         part,
-        complete: session.length < input.limit,
+        complete,
       }
     }
 
@@ -221,6 +250,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       setStore: Setter
       sessionID: string
       limit: number
+      kind: "active" | "older-history"
     }) => {
       const key = keyFor(input.directory, input.sessionID)
       if (meta.loading[key]) return
@@ -375,6 +405,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                     setStore,
                     sessionID,
                     limit,
+                    kind: "active",
                   })
 
             await Promise.all([sessionReq, messagesReq])
@@ -457,6 +488,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               setStore,
               sessionID,
               limit: currentLimit + step,
+              kind: "older-history",
             })
           },
         },

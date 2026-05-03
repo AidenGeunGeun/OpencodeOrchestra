@@ -620,10 +620,17 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
+        const start = performance.now()
         const query = c.req.valid("query")
         const messages = await Session.messages({
           sessionID: c.req.valid("param").sessionID,
           limit: query.limit,
+        })
+        perfLog("session.messages", {
+          durationMs: round(performance.now() - start),
+          count: messages.length,
+          limit: query.limit,
+          repair: "disabled",
         })
         return c.json(messages)
       },

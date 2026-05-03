@@ -58,6 +58,7 @@ import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { Identifier } from "@/utils/id"
+import { perfLog } from "@/utils/perf"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
@@ -480,10 +481,20 @@ export default function Page() {
     return key
   })
   const cachedMessages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
+  const hasAnyCachedMessages = createMemo(() => (params.id ? sync.data.message[params.id] !== undefined : false))
+  const hasSafeCachedMessages = createMemo(() => {
+    const id = params.id
+    if (!id) return false
+    if (sync.directory && sync.directory !== sdk.directory) return false
+    const session = sync.session.get(id)
+    if (session?.directory && session.directory !== sdk.directory) return false
+    return sync.data.message[id] !== undefined
+  })
   const messagesReady = createMemo(() => {
     const id = params.id
     if (!id) return true
-    if (store.messageKey === sessionKey() && store.messageStale) return false
+    if (hasAnyCachedMessages() && !hasSafeCachedMessages()) return false
+    if (store.messageKey === sessionKey() && store.messageStale) return hasSafeCachedMessages()
     return sync.session.history.ready(id)
   })
   const messages = createMemo(() => (messagesReady() ? cachedMessages() : []))
@@ -815,7 +826,18 @@ export default function Page() {
 
       const key = sessionKey()
       const stale = untrack(() => store.messageKey === key && store.messageStale)
+      const safeCached = untrack(hasSafeCachedMessages)
       const todos = untrack(() => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined)
+
+      if (stale && safeCached) {
+        perfLog("session.messages.cache", {
+          kind: "active",
+          directory: sdk.directory,
+          sessionID: id,
+          cacheHit: true,
+          refresh: "background",
+        })
+      }
 
       untrack(() => {
         void sync.session

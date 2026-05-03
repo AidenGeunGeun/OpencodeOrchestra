@@ -93,6 +93,7 @@ import {
 } from "./layout/sidebar-workspace"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { perfDuration, perfLog } from "@/utils/perf"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -720,7 +721,7 @@ export default function Layout(props: ParentProps) {
     running: number
   }
 
-  const prefetchChunk = 200
+  const prefetchChunk = 50
   const prefetchConcurrency = 2
   const prefetchPendingLimit = 10
   const span = 4
@@ -806,6 +807,7 @@ export default function Layout(props: ParentProps) {
 
   async function prefetchMessages(directory: string, sessionID: string, token: number) {
     const [store, setStore] = globalSync.child(directory, { bootstrap: false })
+    const start = performance.now()
 
     return runSessionPrefetch({
       directory,
@@ -825,6 +827,17 @@ export default function Layout(props: ParentProps) {
               complete: sorted.length < prefetchChunk,
               at: Date.now(),
             }
+
+            perfLog("session.messages.client", {
+              kind: "prefetch",
+              directory,
+              sessionID,
+              limit: prefetchChunk,
+              count: sorted.length,
+              complete: meta.complete,
+              ok: true,
+              durationMs: perfDuration(start),
+            })
 
             if (stale.length > 0) {
               clearSessionPrefetch(directory, stale)
@@ -866,7 +879,17 @@ export default function Layout(props: ParentProps) {
 
             return meta
           })
-          .catch(() => undefined),
+          .catch(() => {
+            perfLog("session.messages.client", {
+              kind: "prefetch",
+              directory,
+              sessionID,
+              limit: prefetchChunk,
+              ok: false,
+              durationMs: perfDuration(start),
+            })
+            return undefined
+          }),
     })
   }
 

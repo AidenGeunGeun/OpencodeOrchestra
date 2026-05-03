@@ -188,6 +188,14 @@ describe("layout workspace helpers", () => {
     ).toBe(true)
   })
 
+  test("nearby session prefetch uses a small page and trace label", async () => {
+    const source = await Bun.file(new URL("../layout.tsx", import.meta.url)).text()
+
+    expect(source).toContain("const prefetchChunk = 50")
+    expect(source).toContain('kind: "prefetch"')
+    expect(source).toContain('perfLog("session.messages.client"')
+  })
+
   test("ignores project permissions filtered out", () => {
     const result = hasProjectPermissions(
       {

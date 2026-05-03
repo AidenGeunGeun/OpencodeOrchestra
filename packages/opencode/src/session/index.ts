@@ -32,25 +32,6 @@ export namespace Session {
 
   const parentTitlePrefix = "New session - "
   const childTitlePrefix = "Child session - "
-  type PartRow = typeof PartTable.$inferSelect
-  type ToolStatus = "completed" | "error" | "pending" | "running"
-  type TaskCompletionStatus = "completed" | "failed" | "cancelled"
-  type TaskCompletionModel = {
-    providerID: string
-    modelID: string
-  }
-  type CompletedFinishTaskPart = MessageV2.ToolPart & {
-    tool: "finish_task"
-    state: MessageV2.ToolStateCompleted
-  }
-  type TaskToolSummary = {
-    id: string
-    tool: string
-    state: {
-      status: ToolStatus
-      title: string | undefined
-    }
-  }
 
   function createDefaultTitle(isChild = false) {
     return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
@@ -108,15 +89,6 @@ export namespace Session {
 
   function scopedID(id: string) {
     return and(eq(SessionTable.id, id), ...scopedConditions())
-  }
-
-  function fromPartRow(row: PartRow) {
-    return {
-      ...row.data,
-      id: row.id,
-      sessionID: row.session_id,
-      messageID: row.message_id,
-    } as MessageV2.Part
   }
 
   function getToolStateMetadata(part: MessageV2.ToolPart) {
@@ -198,177 +170,6 @@ export namespace Session {
   function getForkCutoffTime(messages: MessageV2.WithParts[], messageID: string | undefined) {
     if (!messageID) return undefined
     return messages.find((msg) => msg.info.id >= messageID)?.info.time.created
-  }
-
-  function getTaskModel(part: MessageV2.ToolPart): TaskCompletionModel | undefined {
-    const metadata = getToolStateMetadata(part)
-    const model = metadata?.model
-    if (!model || typeof model !== "object") return undefined
-    if (typeof model.providerID !== "string" || typeof model.modelID !== "string") return undefined
-    return {
-      providerID: model.providerID,
-      modelID: model.modelID,
-    }
-  }
-
-  function getTaskDescription(part: MessageV2.ToolPart) {
-    const description = typeof part.state.input.description === "string" ? part.state.input.description : undefined
-    if (description) return description
-    if (part.state.status === "running" || part.state.status === "completed") return part.state.title
-    return "Task"
-  }
-
-  function getToolStartTime(part: MessageV2.ToolPart) {
-    if (part.state.status === "pending") return undefined
-    return part.state.time.start
-  }
-
-  function toTaskToolSummary(part: MessageV2.ToolPart): TaskToolSummary {
-    return {
-      id: part.id,
-      tool: part.tool,
-      state: {
-        status: part.state.status,
-        title: part.state.status === "completed" ? part.state.title : undefined,
-      },
-    }
-  }
-
-  function getCompletedFinishTaskPart(db: Database.TxOrDb, sessionID: string): CompletedFinishTaskPart | undefined {
-    const childSession = db.select({ id: SessionTable.id }).from(SessionTable).where(scopedID(sessionID)).get()
-    if (!childSession) return
-
-    const rows = db.select().from(PartTable).where(eq(PartTable.session_id, sessionID)).orderBy(desc(PartTable.id)).all()
-    for (const row of rows) {
-      const part = fromPartRow(row)
-      if (part.type !== "tool") continue
-      if (part.tool !== "finish_task") continue
-      if (part.state.status !== "completed") continue
-      return part as CompletedFinishTaskPart
-    }
-  }
-
-  function buildTaskCompletionOutput(input: {
-    childSessionID: string
-    status: TaskCompletionStatus
-    summary: string
-    learnings?: string[]
-  }) {
-    return (
-      `[${input.status.toUpperCase()}] ${input.summary}` +
-      (input.learnings?.length ? "\n\nLearnings:\n" + input.learnings.map((item) => `- ${item}`).join("\n") : "") +
-      "\n\n" +
-      [
-        `task_id: ${input.childSessionID} (for resuming to continue this task if needed)`,
-        "",
-        "<task_result>",
-        `[${input.status.toUpperCase()}] ${input.summary}`,
-        "</task_result>",
-      ].join("\n")
-    )
-  }
-
-  async function getTaskSummary(sessionID: string) {
-    const childMessages = await messages({ sessionID })
-    return childMessages
-      .filter((message) => message.info.role === "assistant")
-      .flatMap((message) => message.parts.filter((part): part is MessageV2.ToolPart => part.type === "tool"))
-      .map(toTaskToolSummary)
-  }
-
-  async function repairMostRecentPendingTaskPart(messages: MessageV2.WithParts[]) {
-    let messageIndex = -1
-    let partIndex = -1
-    let taskPart: MessageV2.ToolPart | undefined
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      for (let j = messages[i].parts.length - 1; j >= 0; j--) {
-        const part = messages[i].parts[j]
-        if (part.type !== "tool") continue
-        if (part.tool === "async_task") continue
-        if (part.tool !== "task") continue
-        if (part.state.status !== "pending" && part.state.status !== "running") continue
-        messageIndex = i
-        partIndex = j
-        taskPart = part
-        break
-      }
-      if (taskPart) break
-    }
-
-    if (!taskPart) return
-
-    const childSessionID = getTaskSessionID(taskPart)
-    if (!childSessionID) return
-
-    const finishTaskPart = Database.use((db) => getCompletedFinishTaskPart(db, childSessionID))
-    if (!finishTaskPart) return
-
-    const taskStartTime = getToolStartTime(taskPart)
-    if (taskStartTime && finishTaskPart.state.time.end < taskStartTime) return
-
-    const childSummary = await getTaskSummary(childSessionID)
-
-    const repaired = Database.use((db) => {
-      const finishMetadata = finishTaskPart.state.metadata
-      const status = finishMetadata.status
-      const finishSummary = finishMetadata.summary
-      if (status !== "completed" && status !== "failed" && status !== "cancelled") return
-      if (typeof finishSummary !== "string") return
-
-      const learnings = Array.isArray(finishMetadata.learnings)
-        ? finishMetadata.learnings.filter((item: unknown): item is string => typeof item === "string")
-        : undefined
-      const model = getTaskModel(taskPart)
-
-      const updatedPart = {
-        ...taskPart,
-        state: {
-          status: "completed",
-          input: taskPart.state.input,
-          title: `${getTaskDescription(taskPart)} (${status})`,
-          metadata: {
-            summary: childSummary,
-            sessionId: childSessionID,
-            ...(model ? { model } : {}),
-          },
-          output: buildTaskCompletionOutput({
-            childSessionID,
-            status,
-            summary: finishSummary,
-            learnings,
-          }),
-          time: {
-            start: taskStartTime ?? Date.now(),
-            end: Date.now(),
-          },
-          attachments: undefined,
-        },
-      } satisfies MessageV2.ToolPart
-
-      const { id, messageID, sessionID, ...data } = updatedPart
-      db.insert(PartTable)
-        .values({
-          id,
-          message_id: messageID,
-          session_id: sessionID,
-          time_created: Date.now(),
-          data,
-        })
-        .onConflictDoUpdate({ target: PartTable.id, set: { data } })
-        .run()
-
-      Database.effect(() =>
-        Bus.publish(MessageV2.Event.PartUpdated, {
-          part: structuredClone(updatedPart),
-        }),
-      )
-
-      return updatedPart
-    })
-
-    if (!repaired) return
-    messages[messageIndex].parts[partIndex] = repaired
   }
 
   export function fromRow(row: SessionRow): Info {
@@ -936,7 +737,6 @@ export namespace Session {
         result.push(msg)
       }
       result.reverse()
-      await repairMostRecentPendingTaskPart(result)
       return result
     },
   )
