@@ -153,7 +153,7 @@ function buildTaskToolsOverlay(
   return {
     ...(flags.hasTodoWritePermission ? {} : { todowrite: false }),
     ...(flags.hasTodoReadPermission ? {} : { todoread: false }),
-    ...(!input.singleShot ? { finish_task: true } : {}),
+    ...(!input.singleShot ? { handoff_to_pm: true } : {}),
     ...(flags.hasTaskPermission ? {} : { task: false }),
     ...(input.singleShot
       ? Object.fromEntries((config.experimental?.primary_tools ?? []).map((tool) => [tool, false]))
@@ -225,7 +225,7 @@ export async function prepareTaskSession(
     }
     return currentDepth + 1
   })()
-  // OCO: specialists return single-shot; orchestrators can persist until finish_task
+  // OCO: specialists return single-shot; orchestrators persist until handoff_to_pm
   const singleShot = childDepth >= 2 ? true : (agent.singleShot ?? true)
 
   log.info("spawning subagent", {
@@ -390,40 +390,8 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         }
       }
 
-      // OCO: persistent orchestrator path blocks until finish_task reports status
+      // OCO: persistent orchestrator path launches and returns; completion arrives via handoff_to_pm.
       log.info("executing persistent orchestrator", { agent: agent.name, sessionID: session.id })
-
-      interface FinishTaskResult {
-        status: "completed" | "failed" | "cancelled"
-        summary: string
-        learnings?: string[]
-      }
-
-      const finishTaskPromise = new Promise<FinishTaskResult>((resolve, reject) => {
-        const finishUnsub = Bus.subscribe(MessageV2.Event.PartUpdated, async (evt) => {
-          if (evt.properties.part.sessionID !== session.id) return
-          if (evt.properties.part.type !== "tool") return
-          if (evt.properties.part.tool !== "finish_task") return
-          if (evt.properties.part.state.status !== "completed") return
-
-          log.info("finish_task signal received", { sessionID: session.id })
-          finishUnsub()
-
-          const part = evt.properties.part as MessageV2.ToolPart
-          const metadata = part.state.status === "completed" ? part.state.metadata : undefined
-
-          resolve({
-            status: (metadata?.status as FinishTaskResult["status"]) ?? "completed",
-            summary: (metadata?.summary as string) ?? "Task completed",
-            learnings: metadata?.learnings as string[] | undefined,
-          })
-        })
-
-        ctx.abort.addEventListener("abort", () => {
-          finishUnsub()
-          reject(new Error("Task aborted"))
-        })
-      })
 
       SessionPrompt.prompt({
         messageID,
@@ -435,36 +403,26 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         agent: agent.name,
         tools: toolsOverlay,
         parts: promptParts,
-      }).catch((error) => {
-        log.error("orchestrator prompt failed", { error: String(error), sessionID: session.id })
       })
-
-      log.info("waiting for finish_task signal", { sessionID: session.id })
-      const result = await finishTaskPromise
-      unsub()
-
-      const summary = await getTaskSummary(session.id)
+        .catch((error) => {
+          log.error("orchestrator prompt failed", { error: String(error), sessionID: session.id })
+        })
+        .finally(() => {
+          unsub()
+        })
 
       return {
-        title: `${params.description} (${result.status})`,
+        title: params.description,
         metadata: {
-          summary,
+          summary: [],
           sessionId: session.id,
           model,
         },
-        output:
-          `[${result.status.toUpperCase()}] ${result.summary}` +
-          (result.learnings?.length
-            ? "\n\nLearnings:\n" + result.learnings.map((learning) => `- ${learning}`).join("\n")
-            : "") +
-          "\n\n" +
-          [
-            `task_id: ${session.id} (for resuming to continue this task if needed)`,
-            "",
-            "<task_result>",
-            `[${result.status.toUpperCase()}] ${result.summary}`,
-            "</task_result>",
-          ].join("\n"),
+        output: [
+          `task_id: ${session.id} (for resuming to continue this task if needed)`,
+          "",
+          "Orchestrator launched. Completion will arrive as a PM steering message when the Orchestrator calls handoff_to_pm.",
+        ].join("\n"),
       }
     },
   }

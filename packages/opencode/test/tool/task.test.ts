@@ -309,6 +309,88 @@ describe("tool.task", () => {
     })
   })
 
+  test("launches persistent orchestrators with handoff_to_pm instead of finish_task", async () => {
+    const prompt = mock(() => Promise.resolve({ parts: [{ type: "text", text: "Orchestrator started" }] }))
+
+    mock.module(SESSION_PATH, () => ({
+      Session: {
+        get: mock((id) => {
+          if (id === "test-session") return Promise.resolve({ id: "test-session", parentID: undefined })
+          return Promise.resolve(undefined)
+        }),
+        create: mock(() => Promise.resolve({ id: "depth1" })),
+        messages: mock(() => Promise.resolve([])),
+      },
+    }))
+
+    mock.module(MESSAGE_V2_PATH, () => ({
+      MessageV2: {
+        get: mock(() => Promise.resolve({ info: { role: "assistant", modelID: "gpt-4", providerID: "openai" } })),
+        Event: { PartUpdated: "PartUpdated" },
+      },
+    }))
+
+    mock.module(PROMPT_PATH, () => ({
+      SessionPrompt: {
+        resolvePromptParts: mock(() => []),
+        prompt,
+        cancel: mock(),
+      },
+    }))
+
+    mock.module(AGENT_PATH, () => ({
+      Agent: {
+        list: mock(() => Promise.resolve([])),
+        get: mock(() =>
+          Promise.resolve({
+            name: "orchestrator",
+            permission: [],
+            singleShot: false,
+          }),
+        ),
+      },
+    }))
+
+    mock.module(CONFIG_PATH, () => ({
+      Config: {
+        get: mock(() => Promise.resolve({})),
+      },
+    }))
+
+    mock.module(BUS_PATH, () => ({
+      GlobalBus: {
+        emit: mock(() => {}),
+        on: mock(() => {}),
+        off: mock(() => {}),
+      },
+      Bus: {
+        subscribe: mock(() => () => {}),
+      },
+    }))
+
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const impl = await TaskTool.init()
+        const result = await impl.execute(
+          {
+            description: "Spec work",
+            prompt: "Do work",
+            subagent_type: "orchestrator",
+          },
+          ctx,
+        )
+
+        expect(result.output).toContain("Orchestrator launched")
+        expect(prompt).toHaveBeenCalledTimes(1)
+        const promptInput = (prompt.mock.calls.at(0) as any)?.[0]
+        expect(promptInput.tools).toHaveProperty("handoff_to_pm", true)
+        expect(promptInput.tools).not.toHaveProperty("finish_task")
+      },
+    })
+  })
+
   test("passes loaded design context into design-facing subagent handoffs", async () => {
     const prompt = mock(() => Promise.resolve({ parts: [{ type: "text", text: "Subagent done" }] }))
 

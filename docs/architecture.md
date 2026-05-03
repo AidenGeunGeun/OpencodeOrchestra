@@ -14,7 +14,7 @@ OpenCodeOrchestra organizes agent work by responsibility, not by raw tool access
 - The Orchestrator is the execution boundary.
 - It receives an approved spec and owns implementation, validation, and the audit loop.
 - It is the only persistent execution subagent.
-- It must explicitly signal completion with `finish_task` so control returns cleanly to the PM.
+- It must explicitly signal completion with `handoff_to_pm` so control returns cleanly to the PM.
 
 ## Depth 2+: Disposable Subagents
 
@@ -40,7 +40,7 @@ OpenCodeOrchestra organizes agent work by responsibility, not by raw tool access
 5. PM spawns the Orchestrator against that spec.
 6. Orchestrator implements and validates.
 7. Auditor reviews the entire changeset.
-8. Orchestrator returns control to the PM through `finish_task`.
+8. Orchestrator returns control to the PM through `handoff_to_pm`.
 9. PM reports completion, risks, and follow-ups to the user.
 
 ## Escalation Model
@@ -55,7 +55,7 @@ OpenCodeOrchestra organizes agent work by responsibility, not by raw tool access
 - Orchestrator sends the full change report to a fresh Auditor.
 - Auditor returns PASS or FAIL.
 - On FAIL, Orchestrator fixes the issues, reruns validation, and re-audits with a fresh Auditor.
-- On PASS, Orchestrator calls `finish_task` with outcome, validation, and follow-ups.
+- On PASS, Orchestrator calls `handoff_to_pm` with outcome, validation, and follow-ups.
 
 The audit loop makes review an explicit phase rather than an afterthought.
 

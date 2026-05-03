@@ -115,7 +115,7 @@ The PM doesn't write code. The Orchestrator doesn't talk to you. The Investigato
 | **4** | PM hands off to the Orchestrator |
 | **5** | Orchestrator implements through focused subagents |
 | **6** | Auditor reviews the full changeset — PASS or FAIL |
-| **7** | Orchestrator calls `finish_task` to return control to PM |
+| **7** | Orchestrator calls `handoff_to_pm` to return control to PM |
 | **8** | PM reports results and follow-ups back to you |
 
 No free-form "just go implement this." Spec first, approval gate, audit loop, clean handoff.
@@ -138,7 +138,7 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 | Agent | Depth | Default Model | Recommended | What it does | Constraint |
 |:------|:-----:|:--------------|:------------|:-------------|:-----------|
 | **PM** (`build` / `plan`) | 0 | GPT-5.4 | Heavy model (GPT-5.4, Claude Opus) | Talks to you. Investigates, plans, writes specs, delegates. | Must get your approval before execution |
-| **Orchestrator** | 1 | GPT-5.4 | Heavy model (GPT-5.4, Claude Opus) | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `finish_task` to return control |
+| **Orchestrator** | 1 | GPT-5.4 | Heavy model (GPT-5.4, Claude Opus) | Executes the approved spec. Spawns subagents. Runs the audit loop. | Must call `handoff_to_pm` to return control |
 | **Investigator** | 2+ | GPT-5.4 mini | Fast model (GPT-5.4 mini, Claude Sonnet) | Reads code, traces call chains, cross-references files. | Read-only. No editing, no shell. |
 | **Auditor** | 2+ | GPT-5.4 | Heavy model (GPT-5.4, Claude Sonnet) | Reviews changes against the spec. PASS/FAIL verdict. | Read-only. No editing, no shell. |
 | **Web-Search** | 2+ | GPT-5.4 mini | Fast model (GPT-5.4 mini, Claude Sonnet) | Searches the web and returns evidence with source citations. | Read-only. No editing. |
@@ -158,7 +158,7 @@ No free-form "just go implement this." Spec first, approval gate, audit loop, cl
 | Before execution | Nothing | **Spec approval gate** |
 | Code review | Hope the model checks itself | **Dedicated Auditor** with PASS/FAIL |
 | Depth enforcement | None | **Runtime enforced** — agents can't escape their level |
-| Execution handoff | Single-shot stdin/stdout | **Explicit `finish_task`** with summary |
+| Execution handoff | Single-shot stdin/stdout | **Durable `handoff_to_pm`** steering message with summary |
 | AI SDK | 5.x | **6.x** with Claude 4.6 adaptive thinking |
 
 ---

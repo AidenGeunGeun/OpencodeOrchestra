@@ -7,7 +7,7 @@ import { BatchTool } from "./batch"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { AsyncTaskTool } from "./async-task"
-import { FinishTaskTool } from "./finish-task"
+import { HandoffToPMTool } from "./handoff-to-pm"
 import { TodoWriteTool, TodoReadTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -112,7 +112,7 @@ export namespace ToolRegistry {
       WriteTool,
       TaskTool,
       AsyncTaskTool,
-      FinishTaskTool,
+      HandoffToPMTool,
       WebFetchTool,
       TodoWriteTool,
       TodoReadTool,
@@ -147,6 +147,9 @@ export namespace ToolRegistry {
           if (t.id === "codesearch" || t.id === "websearch") {
             return model.providerID === "opencode" || Flag.OPENCODE_ENABLE_EXA
           }
+
+          // OCO: durable PM handoff is only model-visible to Orchestrators.
+          if (t.id === "handoff_to_pm") return agent?.name === "orchestrator"
 
           // use apply tool in same format as codex
           const usePatch =

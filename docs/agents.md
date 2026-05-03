@@ -46,7 +46,7 @@ This document describes the shipped OCO agents and the fields that shape their b
 - Role: execution lead for approved specs
 - Model: `openai/gpt-5.4` by default
 - Why: same top-tier base model as PM, but with the highest shipped reasoning setting for implementation and audit recovery
-- Permissions: edit access plus the ability to call specialist subagents; completion must flow through `finish_task`
+- Permissions: edit access plus the ability to call specialist subagents; completion must flow through `handoff_to_pm`
 - Spawned by: PM after explicit spec approval
 - Prompt design: implementation lifecycle ownership, validation, and mandatory audit loop
 - Configuration options: swap model family, prompt, reasoning level, or permissions as needed

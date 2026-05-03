@@ -123,7 +123,7 @@ function createParentMessages() {
   ]
 }
 
-describe("session.processor finish_task continuation", () => {
+describe("session.processor legacy finish_task behavior", () => {
   beforeEach(async () => {
     await restoreModuleMocks()
   })
@@ -132,12 +132,11 @@ describe("session.processor finish_task continuation", () => {
     await restoreModuleMocks()
   })
 
-  test("restarts idle parent prompt loop after finish_task", async () => {
+  test("does not inspect or wake the parent after old finish_task results", async () => {
     const updatePart = mock((part) => Promise.resolve("part" in part ? part.part : part))
     const updateMessage = mock((message) => Promise.resolve(message))
     const getSession = mock(() => Promise.resolve({ id: "session-child", parentID: "session-parent" }))
     const getMessages = mock(() => Promise.resolve(createParentMessages()))
-    const loop = mock(() => Promise.resolve(undefined))
 
     mock.module(CONFIG_PATH, () => ({
       Config: {
@@ -155,12 +154,6 @@ describe("session.processor finish_task continuation", () => {
       MessageV2: {
         parts: mock(() => Promise.resolve([])),
         fromError: mock(() => ({ name: "UnknownError" })),
-      },
-    }))
-
-    mock.module(PROMPT_PATH, () => ({
-      SessionPrompt: {
-        loop,
       },
     }))
 
@@ -199,146 +192,7 @@ describe("session.processor finish_task continuation", () => {
         const result = await processor.process({} as any)
 
         expect(result).toBe("continue")
-        expect(getMessages).toHaveBeenCalledWith({ sessionID: "session-parent" })
-        expect(loop).toHaveBeenCalledWith("session-parent")
-      },
-    })
-  })
-
-  test("keeps happy path unchanged when parent is already busy", async () => {
-    const updatePart = mock((part) => Promise.resolve("part" in part ? part.part : part))
-    const updateMessage = mock((message) => Promise.resolve(message))
-    const getMessages = mock(() => Promise.resolve(createParentMessages()))
-    const loop = mock(() => Promise.resolve(undefined))
-
-    mock.module(CONFIG_PATH, () => ({
-      Config: {
-        get: mock(() => Promise.resolve({})),
-      },
-    }))
-
-    mock.module(LLM_PATH, () => ({
-      LLM: {
-        stream: mock(() => Promise.resolve({ fullStream: createFullStream() })),
-      },
-    }))
-
-    mock.module(MESSAGE_V2_PATH, () => ({
-      MessageV2: {
-        parts: mock(() => Promise.resolve([])),
-        fromError: mock(() => ({ name: "UnknownError" })),
-      },
-    }))
-
-    mock.module(PROMPT_PATH, () => ({
-      SessionPrompt: {
-        loop,
-      },
-    }))
-
-    mock.module(SESSION_PATH, () => ({
-      Session: {
-        get: mock(() => Promise.resolve({ id: "session-child", parentID: "session-parent" })),
-        messages: getMessages,
-        updateMessage,
-        updatePart,
-        getUsage: mock(() => ({
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        })),
-        Event: { Error: "session.error" },
-      },
-    }))
-
-    mock.module(STATUS_PATH, () => ({
-      SessionStatus: {
-        get: mock(() => ({ type: "busy" })),
-        set: mock(() => {}),
-      },
-    }))
-
-    await using tmp = await tmpdir()
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const processor = SessionProcessor.create({
-          assistantMessage: structuredClone(assistantMessage),
-          sessionID: "session-child",
-          model: { id: "gpt-5.4", modelID: "gpt-5.4", providerID: "openai" } as any,
-          abort: new AbortController().signal,
-        })
-
-        const result = await processor.process({} as any)
-
-        expect(result).toBe("continue")
         expect(getMessages).not.toHaveBeenCalled()
-        expect(loop).not.toHaveBeenCalled()
-      },
-    })
-  })
-
-  test("logs and returns normally when continuation trigger fails", async () => {
-    const updatePart = mock((part) => Promise.resolve("part" in part ? part.part : part))
-    const updateMessage = mock((message) => Promise.resolve(message))
-
-    mock.module(CONFIG_PATH, () => ({
-      Config: {
-        get: mock(() => Promise.resolve({})),
-      },
-    }))
-
-    mock.module(LLM_PATH, () => ({
-      LLM: {
-        stream: mock(() => Promise.resolve({ fullStream: createFullStream() })),
-      },
-    }))
-
-    mock.module(MESSAGE_V2_PATH, () => ({
-      MessageV2: {
-        parts: mock(() => Promise.resolve([])),
-        fromError: mock(() => ({ name: "UnknownError" })),
-      },
-    }))
-
-    mock.module(PROMPT_PATH, () => ({
-      SessionPrompt: {
-        loop: mock(() => Promise.resolve(undefined)),
-      },
-    }))
-
-    mock.module(SESSION_PATH, () => ({
-      Session: {
-        get: mock(() => Promise.resolve({ id: "session-child", parentID: "session-parent" })),
-        messages: mock(() => Promise.reject(new Error("repair failed"))),
-        updateMessage,
-        updatePart,
-        getUsage: mock(() => ({
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        })),
-        Event: { Error: "session.error" },
-      },
-    }))
-
-    mock.module(STATUS_PATH, () => ({
-      SessionStatus: {
-        get: mock(() => ({ type: "idle" })),
-        set: mock(() => {}),
-      },
-    }))
-
-    await using tmp = await tmpdir()
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const processor = SessionProcessor.create({
-          assistantMessage: structuredClone(assistantMessage),
-          sessionID: "session-child",
-          model: { id: "gpt-5.4", modelID: "gpt-5.4", providerID: "openai" } as any,
-          abort: new AbortController().signal,
-        })
-
-        await expect(processor.process({} as any)).resolves.toBe("continue")
       },
     })
   })

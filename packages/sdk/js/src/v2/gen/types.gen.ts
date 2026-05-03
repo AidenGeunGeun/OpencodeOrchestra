@@ -1523,7 +1523,7 @@ export type AgentConfig = {
   maxSteps?: number
   permission?: PermissionConfig
   /**
-   * If true, first response auto-returns to parent. If false, agent must call finish_task.
+   * If true, first response auto-returns to parent. If false, Orchestrator calls handoff_to_pm.
    */
   single_shot?: boolean
   [key: string]:

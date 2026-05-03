@@ -52,7 +52,7 @@ export namespace Agent {
       steps: z.number().int().positive().optional(),
       // OpenCodeOrchestra: Controls whether agent auto-returns first response to parent
       // If true (default for subagents): first response automatically returns to parent
-      // If false (for PM/Orchestrator): must call finish_task to signal completion
+      // If false (for PM/Orchestrator): Orchestrator must call handoff_to_pm to signal completion
       singleShot: z.boolean().default(true),
     })
     .meta({
@@ -103,8 +103,8 @@ export namespace Agent {
          mode: "primary",
          native: true,
          color: "#FFC400",
-         prompt: PROMPT_PM,
-         singleShot: false, // OpenCodeOrchestra: PM persists, must call finish_task
+          prompt: PROMPT_PM,
+          singleShot: false, // OpenCodeOrchestra: PM persists across turns
        },
        plan: {
         name: "plan",
@@ -235,12 +235,12 @@ export namespace Agent {
           PermissionNext.fromConfig({
             question: "allow",
             task: "allow",
-            finish_task: "allow",
+            handoff_to_pm: "allow",
           }),
           user,
         ),
         prompt: PROMPT_ORCHESTRATOR,
-        singleShot: false, // Orchestrator persists until finish_task called
+        singleShot: false, // Orchestrator persists until handoff_to_pm called
       },
       // OpenCodeOrchestra: Investigator agent - READ-ONLY codebase analysis (depth 2)
       investigator: {

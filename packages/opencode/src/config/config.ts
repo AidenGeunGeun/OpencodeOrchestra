@@ -719,7 +719,7 @@ export namespace Config {
       single_shot: z
         .boolean()
         .optional()
-        .describe("If true, first response auto-returns to parent. If false, agent must call finish_task."),
+        .describe("If true, first response auto-returns to parent. If false, Orchestrator calls handoff_to_pm."),
     })
     .catchall(z.any())
     .transform((agent, ctx) => {

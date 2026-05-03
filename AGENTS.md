@@ -302,7 +302,7 @@ packages/opencode/src/
   session/        # Session management, depth hierarchy, compaction, revert
   storage/        # SQLite (db.ts, schema), JSON migration, legacy JSON storage
   provider/       # LLM provider abstraction (16+ providers)
-  tool/           # 60+ tools (bash, read, write, edit, glob, grep, task, finish-task...)
+  tool/           # 60+ tools (bash, read, write, edit, glob, grep, task, handoff-to-pm...)
   permission/     # Permission system
   config/         # Configuration management
   cli/            # CLI bootstrap, commands, TUI (Solid.js + @opentui)
@@ -394,8 +394,8 @@ These files contain fork-only logic. During upstream syncs, merge carefully:
 - `agent/agent.ts` — Orchestra agent definitions, `singleShot` field
 - `agent/prompt/*.txt` — All custom agent prompts
 - `session/depth.ts` — Depth calculation, pruning logic
-- `tool/finish-task.ts`, `tool/task.ts` — Orchestration tools
-- `tool/registry.ts` — FinishTaskTool registration, todoread
+- `tool/handoff-to-pm.ts`, `tool/task.ts` — Orchestration tools
+- `tool/registry.ts` — HandoffToPMTool registration, todoread
 - `plugin/client-wrapper.ts` — Depth-aware parentID masking
 - `session/index.ts` — `agentID` sidecar, `Session.update()`, `getShare()`
 - `session/processor.ts` — `updatePart({ part, delta })` pattern

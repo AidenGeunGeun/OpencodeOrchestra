@@ -84,6 +84,28 @@ export const TodoTable = sqliteTable(
   ],
 )
 
+export const OrchestratorCompletionTable = sqliteTable(
+  "orchestrator_completion",
+  {
+    child_session_id: text()
+      .primaryKey()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    parent_session_id: text()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    status: text({ enum: ["completed", "failed", "cancelled"] }).notNull(),
+    summary: text().notNull(),
+    learnings: text({ mode: "json" }).$type<string[]>(),
+    message_id: text().references(() => MessageTable.id, { onDelete: "set null" }),
+    part_id: text(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("orchestrator_completion_parent_idx").on(table.parent_session_id),
+    index("orchestrator_completion_message_idx").on(table.message_id),
+  ],
+)
+
 export const PermissionTable = sqliteTable("permission", {
   project_id: text()
     .primaryKey()
