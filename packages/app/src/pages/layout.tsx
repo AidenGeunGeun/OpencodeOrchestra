@@ -38,10 +38,10 @@ import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-s
 import {
   clearSessionPrefetchInflight,
   clearSessionPrefetch,
-  getSessionPrefetch,
+  isSessionCacheReady,
   isSessionPrefetchCurrent,
   runSessionPrefetch,
-  SESSION_PREFETCH_TTL,
+  sessionPrefetchVersion,
   setSessionPrefetch,
 } from "@/context/global-sync/session-prefetch"
 import { useNotification } from "@/context/notification"
@@ -72,6 +72,7 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
+  canStartSessionPrefetch,
   isProjectRestoreSession,
   latestRootSession,
   sortedRootSessions,
@@ -679,6 +680,39 @@ export default function Layout(props: ParentProps) {
     return result
   })
 
+  const activeSessionPrefetchKey = createMemo(() => {
+    const directory = currentDir()
+    const sessionID = params.id
+    if (!directory || !sessionID) return ""
+    return `${directory}\n${sessionID}`
+  })
+  const [activePrefetchReadyKey, setActivePrefetchReadyKey] = createSignal("")
+  const activeSessionPrefetchFresh = createMemo(() => {
+    sessionPrefetchVersion()
+    const directory = currentDir()
+    const sessionID = params.id
+    if (!directory || !sessionID) return false
+    const [store] = globalSync.child(directory, { bootstrap: false })
+    return isSessionCacheReady({
+      directory,
+      sessionID,
+      hasMessages: store.message[sessionID] !== undefined,
+    })
+  })
+  createEffect(() => {
+    const key = activeSessionPrefetchKey()
+    if (!key) {
+      setActivePrefetchReadyKey("")
+      return
+    }
+    if (activeSessionPrefetchFresh()) setActivePrefetchReadyKey(key)
+  })
+  const activeSessionPrefetchReady = createMemo(() => {
+    const key = activeSessionPrefetchKey()
+    if (!key) return true
+    return activePrefetchReadyKey() === key
+  })
+
   type PrefetchQueue = {
     inflight: Set<string>
     pending: string[]
@@ -710,7 +744,7 @@ export default function Layout(props: ParentProps) {
       seen: lru,
       keep: sessionID,
       limit: PREFETCH_MAX_SESSIONS_PER_DIR,
-      preserve: directory === params.dir && params.id ? [params.id] : undefined,
+      preserve: directory === currentDir() && params.id ? [params.id] : undefined,
     })
   }
 
@@ -859,13 +893,21 @@ export default function Layout(props: ParentProps) {
   const prefetchSession = (session: Session, priority: "high" | "low" = "low") => {
     const directory = session.directory
     if (!directory) return
+    if (
+      !canStartSessionPrefetch({
+        activeDirectory: currentDir(),
+        activeSessionID: params.id,
+        activeReady: activeSessionPrefetchReady(),
+        targetDirectory: directory,
+        targetSessionID: session.id,
+      })
+    ) {
+      return
+    }
 
     const [store] = globalSync.child(directory, { bootstrap: false })
     const cached = untrack(() => {
-      if (store.message[session.id] === undefined) return false
-      const info = getSessionPrefetch(directory, session.id)
-      if (!info) return false
-      return Date.now() - info.at < SESSION_PREFETCH_TTL
+      return isSessionCacheReady({ directory, sessionID: session.id, hasMessages: store.message[session.id] !== undefined })
     })
     if (cached) return
 
@@ -914,6 +956,7 @@ export default function Layout(props: ParentProps) {
 
     const index = params.id ? sessions.findIndex((s) => s.id === params.id) : 0
     if (index === -1) return
+    if (params.id && !activeSessionPrefetchReady()) return
 
     if (!params.id) {
       const first = sessions[index]

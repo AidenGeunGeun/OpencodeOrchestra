@@ -86,10 +86,18 @@ function list<T>(value: T[] | undefined | null, fallback: T[]) {
 
 const hidden = new Set(["todowrite", "todoread"])
 
+function toolState(part: PartType & { type: "tool" }) {
+  const state = (part as { state?: unknown }).state
+  if (!state || typeof state !== "object") return undefined
+  return state as typeof part.state
+}
+
 function partState(part: PartType, showReasoningSummaries: boolean) {
   if (part.type === "tool") {
+    const state = toolState(part)
+    if (!state) return
     if (hidden.has(part.tool)) return
-    if (part.tool === "question" && (part.state.status === "pending" || part.state.status === "running")) return
+    if (part.tool === "question" && (state.status === "pending" || state.status === "running")) return
     return "visible" as const
   }
   if (part.type === "text") return part.text?.trim() ? ("visible" as const) : undefined

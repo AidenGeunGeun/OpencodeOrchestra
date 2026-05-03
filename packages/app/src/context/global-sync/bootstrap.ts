@@ -17,6 +17,7 @@ import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { cmp, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
+import { perfDuration, perfLog, perfMeasure } from "@/utils/perf"
 
 type GlobalStore = {
   ready: boolean
@@ -40,6 +41,7 @@ export async function bootstrapGlobal(input: {
   formatMoreCount: (count: number) => string
   setGlobalStore: SetStoreFunction<GlobalStore>
 }) {
+  const start = performance.now()
   const health = await input.globalSDK.global
     .health()
     .then((x) => x.data)
@@ -51,39 +53,51 @@ export async function bootstrapGlobal(input: {
       description: input.connectErrorDescription,
     })
     input.setGlobalStore("ready", true)
+    perfLog("global.bootstrap", { durationMs: perfDuration(start), healthy: false })
     return
   }
 
+  const request = <T>(name: string, fn: () => Promise<T>) => perfMeasure(`global.bootstrap.request.${name}`, fn)
   const tasks = [
-    retry(() =>
-      input.globalSDK.path.get().then((x) => {
-        input.setGlobalStore("path", x.data!)
-      }),
+    request("path", () =>
+      retry(() =>
+        input.globalSDK.path.get().then((x) => {
+          input.setGlobalStore("path", x.data!)
+        }),
+      ),
     ),
-    retry(() =>
-      input.globalSDK.config.get().then((x) => {
-        input.setGlobalStore("config", x.data!)
-      }),
+    request("config", () =>
+      retry(() =>
+        input.globalSDK.config.get().then((x) => {
+          input.setGlobalStore("config", x.data!)
+        }),
+      ),
     ),
-    retry(() =>
-      input.globalSDK.project.list().then((x) => {
-        const projects = (x.data ?? [])
-          .filter((p) => !!p?.id)
-          .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-          .slice()
-          .sort((a, b) => cmp(a.id, b.id))
-        input.setGlobalStore("project", projects)
-      }),
+    request("project.list", () =>
+      retry(() =>
+        input.globalSDK.project.list().then((x) => {
+          const projects = (x.data ?? [])
+            .filter((p) => !!p?.id)
+            .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
+            .slice()
+            .sort((a, b) => cmp(a.id, b.id))
+          input.setGlobalStore("project", projects)
+        }),
+      ),
     ),
-    retry(() =>
-      input.globalSDK.provider.list().then((x) => {
-        input.setGlobalStore("provider", normalizeProviderList(x.data!))
-      }),
+    request("provider.list", () =>
+      retry(() =>
+        input.globalSDK.provider.list().then((x) => {
+          input.setGlobalStore("provider", normalizeProviderList(x.data!))
+        }),
+      ),
     ),
-    retry(() =>
-      input.globalSDK.provider.auth().then((x) => {
-        input.setGlobalStore("provider_auth", x.data ?? {})
-      }),
+    request("provider.auth", () =>
+      retry(() =>
+        input.globalSDK.provider.auth().then((x) => {
+          input.setGlobalStore("provider_auth", x.data ?? {})
+        }),
+      ),
     ),
   ]
 
@@ -99,6 +113,12 @@ export async function bootstrapGlobal(input: {
     })
   }
   input.setGlobalStore("ready", true)
+  perfLog("global.bootstrap", {
+    durationMs: perfDuration(start),
+    healthy: true,
+    requests: tasks.length,
+    errors: errors.length,
+  })
 }
 
 function groupBySession<T extends { id: string; sessionID: string }>(input: T[]) {
@@ -120,16 +140,31 @@ export async function bootstrapDirectory(input: {
   loadSessions: (directory: string) => Promise<void> | void
   translate: (key: string, vars?: Record<string, string | number>) => string
 }) {
+  const start = performance.now()
+  const warm = input.store.status === "complete"
+  perfLog("directory.bootstrap.start", { directory: input.directory, warm })
   if (input.store.status !== "complete") input.setStore("status", "loading")
 
+  const request = <T>(phase: string, name: string, fn: () => Promise<T>) =>
+    perfMeasure(`directory.bootstrap.${phase}.${name}`, fn, { directory: input.directory })
+
   const blockingRequests = {
-    project: () => input.sdk.project.current().then((x) => input.setStore("project", x.data!.id)),
+    project: () =>
+      request("blocking", "project.current", () =>
+        input.sdk.project.current().then((x) => input.setStore("project", x.data!.id)),
+      ),
     provider: () =>
-      input.sdk.provider.list().then((x) => {
-        input.setStore("provider", normalizeProviderList(x.data!))
-      }),
-    agent: () => input.sdk.app.agents().then((x) => input.setStore("agent", x.data ?? [])),
-    config: () => input.sdk.config.get().then((x) => input.setStore("config", x.data!)),
+      request("blocking", "provider.list", () =>
+        input.sdk.provider.list().then((x) => {
+          input.setStore("provider", normalizeProviderList(x.data!))
+        }),
+      ),
+    agent: () =>
+      request("blocking", "app.agents", () =>
+        input.sdk.app.agents().then((x) => input.setStore("agent", x.data ?? [])),
+      ),
+    config: () =>
+      request("blocking", "config", () => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
   }
 
   try {
@@ -143,64 +178,94 @@ export async function bootstrapDirectory(input: {
       description: formatServerError(err, input.translate),
     })
     input.setStore("status", "partial")
+    perfLog("directory.bootstrap", {
+      directory: input.directory,
+      warm,
+      durationMs: perfDuration(start),
+      ok: false,
+      phase: "blocking",
+    })
     return
   }
 
   if (input.store.status !== "complete") input.setStore("status", "partial")
+  const backgroundRequests = [
+    request("background", "path", () => input.sdk.path.get().then((x) => input.setStore("path", x.data!))),
+    request("background", "command.list", () =>
+      input.sdk.command.list().then((x) => input.setStore("command", x.data ?? [])),
+    ),
+    request("background", "session.status", () =>
+      input.sdk.session.status().then((x) => input.setStore("session_status", x.data!)),
+    ),
+    request("background", "session.list", () => Promise.resolve(input.loadSessions(input.directory))),
+    request("background", "mcp.status", () => input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!))),
+    request("background", "lsp.status", () => input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!))),
+    request("background", "vcs.get", () =>
+      input.sdk.vcs.get().then((x) => {
+        const next = x.data ?? input.store.vcs
+        input.setStore("vcs", next)
+        if (next?.branch) input.vcsCache.setStore("value", next)
+      }),
+    ),
+    request("background", "permission.list", () =>
+      input.sdk.permission.list().then((x) => {
+        const grouped = groupBySession(
+          (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
+        )
+        batch(() => {
+          for (const sessionID of Object.keys(input.store.permission)) {
+            if (grouped[sessionID]) continue
+            input.setStore("permission", sessionID, [])
+          }
+          for (const [sessionID, permissions] of Object.entries(grouped)) {
+            input.setStore(
+              "permission",
+              sessionID,
+              reconcile(
+                permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
+                { key: "id" },
+              ),
+            )
+          }
+        })
+      }),
+    ),
+    request("background", "question.list", () =>
+      input.sdk.question.list().then((x) => {
+        const grouped = groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID))
+        batch(() => {
+          for (const sessionID of Object.keys(input.store.question)) {
+            if (grouped[sessionID]) continue
+            input.setStore("question", sessionID, [])
+          }
+          for (const [sessionID, questions] of Object.entries(grouped)) {
+            input.setStore(
+              "question",
+              sessionID,
+              reconcile(
+                questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
+                { key: "id" },
+              ),
+            )
+          }
+        })
+      }),
+    ),
+  ]
+  perfLog("directory.bootstrap.partial", {
+    directory: input.directory,
+    warm,
+    durationMs: perfDuration(start),
+    requests: Object.keys(blockingRequests).length,
+  })
 
-  Promise.all([
-    input.sdk.path.get().then((x) => input.setStore("path", x.data!)),
-    input.sdk.command.list().then((x) => input.setStore("command", x.data ?? [])),
-    input.sdk.session.status().then((x) => input.setStore("session_status", x.data!)),
-    input.loadSessions(input.directory),
-    input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!)),
-    input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!)),
-    input.sdk.vcs.get().then((x) => {
-      const next = x.data ?? input.store.vcs
-      input.setStore("vcs", next)
-      if (next?.branch) input.vcsCache.setStore("value", next)
-    }),
-    input.sdk.permission.list().then((x) => {
-      const grouped = groupBySession(
-        (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
-      )
-      batch(() => {
-        for (const sessionID of Object.keys(input.store.permission)) {
-          if (grouped[sessionID]) continue
-          input.setStore("permission", sessionID, [])
-        }
-        for (const [sessionID, permissions] of Object.entries(grouped)) {
-          input.setStore(
-            "permission",
-            sessionID,
-            reconcile(
-              permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
-              { key: "id" },
-            ),
-          )
-        }
-      })
-    }),
-    input.sdk.question.list().then((x) => {
-      const grouped = groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID))
-      batch(() => {
-        for (const sessionID of Object.keys(input.store.question)) {
-          if (grouped[sessionID]) continue
-          input.setStore("question", sessionID, [])
-        }
-        for (const [sessionID, questions] of Object.entries(grouped)) {
-          input.setStore(
-            "question",
-            sessionID,
-            reconcile(
-              questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
-              { key: "id" },
-            ),
-          )
-        }
-      })
-    }),
-  ]).then(() => {
+  Promise.all(backgroundRequests).then(() => {
     input.setStore("status", "complete")
+    perfLog("directory.bootstrap.complete", {
+      directory: input.directory,
+      warm,
+      durationMs: perfDuration(start),
+      requests: backgroundRequests.length,
+    })
   })
 }

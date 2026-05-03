@@ -15,6 +15,33 @@ import {
 } from "./types"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./eviction"
 
+export function createEmptyChildState(): State {
+  return {
+    project: "",
+    projectMeta: undefined,
+    icon: undefined,
+    provider: { all: [], connected: [], default: {} },
+    config: {},
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    status: "loading" as const,
+    agent: [],
+    command: [],
+    session: [],
+    sessionTotal: 0,
+    session_status: {},
+    session_diff: {},
+    todo: {},
+    permission: {},
+    question: {},
+    mcp: {},
+    lsp: [],
+    vcs: undefined,
+    limit: 5,
+    message: {},
+    part: {},
+  }
+}
+
 export function createChildStoreManager(input: {
   owner: Owner
   isBooting: (directory: string) => boolean
@@ -156,28 +183,10 @@ export function createChildStoreManager(input: {
           const initialMeta = meta[0].value
           const initialIcon = icon[0].value
           const child = createStore<State>({
-            project: "",
+            ...createEmptyChildState(),
             projectMeta: initialMeta,
             icon: initialIcon,
-            provider: { all: [], connected: [], default: {} },
-            config: {},
-            path: { state: "", config: "", worktree: "", directory: "", home: "" },
-            status: "loading" as const,
-            agent: [],
-            command: [],
-            session: [],
-            sessionTotal: 0,
-            session_status: {},
-            session_diff: {},
-            todo: {},
-            permission: {},
-            question: {},
-            mcp: {},
-            lsp: [],
             vcs: vcsStore.value,
-            limit: 5,
-            message: {},
-            part: {},
           })
           children[directory] = child
           disposers.set(directory, dispose)

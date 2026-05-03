@@ -8,6 +8,7 @@ import {
 } from "./deep-links"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import {
+  canStartSessionPrefetch,
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
@@ -155,6 +156,36 @@ describe("layout workspace helpers", () => {
     )
 
     expect(result).toBe(true)
+  })
+
+  test("defers background session prefetch until the active session is ready", () => {
+    expect(
+      canStartSessionPrefetch({
+        activeDirectory: "/project",
+        activeSessionID: "active",
+        activeReady: false,
+        targetDirectory: "/project",
+        targetSessionID: "neighbor",
+      }),
+    ).toBe(false)
+    expect(
+      canStartSessionPrefetch({
+        activeDirectory: "/project",
+        activeSessionID: "active",
+        activeReady: false,
+        targetDirectory: "/project",
+        targetSessionID: "active",
+      }),
+    ).toBe(false)
+    expect(
+      canStartSessionPrefetch({
+        activeDirectory: "/project",
+        activeSessionID: "active",
+        activeReady: true,
+        targetDirectory: "/project",
+        targetSessionID: "neighbor",
+      }),
+    ).toBe(true)
   })
 
   test("ignores project permissions filtered out", () => {

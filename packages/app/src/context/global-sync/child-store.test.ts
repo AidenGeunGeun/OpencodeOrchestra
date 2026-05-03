@@ -2,11 +2,19 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
-import { createChildStoreManager } from "./child-store"
+import { createChildStoreManager, createEmptyChildState } from "./child-store"
 
 const child = () => createStore({} as State)
 
 describe("createChildStoreManager", () => {
+  test("creates a loading not-ready state", () => {
+    const state = createEmptyChildState()
+
+    expect(state.status).toBe("loading")
+    expect(state.path.directory).toBe("")
+    expect(state.session).toEqual([])
+  })
+
   test("does not evict the active directory during mark", () => {
     const owner = createRoot((dispose) => {
       const current = getOwner()

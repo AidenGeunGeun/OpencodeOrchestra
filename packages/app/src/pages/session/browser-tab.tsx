@@ -2,8 +2,10 @@ import { Index, Show, createEffect, createMemo, createSignal, onCleanup } from "
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { checksum } from "@opencode-ai/util/encode"
 import type { BrowserCommentAttachmentPart } from "@/context/prompt"
 import { usePrompt } from "@/context/prompt"
+import { useSDK } from "@/context/sdk"
 import { classifyBrowserCommentSource } from "@/utils/browser-comment"
 import { browserCommentMarker, createBrowserCommentInspectorScript } from "@/utils/browser-comment-inspector"
 import { Identifier } from "@/utils/id"
@@ -26,6 +28,7 @@ type InspectorPayload = {
   kind: "element" | "area"
   rect: BrowserCommentAttachmentPart["rect"]
   point: BrowserCommentAttachmentPart["point"]
+  anchor?: BrowserCommentAttachmentPart["anchor"]
   element?: BrowserCommentAttachmentPart["element"]
   source?: BrowserCommentAttachmentPart["source"]
   styles?: BrowserCommentAttachmentPart["styles"]
@@ -38,6 +41,7 @@ const webviewLoadedEvents = ["did-finish-load", "did-frame-finish-load"]
 
 export function BrowserTab() {
   const prompt = usePrompt()
+  const sdk = useSDK()
   const inspectorNonce =
     safe(() => crypto.randomUUID()) ?? `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`
   let webview: ElectronWebviewTag | undefined
@@ -69,6 +73,7 @@ export function BrowserTab() {
   const comments = createMemo(() => prompt.current().filter(isBrowserComment))
   const commentCount = createMemo(() => comments().length)
   const browserCommentReady = createMemo(() => browserCommentCapable() && store.domReady)
+  const browserPartition = createMemo(() => `oco-browser-comments-${checksum(sdk.directory) ?? "default"}`)
 
   const normalizeUrl = (value: string) => {
     const trimmed = value.trim()
@@ -197,6 +202,7 @@ export function BrowserTab() {
       },
       rect: payload.rect,
       point: payload.point,
+      anchor: payload.anchor,
       page: { url: pageUrl, title: safe(() => webview?.getTitle?.()) || undefined },
       viewport: store.viewport,
       console: store.console.slice(-50),
@@ -268,7 +274,12 @@ export function BrowserTab() {
 
   const renderPins = () => {
     if (!webview?.executeJavaScript || !store.ready || !store.domReady) return
-    const pins = comments().map((comment, index) => ({ id: comment.id, index, x: comment.point.x, y: comment.point.y }))
+    const pins = comments()
+      .map((comment, index) => {
+        const anchor = pinAnchor(comment)
+        return anchor ? { id: comment.id, index, ...anchor } : undefined
+      })
+      .filter((pin): pin is { id: string; index: number; x: number; y: number; coordinateSpace: "page" | "viewport" } => !!pin)
     const serialized = JSON.stringify(pins)
     if (serialized === renderedPins) return
     renderedPins = serialized
@@ -300,7 +311,7 @@ export function BrowserTab() {
       refreshWebviewCapabilities()
       if (!markWebviewSettled()) return
       invalidateRenderedPins()
-      setStore({ loading: false, ready: true })
+      setStore({ loading: false, ready: true, domReady: true })
       updateNavState()
       void installInspector()
     }
@@ -386,7 +397,10 @@ export function BrowserTab() {
 
   createEffect(() => {
     comments()
-      .map((comment) => `${comment.id}:${comment.point.x}:${comment.point.y}`)
+      .map((comment) => {
+        const anchor = pinAnchor(comment)
+        return anchor ? `${comment.id}:${anchor.coordinateSpace}:${anchor.x}:${anchor.y}` : `${comment.id}:invalid`
+      })
       .join("|")
     renderPins()
   })
@@ -463,7 +477,7 @@ export function BrowserTab() {
           <webview
             ref={(el) => wireWebview(el as ElectronWebviewTag)}
             src={webviewSrc()}
-            partition="oco-browser-comments"
+            partition={browserPartition()}
             webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes"
             class="absolute inset-0 size-full bg-white"
             classList={{ hidden: !electronWebview() }}
@@ -599,6 +613,14 @@ function clampRect(rect: BrowserCommentAttachmentPart["rect"], width: number, he
   const next = { x, y, width: right - x, height: bottom - y }
   if (next.width < 1 || next.height < 1) return
   return next
+}
+
+function pinAnchor(comment: BrowserCommentAttachmentPart) {
+  const anchor = comment.anchor
+  const x = Number(anchor?.x ?? comment.point?.x)
+  const y = Number(anchor?.y ?? comment.point?.y)
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+  return { x, y, coordinateSpace: anchor?.coordinateSpace === "page" ? "page" : "viewport" } as const
 }
 
 function fallbackImage(kind: string) {

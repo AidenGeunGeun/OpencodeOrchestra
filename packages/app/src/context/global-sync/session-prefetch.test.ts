@@ -3,6 +3,8 @@ import {
   clearSessionPrefetch,
   clearSessionPrefetchDirectory,
   getSessionPrefetch,
+  isSessionCacheReady,
+  isSessionPrefetchFresh,
   runSessionPrefetch,
   setSessionPrefetch,
 } from "./session-prefetch"
@@ -59,5 +61,17 @@ describe("session prefetch", () => {
     expect(getSessionPrefetch("/tmp/d", "ses_1")).toBeUndefined()
     expect(getSessionPrefetch("/tmp/d", "ses_2")).toBeUndefined()
     expect(getSessionPrefetch("/tmp/e", "ses_1")).toEqual({ limit: 30, complete: true, at: 3 })
+  })
+
+  test("treats only fresh message metadata as render-ready cache", () => {
+    clearSessionPrefetch("/tmp/f", ["ses_fresh", "ses_stale", "ses_missing"])
+    setSessionPrefetch({ directory: "/tmp/f", sessionID: "ses_fresh", limit: 20, complete: true, at: 1_000 })
+    setSessionPrefetch({ directory: "/tmp/f", sessionID: "ses_stale", limit: 20, complete: true, at: 1_000 })
+
+    expect(isSessionPrefetchFresh("/tmp/f", "ses_fresh", 1_000 + 1_000)).toBe(true)
+    expect(isSessionPrefetchFresh("/tmp/f", "ses_stale", 1_000 + 20_000)).toBe(false)
+    expect(isSessionCacheReady({ directory: "/tmp/f", sessionID: "ses_fresh", hasMessages: true, now: 2_000 })).toBe(true)
+    expect(isSessionCacheReady({ directory: "/tmp/f", sessionID: "ses_fresh", hasMessages: false, now: 2_000 })).toBe(false)
+    expect(isSessionCacheReady({ directory: "/tmp/f", sessionID: "ses_missing", hasMessages: true, now: 2_000 })).toBe(false)
   })
 })

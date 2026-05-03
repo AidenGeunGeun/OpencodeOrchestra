@@ -377,6 +377,12 @@ function getSessionContextHealth(store: ReturnType<typeof useData>["store"], ses
 const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
 const HIDDEN_TOOLS = new Set(["todowrite", "todoread"])
 
+function toolState(part: ToolPart) {
+  const state = (part as { state?: unknown }).state
+  if (!state || typeof state !== "object") return undefined
+  return state as ToolPart["state"]
+}
+
 function list<T>(value: T[] | undefined | null, fallback: T[]) {
   if (Array.isArray(value)) return value
   return fallback
@@ -480,8 +486,10 @@ function index<T extends { id: string }>(items: readonly T[]) {
 
 function renderable(part: PartType, showReasoningSummaries = true) {
   if (part.type === "tool") {
+    const state = toolState(part)
+    if (!state) return false
     if (HIDDEN_TOOLS.has(part.tool)) return false
-    if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
+    if (part.tool === "question") return state.status !== "pending" && state.status !== "running"
     return true
   }
   if (part.type === "text") return !!part.text?.trim()
@@ -606,18 +614,19 @@ function isContextGroupTool(part: PartType): part is ToolPart {
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
-  const info = getToolInfo(part.tool, part.state.input ?? {})
+  const state = toolState(part)
+  if (!state) return undefined
+  const info = getToolInfo(part.tool, state.input ?? {})
   if (info.subtitle) return info.subtitle
-  if (part.state.status === "error") return part.state.error
-  if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
-    return part.state.title
-  const description = part.state.input?.description
+  if (state.status === "error") return state.error
+  if ((state.status === "running" || state.status === "completed") && state.title) return state.title
+  const description = state.input?.description
   if (typeof description === "string") return description
   return undefined
 }
 
 function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
-  const input = (part.state.input ?? {}) as Record<string, unknown>
+  const input = (toolState(part)?.input ?? {}) as Record<string, unknown>
   const path = typeof input.path === "string" ? input.path : "/"
   const filePath = typeof input.filePath === "string" ? input.filePath : undefined
   const pattern = typeof input.pattern === "string" ? input.pattern : undefined
@@ -813,7 +822,11 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const [open, setOpen] = createSignal(false)
   const pending = createMemo(
     () =>
-      !!props.busy || props.parts.some((part) => part.state.status === "pending" || part.state.status === "running"),
+      !!props.busy ||
+      props.parts.some((part) => {
+        const state = toolState(part)
+        return state?.status === "pending" || state?.status === "running"
+      }),
   )
   const summary = createMemo(() => contextToolSummary(props.parts))
 
@@ -870,9 +883,10 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
           <Index each={props.parts}>
             {(partAccessor) => {
               const trigger = createMemo(() => contextToolTrigger(partAccessor(), i18n))
-              const running = createMemo(
-                () => partAccessor().state.status === "pending" || partAccessor().state.status === "running",
-              )
+              const running = createMemo(() => {
+                const state = toolState(partAccessor())
+                return state?.status === "pending" || state?.status === "running"
+              })
               return (
                 <div data-slot="context-tool-group-item">
                   <div data-component="tool-trigger">
@@ -1285,9 +1299,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const i18n = useI18n()
   const part = () => props.part as ToolPart
   if (part().tool === "todowrite" || part().tool === "todoread") return null
+  const state = createMemo(() => toolState(part()))
 
   const hideQuestion = createMemo(
-    () => part().tool === "question" && (part().state.status === "pending" || part().state.status === "running"),
+    () => part().tool === "question" && (state()?.status === "pending" || state()?.status === "running"),
   )
 
   const emptyInput: Record<string, any> = {}
@@ -1315,47 +1330,51 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
 
   return (
-    <Show when={!hideQuestion()}>
-      <div data-component="tool-part-wrapper">
-        <Switch>
-          <Match when={part().state.status === "error" && (part().state as any).error}>
-            {(error) => {
-              const cleaned = error().replace("Error: ", "")
-              if (part().tool === "question" && cleaned.includes("dismissed this question")) {
-                return (
-                  <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-13-regular text-text-weak cursor-default">
-                      {i18n.t("ui.messagePart.questions.dismissed")}
-                    </span>
-                  </div>
-                )
-              }
-              return (
-                <ToolErrorCard
+    <Show when={state()}>
+      {(currentState) => (
+        <Show when={!hideQuestion()}>
+          <div data-component="tool-part-wrapper">
+            <Switch>
+              <Match when={currentState().status === "error" && (currentState() as any).error}>
+                {(error) => {
+                  const cleaned = error().replace("Error: ", "")
+                  if (part().tool === "question" && cleaned.includes("dismissed this question")) {
+                    return (
+                      <div style="width: 100%; display: flex; justify-content: flex-end;">
+                        <span class="text-13-regular text-text-weak cursor-default">
+                          {i18n.t("ui.messagePart.questions.dismissed")}
+                        </span>
+                      </div>
+                    )
+                  }
+                  return (
+                    <ToolErrorCard
+                      tool={part().tool}
+                      error={error()}
+                      defaultOpen={props.defaultOpen}
+                      subtitle={taskSubtitle()}
+                      href={taskHref()}
+                    />
+                  )
+                }}
+              </Match>
+              <Match when={true}>
+                <Dynamic
+                  component={render()}
+                  input={input()}
                   tool={part().tool}
-                  error={error()}
+                  metadata={partMetadata()}
+                  // @ts-expect-error
+                  output={currentState().output}
+                  status={currentState().status}
+                  hideDetails={props.hideDetails}
                   defaultOpen={props.defaultOpen}
-                  subtitle={taskSubtitle()}
-                  href={taskHref()}
                 />
-              )
-            }}
-          </Match>
-          <Match when={true}>
-            <Dynamic
-              component={render()}
-              input={input()}
-              tool={part().tool}
-              metadata={partMetadata()}
-              // @ts-expect-error
-              output={part().state.output}
-              status={part().state.status}
-              hideDetails={props.hideDetails}
-              defaultOpen={props.defaultOpen}
-            />
-          </Match>
-        </Switch>
-      </div>
+              </Match>
+            </Switch>
+          </div>
+        </Show>
+      )}
     </Show>
   )
 }

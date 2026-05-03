@@ -28,4 +28,18 @@ describe("browserCommentInspectorScript", () => {
     expect(script).toContain('const nonce = "nonce-fixture"')
     expect(script).toContain("{ type, payload, nonce }")
   })
+
+  test("separates viewport screenshot rectangles from page-stable pin anchors", () => {
+    expect(browserCommentInspectorScript).toContain("const rectData = (rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })")
+    expect(browserCommentInspectorScript).toContain("const pagePoint = (point) => ({ x: point.x + window.scrollX, y: point.y + window.scrollY, coordinateSpace: \"page\" })")
+    expect(browserCommentInspectorScript).toContain("send(\"selection\", { kind: \"element\", rect: rectData(rect), point, anchor: pagePoint(point)")
+    expect(browserCommentInspectorScript).toContain("send(\"selection\", { kind: \"area\", rect, point, anchor: pagePoint(point) })")
+  })
+
+  test("renders page-coordinate pins against the current scroll offset", () => {
+    expect(browserCommentInspectorScript).toContain("el.dataset.pinCoordinateSpace = pin.coordinateSpace === \"page\" ? \"page\" : \"viewport\"")
+    expect(browserCommentInspectorScript).toContain("el.style.left = (page ? x - window.scrollX : x) + \"px\"")
+    expect(browserCommentInspectorScript).toContain("window.addEventListener(\"scroll\", positionPins, true)")
+    expect(browserCommentInspectorScript).toContain('send("delete", { id: pin.id })')
+  })
 })

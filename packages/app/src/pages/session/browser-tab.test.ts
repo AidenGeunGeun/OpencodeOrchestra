@@ -17,8 +17,19 @@ describe("BrowserTab note editing", () => {
 
     expect(source).toContain('let renderedPins = ""')
     expect(source).toContain("if (serialized === renderedPins) return")
-    expect(source).toContain("`${comment.id}:${comment.point.x}:${comment.point.y}`")
+    expect(source).toContain("`${comment.id}:${anchor.coordinateSpace}:${anchor.x}:${anchor.y}`")
     expect(source).not.toContain("${comment.note}")
+  })
+
+  test("sends page anchors to rendered pins while preserving viewport screenshot rectangles", async () => {
+    const source = await Bun.file(new URL("./browser-tab.tsx", import.meta.url)).text()
+
+    expect(source).toContain("rect: payload.rect")
+    expect(source).toContain("point: payload.point")
+    expect(source).toContain("anchor: payload.anchor")
+    expect(source).toContain("const rect = clampRect(payload.rect, webview.clientWidth, webview.clientHeight)")
+    expect(source).toContain("const anchor = pinAnchor(comment)")
+    expect(source).toContain("coordinateSpace: anchor?.coordinateSpace === \"page\" ? \"page\" : \"viewport\"")
   })
 
   test("invalidates rendered pins while the webview document is loading", async () => {
@@ -27,7 +38,7 @@ describe("BrowserTab note editing", () => {
     expect(source).toContain("const invalidateRenderedPins = () =>")
     expect(source).toContain('setStore({ error: "", loading: true, ready: false, domReady: false, currentUrl: next, console: [] })')
     expect(source).toContain("setStore({ loading: true, ready: false, domReady: false })")
-    expect(source).toContain("setStore({ loading: false, ready: true })")
+    expect(source).toContain("setStore({ loading: false, ready: true, domReady: true })")
   })
 
   test("falls back when Electron webview loadURL is unavailable", async () => {
@@ -72,14 +83,28 @@ describe("BrowserTab note editing", () => {
     expect(source).not.toContain('src="about:blank"')
   })
 
-  test("does not execute browser comment scripts before Electron webview dom-ready", async () => {
+  test("enables browser comment scripts only after Electron reports an attachable page", async () => {
     const source = await Bun.file(new URL("./browser-tab.tsx", import.meta.url)).text()
 
     expect(source).toContain("domReady: false")
     expect(source).toContain("const browserCommentReady = createMemo(() => browserCommentCapable() && store.domReady)")
     expect(source).toContain("if (!webview?.executeJavaScript || !webview.isConnected || !store.domReady) return undefined")
     expect(source).toContain('webview.addEventListener("dom-ready", onDomReady)')
+    expect(source).toContain('for (const event of webviewLoadedEvents) webview.addEventListener(event, onLoaded)')
+    expect(source).toContain('webview.addEventListener("did-stop-loading", onLoaded)')
+    expect(source).toContain('webview.addEventListener("did-navigate", onLoaded)')
     expect(source).toContain('webview.removeEventListener("dom-ready", onDomReady)')
+    expect(source).toContain("setStore({ loading: false, ready: true, domReady: true })")
     expect(source).not.toContain("void installInspector()\n    updateNavState()")
+  })
+
+  test("uses a project-scoped webview partition without clearing queued prompt comments on unmount", async () => {
+    const source = await Bun.file(new URL("./browser-tab.tsx", import.meta.url)).text()
+
+    expect(source).toContain("const sdk = useSDK()")
+    expect(source).toContain('const browserPartition = createMemo(() => `oco-browser-comments-${checksum(sdk.directory) ?? "default"}`)')
+    expect(source).toContain("partition={browserPartition()}")
+    expect(source).toContain("onCleanup(() => unwireWebview())")
+    expect(source).not.toContain("onCleanup(() => clearComments())")
   })
 })

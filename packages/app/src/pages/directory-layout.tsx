@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, Show, type ParentProps } from "solid-js"
+import { batch, createEffect, createMemo, on, Show, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider } from "@/context/sdk"
@@ -11,6 +11,8 @@ import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
+import { routeResolvedDirectory } from "./directory-layout-helpers"
+
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const navigate = useNavigate()
   const sync = useSync()
@@ -35,53 +37,71 @@ export default function Layout(props: ParentProps) {
   const location = useLocation()
   const language = useLanguage()
   const globalSDK = useGlobalSDK()
-  const directory = createMemo(() => decode64(params.dir) ?? "")
-  const [state, setState] = createStore({ invalid: "", resolved: "" })
+  const [state, setState] = createStore({ invalid: "", resolved: "", resolvedRoute: "" })
+  const resolvedDirectory = createMemo(() => routeResolvedDirectory(state, params.dir))
 
-  createEffect(() => {
-    if (!params.dir) return
-    const raw = directory()
-    if (!raw) {
-      if (state.invalid === params.dir) return
-      setState("invalid", params.dir)
-      showToast({
-        variant: "error",
-        title: language.t("common.requestFailed"),
-        description: language.t("directory.error.invalidUrl"),
-      })
-      navigate("/", { replace: true })
-      return
-    }
+  createEffect(
+    on(
+      () => params.dir,
+      (dir) => {
+        if (!dir) return
+        const raw = decode64(dir) ?? ""
+        if (!raw) {
+          batch(() => {
+            setState("invalid", dir)
+            setState("resolved", "")
+            setState("resolvedRoute", "")
+          })
+          showToast({
+            variant: "error",
+            title: language.t("common.requestFailed"),
+            description: language.t("directory.error.invalidUrl"),
+          })
+          navigate("/", { replace: true })
+          return
+        }
 
-    const current = params.dir
-    globalSDK
-      .createClient({
-        directory: raw,
-        throwOnError: true,
-      })
-      .path.get()
-      .then((x) => {
-        if (params.dir !== current) return
-        const next = x.data?.directory ?? raw
+        const current = dir
         batch(() => {
           setState("invalid", "")
-          setState("resolved", next)
+          if (state.resolvedRoute === current) return
+          setState("resolved", "")
+          setState("resolvedRoute", "")
         })
-        if (next === raw) return
-        const path = location.pathname.slice(current.length + 1)
-        navigate(`/${base64Encode(next)}${path}${location.search}${location.hash}`, { replace: true })
-      })
-      .catch(() => {
-        if (params.dir !== current) return
-        batch(() => {
-          setState("invalid", "")
-          setState("resolved", raw)
-        })
-      })
-  })
+
+        globalSDK
+          .createClient({
+            directory: raw,
+            throwOnError: true,
+          })
+          .path.get()
+          .then((x) => {
+            if (params.dir !== current) return
+            const next = x.data?.directory ?? raw
+            const nextRoute = base64Encode(next)
+            batch(() => {
+              setState("invalid", "")
+              setState("resolved", next)
+              setState("resolvedRoute", nextRoute)
+            })
+            if (next === raw) return
+            const path = location.pathname.slice(current.length + 1)
+            navigate(`/${nextRoute}${path}${location.search}${location.hash}`, { replace: true })
+          })
+          .catch(() => {
+            if (params.dir !== current) return
+            batch(() => {
+              setState("invalid", "")
+              setState("resolved", raw)
+              setState("resolvedRoute", current)
+            })
+          })
+      },
+    ),
+  )
 
   return (
-    <Show when={state.resolved}>
+    <Show when={resolvedDirectory()}>
       {(resolved) => (
         <SDKProvider directory={resolved}>
           <SyncProvider>

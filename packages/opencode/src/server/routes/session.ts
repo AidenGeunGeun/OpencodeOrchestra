@@ -19,6 +19,31 @@ import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })
 
+// OCO: gated route counters and cheaper status checks for project switching.
+const perfEnabled = process.env.OCO_PERF === "1" || process.env.OPENCODE_PERF === "1"
+
+function round(value: number) {
+  return Math.round(value * 10) / 10
+}
+
+function perfLog(label: string, fields: Record<string, unknown>) {
+  if (!perfEnabled) return
+  console.info(`[oco-perf] ${label}`, fields)
+}
+
+export async function visibleSessionStatuses(input: {
+  statuses: Record<string, SessionStatus.Info>
+  exists: (sessionID: string) => Promise<boolean>
+}) {
+  const entries = Object.entries(input.statuses)
+  const result: Record<string, SessionStatus.Info> = {}
+  const visible = await Promise.all(entries.map(async ([sessionID]) => input.exists(sessionID)))
+  for (const [index, [sessionID, status]] of entries.entries()) {
+    if (visible[index]) result[sessionID] = status
+  }
+  return result
+}
+
 export const SessionRoutes = lazy(() =>
   new Hono()
     .get(
@@ -52,6 +77,7 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
+        const start = performance.now()
         const query = c.req.valid("query")
         const sessions: Session.Info[] = []
         for await (const session of Session.list({
@@ -63,6 +89,15 @@ export const SessionRoutes = lazy(() =>
         })) {
           sessions.push(session)
         }
+        perfLog("session.list", {
+          durationMs: round(performance.now() - start),
+          rows: sessions.length,
+          metadataReadMode: "parallel",
+          metadataReads: sessions.length * 2,
+          directory: query.directory,
+          roots: query.roots ?? false,
+          limit: query.limit ?? 100,
+        })
         return c.json(sessions)
       },
     )
@@ -85,13 +120,20 @@ export const SessionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const visible = new Set<string>()
-        for await (const session of Session.list()) {
-          visible.add(session.id)
-        }
-        const result = Object.fromEntries(
-          Object.entries(SessionStatus.list()).filter(([sessionID]) => visible.has(sessionID)),
-        )
+        const start = performance.now()
+        const statuses = SessionStatus.list()
+        const result = await visibleSessionStatuses({
+          statuses,
+          exists: (sessionID) => Session.exists(sessionID),
+        })
+        perfLog("session.status", {
+          durationMs: round(performance.now() - start),
+          statusCount: Object.keys(statuses).length,
+          visibleCount: Object.keys(result).length,
+          visibilityChecks: Object.keys(statuses).length,
+          visibilityMode: "scoped-exists",
+          metadataReads: 0,
+        })
         return c.json(result)
       },
     )

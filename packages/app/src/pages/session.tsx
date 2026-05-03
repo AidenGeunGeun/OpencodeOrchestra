@@ -31,7 +31,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { useComments } from "@/context/comments"
-import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
+import { isSessionCacheReady } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -456,12 +456,37 @@ export default function Page() {
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
   const revertMessageID = createMemo(() => info()?.revert?.messageID)
-  const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
+  const [store, setStore] = createStore({
+    messageId: undefined as string | undefined,
+    mobileTab: "session" as "session" | "changes",
+    changes: "session" as "session" | "turn",
+    newSessionWorktree: "main",
+    deferRender: false,
+    messageKey: "",
+    messageStale: false,
+  })
+  const currentMessageStale = () => {
+    const id = params.id
+    if (!id) return false
+    const cached = sync.data.message[id] !== undefined
+    return cached && !isSessionCacheReady({ directory: sdk.directory, sessionID: id, hasMessages: true })
+  }
+  createComputed((prev: string | undefined) => {
+    const key = sessionKey()
+    if (key !== prev) {
+      setStore("messageKey", key)
+      setStore("messageStale", untrack(currentMessageStale))
+    }
+    return key
+  })
+  const cachedMessages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
   const messagesReady = createMemo(() => {
     const id = params.id
     if (!id) return true
-    return sync.data.message[id] !== undefined
+    if (store.messageKey === sessionKey() && store.messageStale) return false
+    return sync.session.history.ready(id)
   })
+  const messages = createMemo(() => (messagesReady() ? cachedMessages() : []))
   const historyMore = createMemo(() => {
     const id = params.id
     if (!id) return false
@@ -589,14 +614,6 @@ export default function Page() {
 
     const path = file.pathFromTab(tab)
     if (path) file.load(path)
-  })
-
-  const [store, setStore] = createStore({
-    messageId: undefined as string | undefined,
-    mobileTab: "session" as "session" | "changes",
-    changes: "session" as "session" | "turn",
-    newSessionWorktree: "main",
-    deferRender: false,
   })
 
   const [followup, setFollowup] = createStore({
@@ -796,18 +813,19 @@ export default function Page() {
       refreshTimer = undefined
       if (!id) return
 
-      const cached = untrack(() => sync.data.message[id] !== undefined)
-      const stale = !cached
-        ? false
-        : (() => {
-            const info = getSessionPrefetch(sdk.directory, id)
-            if (!info) return true
-            return Date.now() - info.at > SESSION_PREFETCH_TTL
-          })()
+      const key = sessionKey()
+      const stale = untrack(() => store.messageKey === key && store.messageStale)
       const todos = untrack(() => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined)
 
       untrack(() => {
-        void sync.session.sync(id)
+        void sync.session
+          .sync(id, stale ? { force: true } : undefined)
+          .then(() => {
+            if (!stale) return
+            if (sessionKey() !== key) return
+            setStore("messageStale", false)
+          })
+          .catch(() => undefined)
       })
 
       refreshFrame = requestAnimationFrame(() => {
@@ -816,7 +834,6 @@ export default function Page() {
           refreshTimer = undefined
           if (params.id !== id) return
           untrack(() => {
-            if (stale) void sync.session.sync(id, { force: true })
             void sync.session.todo(id, todos ? { force: true } : undefined)
           })
         }, 0)

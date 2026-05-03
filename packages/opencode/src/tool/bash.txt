@@ -6,9 +6,13 @@ IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO N
 
 IMPORTANT: This tool is blocking. The agent waits until the local command exits, errors, times out, or is aborted. It is not an async job manager, terminal multiplexer, or durable background process registry.
 
+Blocking means you cannot talk to the user, inspect intermediate state, or change course while the command is running. Do not use Bash as a passive wait loop for long-running jobs, watch modes, dev servers, training runs, cloud jobs, deployments, or very large builds. If the user mainly needs a long-lived process observed in real time, ask them to run it in their terminal. If you need Bash to start long-running work, use it only as a bounded initiator: launch, persist the PID/job ID/log path, return promptly, then use separate short polling and cleanup commands.
+
 Remote or external work may outlive the local command. If a command starts cloud resources, SSH commands, containers, services, tmux/nohup jobs, detached processes, uploads, or other long-running work, those may keep running even if this bash call times out, is aborted, or loses its connection. A timeout only proves the local process was terminated; it does not prove remote work or paid infrastructure stopped.
 
 For long-running, metered, or externally managed work, split the workflow into short observable phases. Persist recovery information before starting work that may continue independently, then use separate short commands to launch, poll, sync logs/artifacts, and clean up. Do not hide setup, upload, launch, polling, and cleanup inside one long blocking bash command.
+
+IMPORTANT: Manage expected output before you run the command. Verbose output can quickly consume the agent's context even when truncation eventually saves the full output to a file. For commands likely to produce large logs (builds, installs, test suites, container logs, server logs, language servers, benchmarks), redirect the full output to a descriptive file under `/tmp/` and make the Bash result show only the exit status plus a concise summary or a few targeted failure lines. Prefer quiet, summary, or machine-readable flags when available. Treat truncation as a safety net, not the primary output-management strategy.
 
 Before executing the command, please follow these steps:
 
@@ -30,7 +34,7 @@ Usage notes:
   - The command argument is required.
   - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
-  - If the output exceeds ${maxLines} lines or ${maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Because of this, you do NOT need to use `head`, `tail`, or other truncation commands to limit output - just run the command directly.
+  - If output unexpectedly exceeds ${maxLines} lines or ${maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. For output that is expected to be verbose, do not rely on truncation: redirect full logs to `/tmp/`, return only a concise summary, and inspect targeted sections with Read or Grep.
 
   - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
     - File search: Use Glob (NOT find or ls)

@@ -158,7 +158,6 @@ export function SessionSidePanel(props: {
 
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
-    browserActivated: false,
     hiddenTools: {} as Partial<Record<ToolDockTool, boolean>>,
     toolDockDefaultsApplied: false,
     toolDockDefaultMode: undefined as "fallback" | "subagents" | undefined,
@@ -188,7 +187,9 @@ export function SessionSidePanel(props: {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
-  const browserMounted = createMemo(() => store.browserActivated || activeTab() === "browser")
+  const browserRuntimeKey = createMemo(() =>
+    reviewOpen() && activeTab() === "browser" && isToolVisible("browser") ? (params.dir ?? "") : "",
+  )
 
   const fileTreeTab = () => layout.fileTree.tab()
 
@@ -240,11 +241,6 @@ export function SessionSidePanel(props: {
       />
     </Tooltip>
   )
-
-  createEffect(() => {
-    if (activeTab() !== "browser" || store.browserActivated) return
-    setStore("browserActivated", true)
-  })
 
   createEffect(() => {
     if (!reviewOpen()) return
@@ -526,8 +522,8 @@ export function SessionSidePanel(props: {
                       forceMount
                       hidden={activeTab() !== "browser"}
                     >
-                      <Show when={browserMounted()}>
-                        <BrowserTab />
+                      <Show when={browserRuntimeKey()} keyed>
+                        {(_) => <BrowserTab />}
                       </Show>
                     </Tabs.Content>
                   </Show>

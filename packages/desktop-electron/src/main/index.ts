@@ -205,6 +205,7 @@ async function initialize() {
   const globals = {
     updaterEnabled: UPDATER_ENABLED,
     deepLinks: pendingDeepLinks,
+    perf: process.env.OCO_PERF === "1" || process.env.OPENCODE_PERF === "1",
   }
 
   const showOverlay = await Promise.race([loadingTask.then(() => false), delay(1_000).then(() => true)])

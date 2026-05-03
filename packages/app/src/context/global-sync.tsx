@@ -36,6 +36,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
+import { perfDuration, perfLog } from "@/utils/perf"
 
 type GlobalStore = {
   ready: boolean
@@ -185,6 +186,7 @@ function createGlobalSync() {
     const [store, setStore] = children.child(directory, { bootstrap: false })
     const meta = sessionMeta.get(directory)
     if (meta && meta.limit >= store.limit) {
+      const start = performance.now()
       const next = trimSessions(store.session, {
         limit: store.limit,
         permission: store.permission,
@@ -194,10 +196,18 @@ function createGlobalSync() {
         cleanupDroppedSessionCaches(store, setStore, next, setSessionTodo)
       }
       children.unpin(directory)
+      perfLog("session.list", {
+        directory,
+        cacheHit: true,
+        durationMs: perfDuration(start),
+        rows: next.length,
+        limit: store.limit,
+      })
       return
     }
 
     const limit = Math.max(store.limit + SESSION_RECENT_LIMIT, SESSION_RECENT_LIMIT)
+    const start = performance.now()
     const promise = loadRootSessionsWithFallback({
       directory,
       limit,
@@ -225,6 +235,15 @@ function createGlobalSync() {
         setStore("session", reconcile(sessions, { key: "id" }))
         cleanupDroppedSessionCaches(store, setStore, sessions, setSessionTodo)
         sessionMeta.set(directory, { limit })
+        perfLog("session.list", {
+          directory,
+          cacheHit: false,
+          durationMs: perfDuration(start),
+          rows: nonArchived.length,
+          visibleRows: sessions.length,
+          limit,
+          limited: x.limited,
+        })
       })
       .catch((err) => {
         console.error("Failed to load sessions", err)

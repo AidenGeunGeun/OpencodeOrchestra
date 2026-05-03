@@ -6,6 +6,49 @@ import type { InitStep, ServerReadyData, SqliteMigrationProgress, TitlebarTheme,
 import { getStore } from "./store"
 import { setTitlebar } from "./windows"
 
+// OCO: gated storage IPC counters for Electron project-switch dogfooding.
+const perfEnabled = process.env.OCO_PERF === "1" || process.env.OPENCODE_PERF === "1"
+const storageCounts = new Map<string, { count: number; totalMs: number; maxMs: number }>()
+let storageTimer: ReturnType<typeof setTimeout> | undefined
+
+function round(value: number) {
+  return Math.round(value * 10) / 10
+}
+
+function flushStoragePerf() {
+  storageTimer = undefined
+  if (storageCounts.size === 0) return
+  const operations = Object.fromEntries(
+    [...storageCounts.entries()].map(([key, value]) => [
+      key,
+      { count: value.count, totalMs: round(value.totalMs), maxMs: round(value.maxMs) },
+    ]),
+  )
+  storageCounts.clear()
+  console.info("[oco-perf] electron.storage.main", { operations })
+}
+
+function recordStoragePerf(name: string, operation: string, durationMs: number) {
+  if (!perfEnabled) return
+  const key = `${operation}:${name}`
+  const current = storageCounts.get(key) ?? { count: 0, totalMs: 0, maxMs: 0 }
+  current.count += 1
+  current.totalMs += durationMs
+  current.maxMs = Math.max(current.maxMs, durationMs)
+  storageCounts.set(key, current)
+  if (!storageTimer) storageTimer = setTimeout(flushStoragePerf, 750)
+}
+
+function trackStorage<T>(name: string, operation: string, fn: () => T) {
+  if (!perfEnabled) return fn()
+  const start = performance.now()
+  try {
+    return fn()
+  } finally {
+    recordStoragePerf(name, operation, performance.now() - start)
+  }
+}
+
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
@@ -58,28 +101,34 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("check-update", () => deps.checkUpdate())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
-  ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
-    const store = getStore(name)
-    const value = store.get(key)
-    if (value === undefined || value === null) return null
-    return typeof value === "string" ? value : JSON.stringify(value)
-  })
+  ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) =>
+    trackStorage(name, "get", () => {
+      const store = getStore(name)
+      const value = store.get(key)
+      if (value === undefined || value === null) return null
+      return typeof value === "string" ? value : JSON.stringify(value)
+    }),
+  )
   ipcMain.handle("store-set", (_event: IpcMainInvokeEvent, name: string, key: string, value: string) => {
-    getStore(name).set(key, value)
+    trackStorage(name, "set", () => getStore(name).set(key, value))
   })
   ipcMain.handle("store-delete", (_event: IpcMainInvokeEvent, name: string, key: string) => {
-    getStore(name).delete(key)
+    trackStorage(name, "delete", () => getStore(name).delete(key))
   })
   ipcMain.handle("store-clear", (_event: IpcMainInvokeEvent, name: string) => {
-    getStore(name).clear()
+    trackStorage(name, "clear", () => getStore(name).clear())
   })
   ipcMain.handle("store-keys", (_event: IpcMainInvokeEvent, name: string) => {
-    const store = getStore(name)
-    return Object.keys(store.store)
+    return trackStorage(name, "keys", () => {
+      const store = getStore(name)
+      return Object.keys(store.store)
+    })
   })
   ipcMain.handle("store-length", (_event: IpcMainInvokeEvent, name: string) => {
-    const store = getStore(name)
-    return Object.keys(store.store).length
+    return trackStorage(name, "length", () => {
+      const store = getStore(name)
+      return Object.keys(store.store).length
+    })
   })
 
   ipcMain.handle(

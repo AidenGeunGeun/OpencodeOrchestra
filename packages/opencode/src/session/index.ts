@@ -768,6 +768,11 @@ export namespace Session {
     return info
   })
 
+  // OCO: status visibility can check scoped existence without metadata hydration.
+  export const exists = fn(Identifier.schema("session"), async (id) => {
+    return Database.use((db) => !!db.select({ id: SessionTable.id }).from(SessionTable).where(scopedID(id)).get())
+  })
+
   export const getShare = fn(Identifier.schema("session"), async (id) => {
     return Storage.read<ShareInfo>(["share", id])
   })
@@ -971,11 +976,16 @@ export namespace Session {
         .all(),
     )
 
-    for (const row of rows) {
+    // OCO: load project-switch metadata concurrently while preserving row order.
+    const infos = rows.map(async (row) => {
       const info = fromRow(row)
       info.agentID = await getAgentID(info.id)
       info.async = await getAsync(info.id)
-      yield info
+      return info
+    })
+
+    for (const info of infos) {
+      yield await info
     }
   }
 

@@ -37,6 +37,7 @@ export const createBrowserCommentInspectorScript = (nonce: string) => String.raw
   const pinLayer = ensureBox("oco-browser-comment-pins", { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483647" });
   const isOverlay = (el) => !!el?.closest?.("[" + overlayAttr + "]");
   const rectData = (rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  const pagePoint = (point) => ({ x: point.x + window.scrollX, y: point.y + window.scrollY, coordinateSpace: "page" });
   const styleData = (el) => {
     const computed = getComputedStyle(el);
     const out = {};
@@ -72,8 +73,17 @@ export const createBrowserCommentInspectorScript = (nonce: string) => String.raw
   };
   const active = () => window.__ocoBrowserCommentsActive === true;
   const updatePins = () => {
+    positionPins();
     for (const pin of Array.from(pinLayer.children)) pin.style.pointerEvents = active() ? "auto" : "none";
   };
+  const positionPin = (el) => {
+    const x = Number(el.dataset.pinX), y = Number(el.dataset.pinY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const page = el.dataset.pinCoordinateSpace === "page";
+    el.style.left = (page ? x - window.scrollX : x) + "px";
+    el.style.top = (page ? y - window.scrollY : y) + "px";
+  };
+  const positionPins = () => { for (const pin of Array.from(pinLayer.children)) positionPin(pin); };
   const setActive = (next) => {
     const enabled = next === true;
     if (window.__ocoBrowserCommentsActive === enabled) {
@@ -99,7 +109,8 @@ export const createBrowserCommentInspectorScript = (nonce: string) => String.raw
     if (!el) return;
     const rect = el.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return;
-    send("selection", { kind: "element", rect: rectData(rect), point: { x: event.clientX, y: event.clientY }, element: elementData(el), source: sourceData(el), styles: styleData(el) });
+    const point = { x: event.clientX, y: event.clientY };
+    send("selection", { kind: "element", rect: rectData(rect), point, anchor: pagePoint(point), element: elementData(el), source: sourceData(el), styles: styleData(el) });
   };
   let drag = null;
   const drawArea = (from, to) => {
@@ -134,7 +145,7 @@ export const createBrowserCommentInspectorScript = (nonce: string) => String.raw
     const rect = drawArea(drag.start, { x: event.clientX, y: event.clientY });
     area.style.display = "none";
     drag = null;
-    if (rect.width >= 8 && rect.height >= 8) send("selection", { kind: "area", rect, point: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } });
+    if (rect.width >= 8 && rect.height >= 8) { const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }; send("selection", { kind: "area", rect, point, anchor: pagePoint(point) }); }
     event.preventDefault(); event.stopPropagation();
   }, true);
   document.addEventListener("click", (event) => {
@@ -151,12 +162,18 @@ export const createBrowserCommentInspectorScript = (nonce: string) => String.raw
       const el = document.createElement("div");
       el.setAttribute(overlayAttr, "true");
       el.dataset.pinId = pin.id;
+      el.dataset.pinX = String(pin.x);
+      el.dataset.pinY = String(pin.y);
+      el.dataset.pinCoordinateSpace = pin.coordinateSpace === "page" ? "page" : "viewport";
       el.textContent = String(pin.index + 1);
-      Object.assign(el.style, { position: "fixed", left: pin.x + "px", top: pin.y + "px", transform: "translate(-50%, -100%)", minWidth: "22px", height: "22px", padding: "0 6px", borderRadius: "999px", background: "#f97316", color: "white", font: "600 12px/22px system-ui, sans-serif", textAlign: "center", boxShadow: "0 6px 18px rgba(0,0,0,.28)", pointerEvents: active() ? "auto" : "none", cursor: "pointer" });
+      Object.assign(el.style, { position: "fixed", transform: "translate(-50%, -100%)", minWidth: "22px", height: "22px", padding: "0 6px", borderRadius: "999px", background: "#f97316", color: "white", font: "600 12px/22px system-ui, sans-serif", textAlign: "center", boxShadow: "0 6px 18px rgba(0,0,0,.28)", pointerEvents: active() ? "auto" : "none", cursor: "pointer" });
+      positionPin(el);
       el.addEventListener("click", (event) => { if (!event.isTrusted) return; event.preventDefault(); event.stopPropagation(); send("delete", { id: pin.id }); });
       pinLayer.appendChild(el);
     }
   };
+  window.addEventListener("scroll", positionPins, true);
+  window.addEventListener("resize", positionPins, true);
   setActive(window.__ocoBrowserCommentsActive);
 })();`
 

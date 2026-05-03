@@ -1,3 +1,5 @@
+import { createSignal } from "solid-js"
+
 const key = (directory: string, sessionID: string) => `${directory}\n${sessionID}`
 
 export const SESSION_PREFETCH_TTL = 15_000
@@ -11,6 +13,9 @@ type Meta = {
 const cache = new Map<string, Meta>()
 const inflight = new Map<string, Promise<Meta | undefined>>()
 const rev = new Map<string, number>()
+const [versionSignal, setVersionSignal] = createSignal(0)
+
+const bump = () => setVersionSignal((value) => value + 1)
 
 const version = (id: string) => rev.get(id) ?? 0
 
@@ -22,8 +27,24 @@ export function getSessionPrefetchPromise(directory: string, sessionID: string) 
   return inflight.get(key(directory, sessionID))
 }
 
+export function sessionPrefetchVersion() {
+  return versionSignal()
+}
+
+export function isSessionPrefetchFresh(directory: string, sessionID: string, now = Date.now()) {
+  versionSignal()
+  const info = getSessionPrefetch(directory, sessionID)
+  return !!info && now - info.at < SESSION_PREFETCH_TTL
+}
+
+export function isSessionCacheReady(input: { directory: string; sessionID: string; hasMessages: boolean; now?: number }) {
+  if (!input.hasMessages) return false
+  return isSessionPrefetchFresh(input.directory, input.sessionID, input.now)
+}
+
 export function clearSessionPrefetchInflight() {
   inflight.clear()
+  bump()
 }
 
 export function isSessionPrefetchCurrent(directory: string, sessionID: string, value: number) {
@@ -61,6 +82,7 @@ export function setSessionPrefetch(input: {
     complete: input.complete,
     at: input.at ?? Date.now(),
   })
+  bump()
 }
 
 export function clearSessionPrefetch(directory: string, sessionIDs: Iterable<string>) {
@@ -70,6 +92,7 @@ export function clearSessionPrefetch(directory: string, sessionIDs: Iterable<str
     rev.set(id, version(id) + 1)
     cache.delete(id)
     inflight.delete(id)
+    bump()
   }
 }
 
@@ -81,5 +104,6 @@ export function clearSessionPrefetchDirectory(directory: string) {
     rev.set(id, version(id) + 1)
     cache.delete(id)
     inflight.delete(id)
+    bump()
   }
 }

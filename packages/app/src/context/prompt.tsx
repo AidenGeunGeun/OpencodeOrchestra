@@ -64,6 +64,11 @@ export type BrowserCommentAttachmentPart = {
     x: number
     y: number
   }
+  anchor?: {
+    x: number
+    y: number
+    coordinateSpace: "page"
+  }
   page: {
     url: string
     title?: string

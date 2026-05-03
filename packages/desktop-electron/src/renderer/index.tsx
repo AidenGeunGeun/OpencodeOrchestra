@@ -7,6 +7,8 @@ import {
   type Platform,
   PlatformProvider,
   ServerConnection,
+  createPerfCounter,
+  isPerfEnabled,
   useCommand,
 } from "@opencode-ai/app"
 import type { AsyncStorage } from "@solid-primitives/storage"
@@ -69,15 +71,26 @@ const createPlatform = (): Platform => {
 
   const storage = (() => {
     const cache = new Map<string, AsyncStorage>()
+    const counter = createPerfCounter("electron.storage.renderer")
+
+    const track = async <T,>(name: string, operation: string, fn: () => Promise<T>) => {
+      if (!isPerfEnabled()) return fn()
+      const start = performance.now()
+      try {
+        return await fn()
+      } finally {
+        counter.record(`${operation}:${name}`, performance.now() - start)
+      }
+    }
 
     const createStorage = (name: string) => {
       const storageApi: AsyncStorage = {
-        getItem: (key: string) => electronApi.storeGet(name, key),
-        setItem: (key: string, value: string) => electronApi.storeSet(name, key, value),
-        removeItem: (key: string) => electronApi.storeDelete(name, key),
-        clear: () => electronApi.storeClear(name),
-        key: async (index: number) => (await electronApi.storeKeys(name))[index],
-        getLength: () => electronApi.storeLength(name),
+        getItem: (key: string) => track(name, "get", () => electronApi.storeGet(name, key)),
+        setItem: (key: string, value: string) => track(name, "set", () => electronApi.storeSet(name, key, value)),
+        removeItem: (key: string) => track(name, "delete", () => electronApi.storeDelete(name, key)),
+        clear: () => track(name, "clear", () => electronApi.storeClear(name)),
+        key: async (index: number) => (await track(name, "keys", () => electronApi.storeKeys(name)))[index],
+        getLength: () => track(name, "length", () => electronApi.storeLength(name)),
         get length() {
           return storageApi.getLength()
         },
@@ -248,10 +261,12 @@ let sidecarCache: ServerReadyData | undefined
 let sidecarPromise: Promise<ServerReadyData> | undefined
 function getSidecarReady() {
   if (sidecarCache) return sidecarCache
-  sidecarPromise ??= electronApi.awaitInitialization(() => undefined).then((data) => {
-    sidecarCache = data
-    return data
-  })
+  sidecarPromise ??= electronApi
+    .awaitInitialization(() => undefined)
+    .then((data) => {
+      sidecarCache = data
+      return data
+    })
   return sidecarPromise
 }
 

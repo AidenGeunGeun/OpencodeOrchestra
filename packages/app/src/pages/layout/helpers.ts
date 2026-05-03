@@ -35,6 +35,17 @@ export const latestRootSession = (stores: { session: Session[]; path: { director
     .flatMap((store) => store.session.filter((session) => isRootVisibleSession(session, store.path.directory)))
     .sort(sortSessions(now))[0]
 
+export function canStartSessionPrefetch(input: {
+  activeDirectory: string
+  activeSessionID?: string
+  activeReady: boolean
+  targetDirectory: string
+  targetSessionID: string
+}) {
+  if (!input.activeSessionID) return true
+  return input.activeReady
+}
+
 export function hasProjectPermissions<T>(
   request: Record<string, T[] | undefined>,
   include: (item: T) => boolean = () => true,

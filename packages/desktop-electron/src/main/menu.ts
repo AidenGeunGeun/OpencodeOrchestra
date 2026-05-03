@@ -47,7 +47,11 @@ export function createMenu(deps: Deps) {
         {
           label: "New Window",
           accelerator: "Cmd+Shift+N",
-          click: () => createMainWindow({ updaterEnabled: UPDATER_ENABLED }),
+          click: () =>
+            createMainWindow({
+              updaterEnabled: UPDATER_ENABLED,
+              perf: process.env.OCO_PERF === "1" || process.env.OPENCODE_PERF === "1",
+            }),
         },
         { type: "separator" },
         { role: "close" },
@@ -115,13 +119,15 @@ export function createMenu(deps: Deps) {
     {
       label: "Help",
       submenu: [
-        { label: "OpenCodeOrchestra Releases", click: () => shell.openExternal("https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases") },
+        {
+          label: "OpenCodeOrchestra Releases",
+          click: () => shell.openExternal("https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases"),
+        },
         { type: "separator" },
         { type: "separator" },
         {
           label: "Share Feedback",
-          click: () =>
-            shell.openExternal("https://github.com/AidenGeunGeun/OpenCodeOrchestra/issues/new"),
+          click: () => shell.openExternal("https://github.com/AidenGeunGeun/OpenCodeOrchestra/issues/new"),
         },
         {
           label: "Report a Bug",

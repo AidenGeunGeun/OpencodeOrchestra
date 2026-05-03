@@ -4,6 +4,7 @@ declare global {
       updaterEnabled?: boolean
       wsl?: boolean
       deepLinks?: string[]
+      perf?: boolean
     }
   }
 }
