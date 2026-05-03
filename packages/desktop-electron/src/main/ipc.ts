@@ -4,6 +4,7 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, TitlebarTheme, WslConfig } from "../preload/types"
 import { getStore } from "./store"
+import { createStoreWriteBuffer, type PendingStoreWrite } from "./store-write-buffer"
 import { setTitlebar } from "./windows"
 
 // OCO: gated storage IPC counters for Electron project-switch dogfooding.
@@ -28,25 +29,64 @@ function flushStoragePerf() {
   console.info("[oco-perf] electron.storage.main", { operations })
 }
 
-function recordStoragePerf(name: string, operation: string, durationMs: number) {
+function recordStoragePerf(name: string, operation: string, durationMs: number, key?: string) {
   if (!perfEnabled) return
-  const key = `${operation}:${name}`
-  const current = storageCounts.get(key) ?? { count: 0, totalMs: 0, maxMs: 0 }
+  const id = key ? `${operation}:${name}:${key}` : `${operation}:${name}`
+  const current = storageCounts.get(id) ?? { count: 0, totalMs: 0, maxMs: 0 }
   current.count += 1
   current.totalMs += durationMs
   current.maxMs = Math.max(current.maxMs, durationMs)
-  storageCounts.set(key, current)
+  storageCounts.set(id, current)
   if (!storageTimer) storageTimer = setTimeout(flushStoragePerf, 750)
 }
 
-function trackStorage<T>(name: string, operation: string, fn: () => T) {
+function trackStorage<T>(name: string, operation: string, fn: () => T, key?: string) {
   if (!perfEnabled) return fn()
   const start = performance.now()
   try {
     return fn()
   } finally {
-    recordStoragePerf(name, operation, performance.now() - start)
+    recordStoragePerf(name, operation, performance.now() - start, key)
   }
+}
+
+const storeWriteBuffer = createStoreWriteBuffer({
+  debounceMs: 250,
+  maxWaitMs: 2_000,
+  onError(name, error) {
+    console.error("[oco] failed to flush Electron store writes", { name, error })
+  },
+  write(name: string, entries: [string, PendingStoreWrite][]) {
+    const store = getStore(name)
+    for (const [key, entry] of entries) {
+      if (entry.type === "delete") {
+        trackStorage(name, "flush-delete", () => store.delete(key), key)
+        continue
+      }
+      trackStorage(name, "flush-set", () => store.set(key, entry.value), key)
+    }
+  },
+})
+
+let flushOnQuitRegistered = false
+
+export function flushPendingStoreWrites(reason: string) {
+  try {
+    storeWriteBuffer.flushAll()
+    return true
+  } catch (error) {
+    console.error("[oco] failed to flush Electron store writes", { reason, error })
+    return false
+  }
+}
+
+function ensureFlushOnQuit() {
+  if (flushOnQuitRegistered) return
+  flushOnQuitRegistered = true
+  app.on("before-quit", (event) => {
+    if (flushPendingStoreWrites("before-quit")) return
+    event.preventDefault()
+  })
 }
 
 const pickerFilters = (ext?: string[]) => {
@@ -75,6 +115,8 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  ensureFlushOnQuit()
+
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
@@ -103,28 +145,34 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) =>
     trackStorage(name, "get", () => {
+      const pending = storeWriteBuffer.pending(name, key)
+      if (pending.found) return pending.value
+
       const store = getStore(name)
       const value = store.get(key)
       if (value === undefined || value === null) return null
       return typeof value === "string" ? value : JSON.stringify(value)
-    }),
+    }, key),
   )
   ipcMain.handle("store-set", (_event: IpcMainInvokeEvent, name: string, key: string, value: string) => {
-    trackStorage(name, "set", () => getStore(name).set(key, value))
+    storeWriteBuffer.set(name, key, value)
   })
   ipcMain.handle("store-delete", (_event: IpcMainInvokeEvent, name: string, key: string) => {
-    trackStorage(name, "delete", () => getStore(name).delete(key))
+    storeWriteBuffer.delete(name, key)
   })
   ipcMain.handle("store-clear", (_event: IpcMainInvokeEvent, name: string) => {
+    storeWriteBuffer.flush(name)
     trackStorage(name, "clear", () => getStore(name).clear())
   })
   ipcMain.handle("store-keys", (_event: IpcMainInvokeEvent, name: string) => {
+    storeWriteBuffer.flush(name)
     return trackStorage(name, "keys", () => {
       const store = getStore(name)
       return Object.keys(store.store)
     })
   })
   ipcMain.handle("store-length", (_event: IpcMainInvokeEvent, name: string) => {
+    storeWriteBuffer.flush(name)
     return trackStorage(name, "length", () => {
       const store = getStore(name)
       return Object.keys(store.store).length
@@ -216,6 +264,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 
   ipcMain.on("relaunch", () => {
+    if (!flushPendingStoreWrites("relaunch")) return
     app.relaunch()
     app.exit(0)
   })

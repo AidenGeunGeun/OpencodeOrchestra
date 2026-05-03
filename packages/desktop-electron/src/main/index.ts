@@ -48,7 +48,13 @@ const { autoUpdater } = pkg
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
-import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import {
+  flushPendingStoreWrites,
+  registerIpcHandlers,
+  sendDeepLinks,
+  sendMenuCommand,
+  sendSqliteMigrationProgress,
+} from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -111,6 +117,7 @@ function setupApp() {
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
+      if (!flushPendingStoreWrites(signal)) return
       killSidecar()
       app.exit(0)
     })
@@ -236,6 +243,7 @@ function wireMenu() {
     },
     reload: () => mainWindow?.reload(),
     relaunch: () => {
+      if (!flushPendingStoreWrites("menu-relaunch")) return
       killSidecar()
       app.relaunch()
       app.exit(0)
@@ -411,6 +419,7 @@ async function checkUpdate() {
 
 async function installUpdate() {
   if (!updateReady) return
+  if (!flushPendingStoreWrites("install-update")) return
   killSidecar()
   autoUpdater.quitAndInstall()
 }
