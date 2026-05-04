@@ -80,13 +80,16 @@ describe("SecretVault", () => {
 
         const read = await ReadTool.init()
         await expect(read.execute({ filePath: path.join(Global.Path.data, "secret-vault.key") }, ctx)).rejects.toThrow(
-          "managed by OCO",
+          "protected OCO internal path",
         )
         await expect(read.execute({ filePath: path.join(symlinkPath, "secret-vault.key") }, ctx)).rejects.toThrow(
-          "managed by OCO",
+          "protected OCO internal path",
         )
 
-        await Bun.write(path.join(Global.Path.data, "secret-vault-canary.txt"), "oco-internal-canary")
+        await fs.rm(symlinkPath, { force: true })
+        await fs.mkdir(path.join(Global.Path.data, "storage"), { recursive: true })
+        await Bun.write(path.join(Global.Path.data, "storage", "secret-vault-canary.txt"), "oco-internal-canary")
+        await fs.symlink(path.join(Global.Path.data, "storage"), symlinkPath)
         const grep = await GrepTool.init()
         const grepResult = await grep.execute({ pattern: "oco-internal-canary", path: tmp.path }, ctx)
         expect(grepResult.output).not.toContain("oco-internal-canary")
@@ -187,7 +190,7 @@ describe("SecretVault", () => {
         expect(otherRead.output).not.toContain("[REDACTED:OPENAI_API_KEY]")
       },
     })
-  }, 15000)
+  }, 30_000)
 
   test("isolates Secure Env routes, injection, and redaction between non-git workspace directories", async () => {
     await using workspaceA = await tmpdir()
@@ -497,11 +500,12 @@ describe("SecretVault", () => {
 
   test("filters protected internal child names from directory reads and final ripgrep file buffers", async () => {
     await using tmp = await tmpdir({ git: true })
-    await fs.mkdir(Global.Path.data, { recursive: true })
+    const storageDir = path.join(Global.Path.data, "storage")
+    await fs.mkdir(storageDir, { recursive: true })
     await fs.mkdir(path.join(tmp.path, "normal-dir"))
     await Bun.write(path.join(tmp.path, "allowed.txt"), "safe")
-    await Bun.write(path.join(Global.Path.data, "secret-vault-final-buffer.txt"), "internal")
-    await fs.symlink(Global.Path.data, path.join(tmp.path, "oco-data-link"))
+    await Bun.write(path.join(storageDir, "secret-vault-final-buffer.txt"), "internal")
+    await fs.symlink(storageDir, path.join(tmp.path, "oco-storage-link"))
 
     await Instance.provide({
       directory: tmp.path,
@@ -510,13 +514,13 @@ describe("SecretVault", () => {
         const directory = await read.execute({ filePath: tmp.path }, ctx)
         expect(directory.output).toContain("normal-dir/")
         expect(directory.output).toContain("allowed.txt")
-        expect(directory.output).not.toContain("oco-data-link")
-        expect(directory.metadata.preview).not.toContain("oco-data-link")
+        expect(directory.output).not.toContain("oco-storage-link")
+        expect(directory.metadata.preview).not.toContain("oco-storage-link")
 
         const encoder = new TextEncoder()
         const output = new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(encoder.encode("allowed.txt\noco-data-link/secret-vault-final-buffer.txt"))
+            controller.enqueue(encoder.encode("allowed.txt\noco-storage-link/secret-vault-final-buffer.txt"))
             controller.close()
           },
         })

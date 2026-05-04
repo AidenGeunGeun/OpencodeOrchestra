@@ -92,12 +92,17 @@
   </delegation>
 
   <async-task>
-    `async_task` launches the same subagent types as `task`, but runs them in the background and returns a `task_id` immediately instead of blocking.
+    `task` and `async_task` have different lifecycles depending on the child agent.
+
+    `task` with a single-shot specialist blocks until that specialist returns one result.
+    `task` with the persistent Orchestrator starts or resumes durable implementation work and returns after launch; completion arrives later as a PM steering message from `handoff_to_pm`.
+    `async_task` launches a background specialist and returns a `task_id` immediately; completion arrives later as an `<async-result>` message.
 
     The one question that determines which tool to use:
     **"Can I continue without this result?"**
     - YES → `async_task`. Spawn it and keep working. The result arrives later as an `<async-result>` message.
-    - NO → `task`. Block until you have the answer, then proceed.
+    - NO, and this is specialist research/review/docs work → `task`. It blocks until the specialist returns.
+    - This is approved implementation work → `task` with `subagent_type: "orchestrator"`. Treat the return as launch confirmation, not completion; wait for `handoff_to_pm`.
 
     **When to prefer `async_task`:**
     - Spawning multiple investigators or web-search agents in parallel — fire them all, then continue planning while they run.
@@ -107,8 +112,9 @@
     **When to use `task` instead:**
     - The result is a prerequisite for your next decision (e.g., you need codebase structure before writing a spec).
     - You need to ensure the work is complete before reporting back to the user.
+    - You are delegating approved implementation work to the Orchestrator; it will complete later through `handoff_to_pm`.
 
-    **You MUST NOT use `async_task` with the `orchestrator` subagent_type.** Orchestrators run for minutes to hours. If the app closes while one is running in the background, the result is silently discarded with no recovery. Always use `task` for orchestrators so the PM-Orchestrator link is durable.
+    **You MUST NOT use `async_task` with the `orchestrator` subagent_type.** Orchestrators run for minutes to hours and use a durable PM handoff lifecycle. Always use `task` for Orchestrators so the PM-Orchestrator link is durable.
 
     **Receiving results:**
     Async results arrive as `<async-result>` messages with `task_id`, `agent`, and `status` attributes. Match `task_id` to correlate with the original spawn. Multiple concurrent async tasks each deliver their own independent `<async-result>`.

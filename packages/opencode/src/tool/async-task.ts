@@ -18,7 +18,9 @@ const DESCRIPTION = `Launch a new agent in the background to handle complex, mul
 Available agent types and the tools they have access to:
 {agents}
 
-Use this when you want the same subagents as task, but do not need to block waiting for the result. The tool returns immediately with a task_id, and the final result arrives later as an <async-result> message.
+Use this when you want a specialist subagent to run in the background and you do not need to block waiting for the result. The tool returns immediately with a task_id, and the final result arrives later as an <async-result> message.
+
+Do not use async_task for Orchestrators. Orchestrators have their own durable PM handoff lifecycle through task + handoff_to_pm.
 
 When to use async_task:
 - When the next step does not depend on the subagent's result — spawn and continue
@@ -26,10 +28,10 @@ When to use async_task:
 - When background work can complete while you handle other things
 
 When NOT to use async_task:
-- If your next step requires the result — use task instead (it blocks until done)
+- If your next step requires a specialist result — use task instead, which blocks for single-shot specialists
 - If you want to read a specific file, use the Read or Glob tool directly
 - If searching code in 2-3 files, use Read directly — a subagent adds unnecessary overhead
-- NEVER use async_task with the orchestrator subagent_type — orchestrators run for minutes to hours and if the app closes the result is silently lost; always use task for orchestrators
+- NEVER use async_task with the orchestrator subagent_type — use task so the Orchestrator starts/resumes a durable child session and later completes through handoff_to_pm
 
 Receiving results:
 When the subagent finishes, a synthetic user message is injected into the conversation:

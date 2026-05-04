@@ -1,4 +1,8 @@
-Launch a new agent to handle complex, multistep tasks autonomously.
+Launch a child agent to handle complex, multistep tasks autonomously.
+
+Behavior depends on the agent type:
+- Single-shot specialist agents: this tool blocks until the child agent returns its final result.
+- Persistent Orchestrator: this tool starts or resumes durable Orchestrator work and returns after launch. Orchestrator completion arrives later as a PM steering message through handoff_to_pm, not as this tool's return value.
 
 Available agent types and the tools they have access to:
 {agents}
@@ -6,6 +10,8 @@ Available agent types and the tools they have access to:
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 
 When to use the Task tool:
+- Delegate approved implementation work to the Orchestrator. Treat the tool return as launch confirmation only; wait for the later handoff_to_pm PM message before reporting completion.
+- Ask a single-shot specialist agent for research, review, documentation, or other work where you need the answer before continuing.
 - When you are instructed to execute custom slash commands. Use the Task tool with the slash command invocation as the entire prompt. The slash command can take arguments. For example: Task(description="Check the file", prompt="/check-file path/to/file.py")
 
 When NOT to use the Task tool:
@@ -17,12 +23,13 @@ When NOT to use the Task tool:
 
 Usage notes:
 1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
-2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
-3. Each agent invocation is stateless unless you provide a session_id. Your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
-4. The agent's outputs should generally be trusted
-5. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
-6. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
-7. For frontend, UI, UX, visual, brand, typography, component, layout, motion, or user-facing copy handoffs, load project design context first when available and include the relevant design guidance in the delegation.
+2. For single-shot specialists, the agent returns one result to you. Users can inspect child sessions in OCO, but you should still summarize the relevant outcome in your own reply.
+3. For the Orchestrator, the immediate output only confirms launch/resume and includes the child session id. The Orchestrator's detailed completion handoff arrives later via handoff_to_pm.
+4. Each specialist invocation is stateless unless you provide a task_id. Orchestrator task_id resumes the durable child session instead of creating a new one.
+5. The agent's outputs should generally be trusted
+6. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
+7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
+8. For frontend, UI, UX, visual, brand, typography, component, layout, motion, or user-facing copy handoffs, load project design context first when available and include the relevant design guidance in the delegation.
 
 Example usage (NOTE: The agents below are fictional examples for illustration only - use the actual agents listed above):
 

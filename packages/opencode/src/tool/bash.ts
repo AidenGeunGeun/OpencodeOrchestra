@@ -118,7 +118,7 @@ export const BashTool = Tool.define("bash", async () => {
         }
 
         // not an exhaustive list, but covers most common cases
-        if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
+        if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat", "ls"].includes(command[0])) {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
             // Cross-platform path resolution (replaces Unix-only realpath command)
@@ -137,9 +137,11 @@ export const BashTool = Tool.define("bash", async () => {
                 normalizedArg = normalizedArg.replace(/^\/([a-z])\//i, (_, drive) => `${drive.toUpperCase()}:\\`).replace(/\//g, "\\")
               }
               const absolutePath = path.isAbsolute(normalizedArg) ? normalizedArg : path.resolve(cwd, normalizedArg)
+              InternalPath.assertAllowed(absolutePath)
               // Try to resolve symlinks, fall back to resolved path if it doesn't exist
               resolved = await fs.realpath(absolutePath).catch(() => absolutePath)
-            } catch {
+            } catch (error) {
+              if (error instanceof Error && error.message.startsWith("Access denied:")) throw error
               resolved = ""
             }
             log.info("resolved path", { arg, resolved })
