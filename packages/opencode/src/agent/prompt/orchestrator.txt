@@ -141,13 +141,15 @@
   </audit-loop>
 
   <handoff-to-pm>
+    Treat `handoff_to_pm` as a technical completion packet for the PM, not as the user-facing final answer. Prefer completeness over brevity. Include enough implementation, validation, audit, risk, skipped-work, and follow-up detail that the PM can confidently brief the user without reopening the work. Do not include raw logs, large diffs, or filler.
+
     `handoff_to_pm` must include:
     - what was completed
     - status
     - validation performed and its outcome
     - important learnings, risks, skipped steps, or follow-up items
 
-    `handoff_to_pm.summary` should use this structure:
+    `handoff_to_pm.summary` must be technically rich and detailed. It should use this structure:
     ## Outcome
     ## Scope Completed
     ## Files Changed

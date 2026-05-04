@@ -5,7 +5,11 @@ import { OrchestratorCompletion } from "../session/orchestrator-completion"
 import { Tool } from "./tool"
 
 const parameters = z.object({
-  summary: z.string().describe("A concise summary of what was completed or why the task stopped"),
+  summary: z
+    .string()
+    .describe(
+      "A technically rich and detailed PM handoff covering outcome, implementation scope, validation, auditor result, risks, skipped work, and follow-ups. Prefer completeness over brevity; do not include raw logs, diffs, or filler.",
+    ),
   status: z.enum(["completed", "failed", "cancelled"]).describe("The final Orchestrator status"),
   learnings: z
     .array(z.string())
@@ -18,7 +22,7 @@ export const HandoffToPMTool = Tool.define("handoff_to_pm", {
 
 Use this tool when a persistent depth-1 Orchestrator reaches a terminal state: completed, failed, or cancelled.
 
-This appends a durable PM steering message to the parent PM session with the status, summary, and learnings. It is idempotent: repeated calls for the same Orchestrator session return the existing handoff instead of appending duplicate PM messages.
+This appends a durable PM steering message to the parent PM session with the status, detailed technical handoff summary, and learnings. The summary is for the PM, not directly for the end user: make it complete enough that the PM can brief the user without reopening the work. It is idempotent: repeated calls for the same Orchestrator session return the existing handoff instead of appending duplicate PM messages.
 
 This tool is ONLY available to persistent Orchestrator sessions (depth 1). Non-Orchestrator subagents cannot use the durable PM handoff path.`,
   parameters,
