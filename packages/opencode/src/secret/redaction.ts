@@ -97,14 +97,17 @@ export namespace SecretRedaction {
   export async function forCurrentProject<T>(value: T) {
     try {
       return await forProject(SecretScope.currentID(), value)
-    } catch (error) {
-      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
+    } catch {
       return value
     }
   }
 
   export async function patternsForCurrentProject() {
-    return patterns(SecretScope.currentID())
+    try {
+      return await patterns(SecretScope.currentID())
+    } catch {
+      return []
+    }
   }
 
   export async function patternsForSession(sessionID: string) {
@@ -112,8 +115,7 @@ export namespace SecretRedaction {
     if (scope) return patterns(scope.id)
     try {
       return await patternsForCurrentProject()
-    } catch (error) {
-      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
+    } catch {
       return []
     }
   }
@@ -121,8 +123,7 @@ export namespace SecretRedaction {
   export async function forSession<T>(sessionID: string, value: T) {
     try {
       return applyUnknown(value, await patternsForSession(sessionID))
-    } catch (error) {
-      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
+    } catch {
       return value
     }
   }

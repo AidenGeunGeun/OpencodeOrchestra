@@ -45,7 +45,7 @@ describe("SecretVault", () => {
 
     try {
       const profile = await SecretVault.createProfile({ projectID: project.id, name: "fresh" })
-      await SecretVault.createEntry({
+      const entry = await SecretVault.createEntry({
         projectID: project.id,
         profileID: profile.id,
         name: "FRESH_LOCAL_ONLY",
@@ -98,6 +98,40 @@ describe("SecretVault", () => {
       SecretVault.__testing.setExistingMaterialForTesting(undefined)
       SecretVault.__testing.setKeyPathForTesting(undefined)
       SecretVault.__testing.resetStats()
+    }
+  })
+
+  test("keeps redaction non-fatal when existing vault material has no local key", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "missing-redaction-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+    const secretValue = "missing-redaction-secret-value"
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "redaction" })
+      const entry = await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "MISSING_REDACTION_SECRET",
+        risk: "high",
+        value: secretValue,
+      })
+      await fs.rm(keyFile, { force: true })
+      SecretVault.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretVault.__testing.setExistingMaterialForTesting(true)
+
+      await expect(SecretRedaction.forCurrentProject(`value=${secretValue}`)).resolves.toBe(`value=${secretValue}`)
+      await expect(SecretRedaction.patternsForCurrentProject()).resolves.toEqual([])
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetStats()
     }
   })
 
@@ -175,7 +209,7 @@ describe("SecretVault", () => {
     expect(mcpSource).not.toContain("secureEnv")
   })
 
-  test("fails closed instead of returning unredacted output when vault key is unavailable", async () => {
+  test("keeps redaction non-fatal while value reveal fails closed when vault key is unavailable", async () => {
     await using tmp = await tmpdir({ git: true })
     const keyFile = path.join(tmp.path, "fail-closed-secret-vault.key")
     const { project } = await Project.fromDirectory(tmp.path)
@@ -185,7 +219,7 @@ describe("SecretVault", () => {
 
     try {
       const profile = await SecretVault.createProfile({ projectID: project.id, name: "fail-closed" })
-      await SecretVault.createEntry({
+      const entry = await SecretVault.createEntry({
         projectID: project.id,
         profileID: profile.id,
         name: "FAIL_CLOSED_SECRET",
@@ -200,7 +234,10 @@ describe("SecretVault", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await expect(SecretRedaction.forCurrentProject("value=fail-closed-secret-value")).rejects.toThrow(
+          await expect(SecretRedaction.forCurrentProject("value=fail-closed-secret-value")).resolves.toBe(
+            "value=fail-closed-secret-value",
+          )
+          await expect(SecretVault.revealValue({ projectID: project.id, profileID: profile.id, entryID: entry.id })).rejects.toThrow(
             "SecretVaultKeyUnavailableError",
           )
         },
@@ -214,7 +251,7 @@ describe("SecretVault", () => {
     }
   })
 
-  test("fails closed when the local vault key cannot decrypt existing material", async () => {
+  test("keeps redaction non-fatal while value reveal fails closed when local key is wrong", async () => {
     await using tmp = await tmpdir({ git: true })
     const keyFile = path.join(tmp.path, "wrong-local-secret-vault.key")
     const { project } = await Project.fromDirectory(tmp.path)
@@ -224,7 +261,7 @@ describe("SecretVault", () => {
 
     try {
       const profile = await SecretVault.createProfile({ projectID: project.id, name: "wrong-local" })
-      await SecretVault.createEntry({
+      const entry = await SecretVault.createEntry({
         projectID: project.id,
         profileID: profile.id,
         name: "WRONG_LOCAL_SECRET",
@@ -238,7 +275,10 @@ describe("SecretVault", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          await expect(SecretRedaction.forCurrentProject("value=wrong-local-secret-value")).rejects.toThrow(
+          await expect(SecretRedaction.forCurrentProject("value=wrong-local-secret-value")).resolves.toBe(
+            "value=wrong-local-secret-value",
+          )
+          await expect(SecretVault.revealValue({ projectID: project.id, profileID: profile.id, entryID: entry.id })).rejects.toThrow(
             "SecretVaultKeyUnavailableError",
           )
         },
