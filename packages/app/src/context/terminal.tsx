@@ -5,6 +5,7 @@ import { useParams } from "@solidjs/router"
 import { useSDK } from "./sdk"
 import type { Platform } from "./platform"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
+import { perfLog } from "@/utils/perf"
 
 export type LocalPTY = {
   id: string
@@ -188,6 +189,65 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
   })
   onCleanup(unsub)
 
+  function update(client: ReturnType<typeof useSDK>["client"], pty: Partial<LocalPTY> & { id: string }) {
+    const index = store.all.findIndex((x) => x.id === pty.id)
+    const previous = index >= 0 ? store.all[index] : undefined
+    if (index >= 0) {
+      setStore("all", index, (item) => ({ ...item, ...pty }))
+    }
+    client.pty
+      .update({
+        ptyID: pty.id,
+        title: pty.title,
+        size: pty.cols && pty.rows ? { rows: pty.rows, cols: pty.cols } : undefined,
+      })
+      .then(() => {
+        perfLog("terminal.pty.update", { id: pty.id, size: !!(pty.cols && pty.rows), title: !!pty.title })
+      })
+      .catch((error: unknown) => {
+        if (previous) {
+          const currentIndex = store.all.findIndex((item) => item.id === pty.id)
+          if (currentIndex >= 0) setStore("all", currentIndex, previous)
+        }
+        console.error("Failed to update terminal", error)
+      })
+  }
+
+  async function clone(client: ReturnType<typeof useSDK>["client"], id: string) {
+    const index = store.all.findIndex((x) => x.id === id)
+    const pty = store.all[index]
+    if (!pty) return
+    const clone = await client.pty
+      .create({
+        title: pty.title,
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to clone terminal", error)
+        return undefined
+      })
+    if (!clone?.data) return
+    perfLog("terminal.pty.clone", { from: pty.id, to: clone.data.id })
+
+    const active = store.active === pty.id
+
+    batch(() => {
+      setStore("all", index, {
+        id: clone.data.id,
+        title: clone.data.title ?? pty.title,
+        titleNumber: pty.titleNumber,
+        // New PTY process, so start clean.
+        buffer: undefined,
+        cursor: undefined,
+        scrollY: undefined,
+        rows: undefined,
+        cols: undefined,
+      })
+      if (active) {
+        setStore("active", clone.data.id)
+      }
+    })
+  }
+
   return {
     ready,
     all: createMemo(() => store.all),
@@ -206,6 +266,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         .then((pty: { data?: { id?: string; title?: string } }) => {
           const id = pty.data?.id
           if (!id) return
+          perfLog("terminal.pty.create", { id, titleNumber: nextNumber })
           const newTerminal = {
             id,
             title: pty.data?.title ?? "Terminal",
@@ -219,24 +280,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         })
     },
     update(pty: Partial<LocalPTY> & { id: string }) {
-      const index = store.all.findIndex((x) => x.id === pty.id)
-      const previous = index >= 0 ? store.all[index] : undefined
-      if (index >= 0) {
-        setStore("all", index, (item) => ({ ...item, ...pty }))
-      }
-      sdk.client.pty
-        .update({
-          ptyID: pty.id,
-          title: pty.title,
-          size: pty.cols && pty.rows ? { rows: pty.rows, cols: pty.cols } : undefined,
-        })
-        .catch((error: unknown) => {
-          if (previous) {
-            const currentIndex = store.all.findIndex((item) => item.id === pty.id)
-            if (currentIndex >= 0) setStore("all", currentIndex, previous)
-          }
-          console.error("Failed to update terminal", error)
-        })
+      update(sdk.client, pty)
     },
     trim(id: string) {
       const index = store.all.findIndex((x) => x.id === id)
@@ -251,37 +295,23 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       })
     },
     async clone(id: string) {
-      const index = store.all.findIndex((x) => x.id === id)
-      const pty = store.all[index]
-      if (!pty) return
-      const clone = await sdk.client.pty
-        .create({
-          title: pty.title,
-        })
-        .catch((error: unknown) => {
-          console.error("Failed to clone terminal", error)
-          return undefined
-        })
-      if (!clone?.data) return
-
-      const active = store.active === pty.id
-
-      batch(() => {
-        setStore("all", index, {
-          id: clone.data.id,
-          title: clone.data.title ?? pty.title,
-          titleNumber: pty.titleNumber,
-          // New PTY process, so start clean.
-          buffer: undefined,
-          cursor: undefined,
-          scrollY: undefined,
-          rows: undefined,
-          cols: undefined,
-        })
-        if (active) {
-          setStore("active", clone.data.id)
-        }
-      })
+      await clone(sdk.client, id)
+    },
+    bind() {
+      const client = sdk.client
+      return {
+        trim(id: string) {
+          const index = store.all.findIndex((x) => x.id === id)
+          if (index === -1) return
+          setStore("all", index, (pty) => trimTerminal(pty))
+        },
+        update(pty: Partial<LocalPTY> & { id: string }) {
+          update(client, pty)
+        },
+        async clone(id: string) {
+          await clone(client, id)
+        },
+      }
     },
     open(id: string) {
       setStore("active", id)
@@ -406,6 +436,7 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       trim: (id: string) => workspace().trim(id),
       trimAll: () => workspace().trimAll(),
       clone: (id: string) => workspace().clone(id),
+      bind: () => workspace().bind(),
       open: (id: string) => workspace().open(id),
       close: (id: string) => workspace().close(id),
       move: (id: string, to: number) => workspace().move(id, to),

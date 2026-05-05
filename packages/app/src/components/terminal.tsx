@@ -13,6 +13,7 @@ import type { LocalPTY } from "@/context/terminal"
 import { terminalAttr, terminalProbe } from "@/testing/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
 import { terminalWriter } from "@/utils/terminal-writer"
+import { perfLog } from "@/utils/perf"
 
 const TOGGLE_TERMINAL_ID = "terminal.toggle"
 const DEFAULT_TOGGLE_TERMINAL_KEYBIND = "ctrl+`"
@@ -154,6 +155,8 @@ const persistTerminal = (input: {
 export const Terminal = (props: TerminalProps) => {
   const platform = usePlatform()
   const sdk = useSDK()
+  const client = sdk.client
+  const directory = sdk.directory
   const settings = useSettings()
   const theme = useTheme()
   const language = useLanguage()
@@ -182,6 +185,7 @@ export const Terminal = (props: TerminalProps) => {
   let handleResize: () => void
   let fitFrame: number | undefined
   let sizeTimer: ReturnType<typeof setTimeout> | undefined
+  let reconn: ReturnType<typeof setTimeout> | undefined
   let pendingSize: { cols: number; rows: number } | undefined
   let lastSize: { cols: number; rows: number } | undefined
   let disposed = false
@@ -189,6 +193,7 @@ export const Terminal = (props: TerminalProps) => {
   const start =
     typeof local.pty.cursor === "number" && Number.isSafeInteger(local.pty.cursor) ? local.pty.cursor : undefined
   let cursor = start ?? 0
+  let seek = start ?? (restore ? -1 : 0)
   let output: ReturnType<typeof terminalWriter> | undefined
 
   const cleanup = () => {
@@ -204,7 +209,7 @@ export const Terminal = (props: TerminalProps) => {
   }
 
   const pushSize = (cols: number, rows: number) => {
-    return sdk.client.pty
+    return client.pty
       .update({
         ptyID: id,
         size: { cols, rows },
@@ -329,6 +334,7 @@ export const Terminal = (props: TerminalProps) => {
 
   onMount(() => {
     probe.init()
+    perfLog("terminal.mount", { id, restored: !!restore, hasRestoreSize: !!restoreSize })
     cleanups.push(() => probe.drop())
 
     const run = async () => {
@@ -452,85 +458,139 @@ export const Terminal = (props: TerminalProps) => {
         startResize()
       }
 
-      const once = { value: false }
-      let closing = false
-
-      const url = new URL(sdk.url + `/pty/${id}/connect`)
-      url.searchParams.set("directory", sdk.directory)
-      url.searchParams.set("cursor", String(start !== undefined ? start : restore ? -1 : 0))
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
-      url.username = server.current?.http.username ?? "opencode"
-      url.password = server.current?.http.password ?? ""
-
-      const socket = new WebSocket(url)
-      socket.binaryType = "arraybuffer"
-      ws = socket
-
-      const handleOpen = () => {
-        probe.connect()
-        local.onConnect?.()
-        scheduleSize(t.cols, t.rows)
-      }
-      socket.addEventListener("open", handleOpen)
-      if (socket.readyState === WebSocket.OPEN) handleOpen()
-
       const decoder = new TextDecoder()
-      const handleMessage = (event: MessageEvent) => {
-        if (disposed) return
-        if (closing) return
-        if (event.data instanceof ArrayBuffer) {
-          const bytes = new Uint8Array(event.data)
-          if (bytes[0] !== 0) return
-          const json = decoder.decode(bytes.subarray(1))
-          try {
-            const meta = JSON.parse(json) as { cursor?: unknown }
-            const next = meta?.cursor
-            if (typeof next === "number" && Number.isSafeInteger(next) && next >= 0) {
-              cursor = next
-            }
-          } catch (err) {
-            debugTerminal("invalid websocket control frame", err)
-          }
-          return
-        }
+      const once = { value: false }
+      let tries = 0
+      let drop: VoidFunction | undefined
 
-        const data = typeof event.data === "string" ? event.data : ""
-        if (!data) return
-        output?.push(data)
-        cursor += data.length
-      }
-      socket.addEventListener("message", handleMessage)
-
-      const handleError = (error: Event) => {
+      const fail = (err: unknown) => {
         if (disposed) return
-        if (closing) return
         if (once.value) return
         once.value = true
-        console.error("WebSocket error:", error)
-        local.onConnectError?.(error)
+        local.onConnectError?.(err)
       }
-      socket.addEventListener("error", handleError)
 
-      const handleClose = (event: CloseEvent) => {
+      const gone = () =>
+        client.pty
+          .get({ ptyID: id }, { throwOnError: false })
+          .then((result) => result.response.status === 404)
+          .catch((err) => {
+            debugTerminal("failed to inspect terminal session", err)
+            return false
+          })
+
+      const retry = (err: unknown) => {
         if (disposed) return
-        if (closing) return
-        // Normal closure (code 1000) means PTY process exited - server event handles cleanup
-        // For other codes (network issues, server restart), trigger error handler
-        if (event.code !== 1000) {
-          if (once.value) return
-          once.value = true
-          local.onConnectError?.(new Error(`WebSocket closed abnormally: ${event.code}`))
-        }
+        if (reconn !== undefined) return
+
+        const ms = Math.min(250 * 2 ** Math.min(tries, 4), 4_000)
+        perfLog("terminal.ws.retry", { id, tries, delayMs: ms })
+        reconn = setTimeout(async () => {
+          reconn = undefined
+          if (disposed) return
+          if (await gone()) {
+            perfLog("terminal.ws.gone", { id })
+            fail(err)
+            return
+          }
+          if (disposed) return
+          tries += 1
+          open()
+        }, ms)
       }
-      socket.addEventListener("close", handleClose)
+
+      const open = () => {
+        if (disposed) return
+        drop?.()
+
+        const url = new URL(sdk.url + `/pty/${id}/connect`)
+        url.searchParams.set("directory", directory)
+        url.searchParams.set("cursor", String(seek))
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+        url.username = server.current?.http.username ?? "opencode"
+        url.password = server.current?.http.password ?? ""
+
+        const socket = new WebSocket(url)
+        socket.binaryType = "arraybuffer"
+        ws = socket
+
+        const handleOpen = () => {
+          if (disposed) return
+          tries = 0
+          probe.connect()
+          perfLog("terminal.ws.open", { id })
+          local.onConnect?.()
+          scheduleSize(t.cols, t.rows)
+        }
+
+        const handleMessage = (event: MessageEvent) => {
+          if (disposed) return
+          if (event.data instanceof ArrayBuffer) {
+            const bytes = new Uint8Array(event.data)
+            if (bytes[0] !== 0) return
+            const json = decoder.decode(bytes.subarray(1))
+            try {
+              const meta = JSON.parse(json) as { cursor?: unknown }
+              const next = meta?.cursor
+              if (typeof next === "number" && Number.isSafeInteger(next) && next >= 0) {
+                cursor = next
+                seek = next
+              }
+            } catch (err) {
+              debugTerminal("invalid websocket control frame", err)
+            }
+            return
+          }
+
+          const data = typeof event.data === "string" ? event.data : ""
+          if (!data) return
+          output?.push(data)
+          cursor += data.length
+          seek = cursor
+        }
+
+        const handleError = (error: Event) => {
+          if (disposed) return
+          perfLog("terminal.ws.error", { id, type: error.type })
+          debugTerminal("websocket error", error)
+        }
+
+        const stop = () => {
+          socket.removeEventListener("open", handleOpen)
+          socket.removeEventListener("message", handleMessage)
+          socket.removeEventListener("error", handleError)
+          socket.removeEventListener("close", handleClose)
+          if (ws === socket) ws = undefined
+          if (drop === stop) drop = undefined
+          if (socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) socket.close(1000)
+        }
+
+        const handleClose = (event: CloseEvent) => {
+          if (ws === socket) ws = undefined
+          if (drop === stop) drop = undefined
+          socket.removeEventListener("open", handleOpen)
+          socket.removeEventListener("message", handleMessage)
+          socket.removeEventListener("error", handleError)
+          socket.removeEventListener("close", handleClose)
+          if (disposed) return
+          if (event.code === 1000) return
+          perfLog("terminal.ws.close", { id, code: event.code })
+          retry(new Error(`WebSocket closed abnormally: ${event.code}`))
+        }
+
+        drop = stop
+        socket.addEventListener("open", handleOpen)
+        socket.addEventListener("message", handleMessage)
+        socket.addEventListener("error", handleError)
+        socket.addEventListener("close", handleClose)
+        if (socket.readyState === WebSocket.OPEN) handleOpen()
+      }
+
+      open()
 
       cleanups.push(() => {
-        closing = true
-        socket.removeEventListener("open", handleOpen)
-        socket.removeEventListener("message", handleMessage)
-        socket.removeEventListener("error", handleError)
-        socket.removeEventListener("close", handleClose)
-        if (socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) socket.close(1000)
+        if (reconn !== undefined) clearTimeout(reconn)
+        drop?.()
       })
     }
 
@@ -547,8 +607,10 @@ export const Terminal = (props: TerminalProps) => {
 
   onCleanup(() => {
     disposed = true
+    perfLog("terminal.unmount", { id })
     if (fitFrame !== undefined) cancelAnimationFrame(fitFrame)
     if (sizeTimer !== undefined) clearTimeout(sizeTimer)
+    if (reconn !== undefined) clearTimeout(reconn)
     if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) ws.close(1000)
 
     const finalize = () => {

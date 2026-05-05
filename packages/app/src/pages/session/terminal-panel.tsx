@@ -18,6 +18,7 @@ import { terminalTabLabel } from "@/pages/session/terminal-label"
 import { createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { perfLog } from "@/utils/perf"
 
 export function TerminalPanel() {
   const layout = useLayout()
@@ -35,6 +36,7 @@ export function TerminalPanel() {
   const [store, setStore] = createStore({
     autoCreated: false,
     activeDraggable: undefined as string | undefined,
+    recovered: {} as Record<string, boolean>,
     view: typeof window === "undefined" ? 1000 : (window.visualViewport?.height ?? window.innerHeight),
   })
 
@@ -146,6 +148,26 @@ export function TerminalPanel() {
 
   const all = terminal.all
   const ids = createMemo(() => all().map((pty) => pty.id))
+
+  const terminalRecoveryKey = (pty: { id: string; title: string; titleNumber: number }) => {
+    return String(pty.titleNumber || pty.title || pty.id)
+  }
+
+  const recoverTerminal = (key: string, id: string, clone: (id: string) => Promise<void>) => {
+    if (store.recovered[key]) {
+      perfLog("terminal.recovery.skip", { key, id })
+      return
+    }
+    setStore("recovered", key, true)
+    perfLog("terminal.recovery.clone", { key, id })
+    void clone(id)
+  }
+
+  const markTerminalConnected = (key: string, id: string, trim: (id: string) => void) => {
+    setStore("recovered", key, false)
+    perfLog("terminal.recovery.connected", { key, id })
+    trim(id)
+  }
 
   const handleTerminalDragStart = (event: unknown) => {
     const id = getDraggableId(event)
@@ -273,21 +295,24 @@ export function TerminalPanel() {
               </Tabs>
               <div class="flex-1 min-h-0 relative">
                 <Show when={terminal.active()} keyed>
-                  {(id) => (
-                    <Show when={all().find((pty) => pty.id === id)}>
-                      {(pty) => (
-                        <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
-                          <Terminal
-                            pty={pty()}
-                            autoFocus={opened()}
-                            onConnect={() => terminal.trim(id)}
-                            onCleanup={terminal.update}
-                            onConnectError={() => terminal.clone(id)}
-                          />
-                        </div>
-                      )}
-                    </Show>
-                  )}
+                  {(id) => {
+                    const ops = terminal.bind()
+                    return (
+                      <Show when={all().find((pty) => pty.id === id)}>
+                        {(pty) => (
+                          <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
+                            <Terminal
+                              pty={pty()}
+                              autoFocus={opened()}
+                              onConnect={() => markTerminalConnected(terminalRecoveryKey(pty()), id, ops.trim)}
+                              onCleanup={ops.update}
+                              onConnectError={() => recoverTerminal(terminalRecoveryKey(pty()), id, ops.clone)}
+                            />
+                          </div>
+                        )}
+                      </Show>
+                    )
+                  }}
                 </Show>
               </div>
             </div>
