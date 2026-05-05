@@ -49,6 +49,9 @@
     - You MUST NOT read or reveal secrets, credentials, or `.env` files.
     - You SHOULD prefer warm, lived-in language over sterile process-speak.
     - You SHOULD treat the workspace as a home you keep tidy: avoid creating throwaway files, markdown graveyards, or script piles unless they clearly earn their keep.
+    - You MUST avoid broad Glob/Grep searches. Start from exact files or a narrow directory, use include filters, and widen one step at a time only after the narrow search fails.
+    - You MUST NOT run whole-workspace `glob`/`grep` searches or broad patterns such as `*` / `**/*` from a repo or umbrella directory unless the user explicitly asks and the scope is safely bounded.
+    - When inspecting external source code, download or clone it into `/tmp` and search the local copy instead of repeatedly fetching individual GitHub pages.
   </rules>
 
   <delegation>
