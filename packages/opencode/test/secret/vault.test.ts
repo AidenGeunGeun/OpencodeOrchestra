@@ -34,6 +34,224 @@ const ctx = {
 Log.init({ print: false })
 
 describe("SecretVault", () => {
+  test("initializes fresh Secure Env vault keys locally without system security services", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "fresh-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+    SecretVault.__testing.resetStats()
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "fresh" })
+      await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "FRESH_LOCAL_ONLY",
+        risk: "medium",
+        value: "fresh-local-secret-value",
+      })
+
+      expect(await SecretVault.__testing.keyDiagnostics()).toEqual({
+        localKeyExists: true,
+        keySource: "local-generated",
+      })
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+    }
+  })
+
+  test("fails closed for existing encrypted material when the local key is missing", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "missing-local-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+    const secretValue = "missing-local-secret-value"
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "legacy" })
+      const entry = await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "MISSING_LOCAL_SECRET",
+        risk: "high",
+        value: secretValue,
+      })
+      await fs.rm(keyFile, { force: true })
+      SecretVault.__testing.resetRuntimeCaches()
+      SecretVault.__testing.resetStats()
+      SecretVault.__testing.setExistingMaterialForTesting(true)
+
+      await expect(SecretVault.revealValue({ projectID: project.id, profileID: profile.id, entryID: entry.id })).rejects.toThrow(
+        "SecretVaultKeyUnavailableError",
+      )
+      expect(await SecretVault.__testing.keyDiagnostics()).toEqual({
+        localKeyExists: false,
+        keySource: "missing-existing-material",
+      })
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+    }
+  })
+
+  test("skips vault key loading when a scope has no enabled entries", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "disabled-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "disabled" })
+      const entry = await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "DISABLED_ONLY_SECRET",
+        risk: "medium",
+        value: "disabled-secret-value",
+      })
+      await SecretVault.updateEntry({ projectID: project.id, profileID: profile.id, entryID: entry.id, enabled: false })
+      await fs.rm(keyFile, { force: true })
+      SecretVault.__testing.resetRuntimeCaches()
+      SecretVault.__testing.resetStats()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetStats()
+      SecretVault.__testing.setExistingMaterialForTesting(true)
+
+      await expect(SecretRedaction.forProject(project.id, "value=disabled-secret-value")).resolves.toBe("value=disabled-secret-value")
+      expect(SecretVault.__testing.stats()).toEqual({ keyLoads: 0, sensitiveLoads: 1 })
+      expect(await SecretVault.__testing.keyDiagnostics()).toEqual({
+        localKeyExists: false,
+        keySource: undefined,
+      })
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetStats()
+    }
+  })
+
+  test("contains no production Keychain or macOS security command path", async () => {
+    const productionSources = [
+      "../../src/secret/vault.ts",
+      "../../src/secret/redaction.ts",
+      "../../src/tool/bash.ts",
+      "../../src/tool/tool.ts",
+      "../../src/tool/registry.ts",
+      "../../src/session/index.ts",
+      "../../src/session/message-v2.ts",
+      "../../src/session/prompt.ts",
+      "../../src/mcp/index.ts",
+      "../../src/plugin/index.ts",
+      "../../src/server/routes/secret.ts",
+    ]
+    const forbidden = ["find-generic-password", "add-generic-password", "Keychain", "keychain", "$`security"]
+
+    for (const sourcePath of productionSources) {
+      const source = await fs.readFile(new URL(sourcePath, import.meta.url), "utf8")
+      for (const term of forbidden) expect(source).not.toContain(term)
+    }
+  })
+
+  test("keeps Secure Env injection out of plugin and MCP process environments", async () => {
+    const pluginSource = await fs.readFile(new URL("../../src/plugin/index.ts", import.meta.url), "utf8")
+    const mcpSource = await fs.readFile(new URL("../../src/mcp/index.ts", import.meta.url), "utf8")
+
+    expect(pluginSource).not.toContain("SecretVault.sensitiveEntries")
+    expect(pluginSource).not.toContain("SecretVault.sensitiveValues")
+    expect(pluginSource).not.toContain("secureEnv")
+    expect(mcpSource).not.toContain("SecretVault.sensitiveEntries")
+    expect(mcpSource).not.toContain("SecretVault.sensitiveValues")
+    expect(mcpSource).not.toContain("secureEnv")
+  })
+
+  test("fails closed instead of returning unredacted output when vault key is unavailable", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "fail-closed-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "fail-closed" })
+      await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "FAIL_CLOSED_SECRET",
+        risk: "high",
+        value: "fail-closed-secret-value",
+      })
+      await fs.rm(keyFile, { force: true })
+      SecretVault.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretVault.__testing.setExistingMaterialForTesting(true)
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(SecretRedaction.forCurrentProject("value=fail-closed-secret-value")).rejects.toThrow(
+            "SecretVaultKeyUnavailableError",
+          )
+        },
+      })
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetStats()
+    }
+  })
+
+  test("fails closed when the local vault key cannot decrypt existing material", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const keyFile = path.join(tmp.path, "wrong-local-secret-vault.key")
+    const { project } = await Project.fromDirectory(tmp.path)
+
+    SecretVault.__testing.setKeyPathForTesting(keyFile)
+    SecretVault.__testing.setExistingMaterialForTesting(false)
+
+    try {
+      const profile = await SecretVault.createProfile({ projectID: project.id, name: "wrong-local" })
+      await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: "WRONG_LOCAL_SECRET",
+        risk: "high",
+        value: "wrong-local-secret-value",
+      })
+      await fs.writeFile(keyFile, Buffer.alloc(32, 7).toString("base64"), { mode: 0o600 })
+      SecretVault.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetRuntimeCaches()
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(SecretRedaction.forCurrentProject("value=wrong-local-secret-value")).rejects.toThrow(
+            "SecretVaultKeyUnavailableError",
+          )
+        },
+      })
+    } finally {
+      SecretVault.__testing.setExistingMaterialForTesting(undefined)
+      SecretVault.__testing.setKeyPathForTesting(undefined)
+      SecretVault.__testing.resetStats()
+      SecretRedaction.__testing.resetRuntimeCaches()
+      SecretRedaction.__testing.resetStats()
+    }
+  })
+
   test("stores encrypted values and exposes only safe metadata through agent routes", async () => {
     await using tmp = await tmpdir({ git: true })
     const { project } = await Project.fromDirectory(tmp.path)
@@ -359,6 +577,213 @@ describe("SecretVault", () => {
     const redactedB = await SecretRedaction.forSession(sessionB, `value=${sessionSecret}`)
     expect(redactedB.includes(sessionSecret)).toBe(true)
     expect(redactedB).not.toContain("[REDACTED:SESSION_A_ONLY]")
+  })
+
+  test("bounds vault key and redaction material work across repeated concurrent redaction", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const { project } = await Project.fromDirectory(tmp.path)
+    const profile = await SecretVault.createProfile({ projectID: project.id, name: "bulk" })
+    const values = Array.from({ length: 16 }, (_, index) => `bulk-secret-value-${index}`)
+
+    for (const [index, value] of values.entries()) {
+      await SecretVault.createEntry({
+        projectID: project.id,
+        profileID: profile.id,
+        name: `BULK_SECRET_${index}`,
+        risk: "medium",
+        value,
+      })
+    }
+
+    SecretVault.__testing.resetRuntimeCaches()
+    SecretVault.__testing.resetStats()
+    SecretRedaction.__testing.resetRuntimeCaches()
+    SecretRedaction.__testing.resetStats()
+
+    const redacted = await Promise.all(
+      Array.from({ length: 25 }, () => SecretRedaction.forProject(project.id, `token=${values[15]}`)),
+    )
+    expect(redacted.every((value) => value === "token=[REDACTED:BULK_SECRET_15]")).toBe(true)
+    expect(SecretVault.__testing.stats()).toEqual({ keyLoads: 1, sensitiveLoads: 1 })
+    expect(SecretRedaction.__testing.stats()).toEqual({ patternLoads: 1 })
+
+    await SecretRedaction.forProject(project.id, `token=${values[0]}`)
+    expect(SecretVault.__testing.stats()).toEqual({ keyLoads: 1, sensitiveLoads: 1 })
+    expect(SecretRedaction.__testing.stats()).toEqual({ patternLoads: 1 })
+  })
+
+  test("refreshes redaction and injection material after secret mutations", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const projectID = SecretScope.currentID()
+        const profile = await SecretVault.createProfile({ projectID, name: "mutable" })
+        const first = "first-mutable-secret"
+        const second = "second-mutable-secret"
+        const third = "third-mutable-secret"
+        const imported = "imported-mutable-secret"
+        const entry = await SecretVault.createEntry({
+          projectID,
+          profileID: profile.id,
+          name: "MUTABLE_SECRET",
+          risk: "high",
+          value: first,
+        })
+
+        expect(await SecretRedaction.forCurrentProject(`value=${first}`)).toBe("value=[REDACTED:MUTABLE_SECRET]")
+        await SecretVault.updateEntry({ projectID, profileID: profile.id, entryID: entry.id, value: second })
+        expect(await SecretRedaction.forCurrentProject(`old=${first}`)).toBe(`old=${first}`)
+        expect(await SecretRedaction.forCurrentProject(`new=${second}`)).toBe("new=[REDACTED:MUTABLE_SECRET]")
+
+        await SecretVault.updateEntry({ projectID, profileID: profile.id, entryID: entry.id, enabled: false })
+        expect(await SecretRedaction.forCurrentProject(`disabled=${second}`)).toBe(`disabled=${second}`)
+
+        await SecretVault.updateEntry({ projectID, profileID: profile.id, entryID: entry.id, enabled: true, value: third })
+        expect(await SecretRedaction.forCurrentProject(`third=${third}`)).toBe("third=[REDACTED:MUTABLE_SECRET]")
+
+        await SecretVault.deleteEntry({ projectID, profileID: profile.id, entryID: entry.id })
+        expect(await SecretRedaction.forCurrentProject(`deleted=${third}`)).toBe(`deleted=${third}`)
+
+        await SecretVault.importEnv({
+          projectID,
+          profileID: profile.id,
+          content: `IMPORTED_MUTABLE_SECRET=${imported}`,
+          risk: "medium",
+          overwrite: true,
+        })
+        expect(await SecretRedaction.forCurrentProject(`imported=${imported}`)).toBe("imported=[REDACTED:IMPORTED_MUTABLE_SECRET]")
+
+        const bash = await BashTool.init()
+        const bashResult = await bash.execute(
+          { command: "printf '%s' \"$IMPORTED_MUTABLE_SECRET\"", description: "Prints imported secure env" },
+          ctx,
+        )
+        expect(bashResult.output).toBe("[REDACTED:IMPORTED_MUTABLE_SECRET]")
+        expect(JSON.stringify(bashResult)).not.toContain(imported)
+      },
+    })
+  })
+
+  test("bash shares secure env material between injection and redaction", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const projectID = SecretScope.currentID()
+        const profile = await SecretVault.createProfile({ projectID, name: "bash" })
+        await SecretVault.createEntry({
+          projectID,
+          profileID: profile.id,
+          name: "BASH_SHARED_SECRET",
+          risk: "high",
+          value: "bash-shared-secret-value",
+        })
+
+        SecretVault.__testing.resetRuntimeCaches()
+        SecretVault.__testing.resetStats()
+        SecretRedaction.__testing.resetRuntimeCaches()
+        SecretRedaction.__testing.resetStats()
+
+        const bash = await BashTool.init()
+        const result = await bash.execute(
+          { command: "printf '%s' \"$BASH_SHARED_SECRET\"", description: "Prints shared secure env" },
+          ctx,
+        )
+
+        expect(result.output).toBe("[REDACTED:BASH_SHARED_SECRET]")
+        expect(SecretVault.__testing.stats()).toEqual({ keyLoads: 1, sensitiveLoads: 1 })
+      },
+    })
+  })
+
+  test("bash streaming metadata redacts boundary secrets without reprocessing unbounded output", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const projectID = SecretScope.currentID()
+        const profile = await SecretVault.createProfile({ projectID, name: "bash-metadata" })
+        const secret = "bash-metadata-boundary-secret-value"
+        await SecretVault.createEntry({
+          projectID,
+          profileID: profile.id,
+          name: "BASH_METADATA_BOUNDARY_SECRET",
+          risk: "medium",
+          value: secret,
+        })
+
+        const metadata: unknown[] = []
+        const bash = await BashTool.init()
+        const result = await bash.execute(
+          {
+            command:
+              'bun -e \'process.stdout.write("a".repeat(29995) + process.env.BASH_METADATA_BOUNDARY_SECRET + "z".repeat(10000))\'',
+            description: "Prints boundary secure env",
+          },
+          { ...ctx, metadata: (input) => metadata.push(input) },
+        )
+
+        expect(JSON.stringify(metadata)).not.toContain(secret)
+        expect(result.output).toContain("[REDACTED:BASH_METADATA_BOUNDARY_SECRET]")
+        expect(result.output).not.toContain(secret)
+      },
+    })
+  })
+
+  test("bounds secret material refresh work during repeated streaming session updates", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Project.fromDirectory(tmp.path)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const projectID = SecretScope.currentID()
+        const profile = await SecretVault.createProfile({ projectID, name: "stream" })
+        const secret = "stream-session-secret-value"
+        await SecretVault.createEntry({ projectID, profileID: profile.id, name: "STREAM_SESSION_SECRET", risk: "medium", value: secret })
+        const session = await Session.create({})
+        const messageID = Identifier.ascending("message")
+        await Session.updateMessage({
+          id: messageID,
+          sessionID: session.id,
+          role: "user",
+          time: { created: Date.now() },
+          model: { providerID: "test", modelID: "test" },
+          agent: "user",
+          tools: {},
+        } as unknown as MessageV2.Info)
+
+        SecretVault.__testing.resetRuntimeCaches()
+        SecretVault.__testing.resetStats()
+        SecretRedaction.__testing.resetRuntimeCaches()
+        SecretRedaction.__testing.resetStats()
+
+        const partID = Identifier.ascending("part")
+        for (let index = 0; index < 20; index++) {
+          await Session.updatePart({
+            part: {
+              id: partID,
+              messageID,
+              sessionID: session.id,
+              type: "text",
+              text: `chunk ${index} ${secret}`,
+            },
+            delta: secret,
+          })
+        }
+
+        expect(JSON.stringify(await Session.messages({ sessionID: session.id }))).not.toContain(secret)
+        expect(SecretVault.__testing.stats()).toEqual({ keyLoads: 1, sensitiveLoads: 1 })
+        expect(SecretRedaction.__testing.stats()).toEqual({ patternLoads: 1 })
+      },
+    })
   })
 
   test("rejects secure env values shorter than the redaction minimum", async () => {

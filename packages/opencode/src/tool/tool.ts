@@ -67,10 +67,32 @@ export namespace Tool {
               { cause: error },
             )
           }
+          let pendingMetadata: { title?: string; metadata?: Result } | undefined
+          let flushingMetadata = false
+          const flushMetadata = () => {
+            if (flushingMetadata) return
+            flushingMetadata = true
+            void (async () => {
+              while (pendingMetadata) {
+                const next = pendingMetadata
+                pendingMetadata = undefined
+                const redacted = await SecretRedaction.forCurrentProject(next)
+                ctx.metadata(redacted)
+              }
+            })()
+              .catch(() => {
+                pendingMetadata = undefined
+              })
+              .finally(() => {
+                flushingMetadata = false
+                if (pendingMetadata) flushMetadata()
+              })
+          }
           const redactingCtx = {
             ...ctx,
             metadata(input: { title?: string; metadata?: Result }) {
-              void SecretRedaction.forCurrentProject(input).then((redacted) => ctx.metadata(redacted))
+              pendingMetadata = input
+              flushMetadata()
             },
           }
           const result = await SecretRedaction.forCurrentProject(await execute(args, redactingCtx))

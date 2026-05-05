@@ -421,11 +421,26 @@ export namespace MCP {
         },
       })
       let stderrOutput = ""
+      let pendingStderrLog = false
+      let flushingStderrLog = false
+      const flushStderrLog = () => {
+        pendingStderrLog = true
+        if (flushingStderrLog) return
+        flushingStderrLog = true
+        void (async () => {
+          while (pendingStderrLog) {
+            pendingStderrLog = false
+            const patterns = await SecretRedaction.patternsForCurrentProject().catch(() => undefined)
+            if (patterns) log.info(`mcp stderr: ${SecretRedaction.applyStreaming(stderrOutput, patterns)}`, { key })
+          }
+        })().finally(() => {
+          flushingStderrLog = false
+          if (pendingStderrLog) flushStderrLog()
+        })
+      }
       transport.stderr?.on("data", (chunk: Buffer) => {
         stderrOutput += chunk.toString()
-        void SecretRedaction.patternsForCurrentProject().then((patterns) => {
-          log.info(`mcp stderr: ${SecretRedaction.applyStreaming(stderrOutput, patterns)}`, { key })
-        })
+        flushStderrLog()
       })
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT

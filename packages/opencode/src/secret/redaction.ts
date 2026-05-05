@@ -3,6 +3,9 @@ import { SecretScope } from "./scope"
 
 export namespace SecretRedaction {
   const MIN_VALUE_LENGTH = 8
+  const patternCache = new Map<string, { version: number; patterns: Pattern[] }>()
+  const patternInflight = new Map<string, { version: number; promise: Promise<{ version: number; patterns: Pattern[] }> }>()
+  let patternLoads = 0
 
   export type Pattern = {
     name: string
@@ -11,7 +14,27 @@ export namespace SecretRedaction {
   }
 
   export async function patterns(projectID: string) {
-    const entries = await SecretVault.sensitiveEntries(projectID)
+    const version = SecretVault.materialVersion(projectID)
+    const cached = patternCache.get(projectID)
+    if (cached?.version === version) return clonePatterns(cached.patterns)
+    const existing = patternInflight.get(projectID)
+    if (existing?.version === version) return clonePatterns((await existing.promise).patterns)
+
+    const loading = SecretVault.sensitiveEntries(projectID)
+      .then((entries) => {
+        patternLoads++
+        const material = { version, patterns: fromEntries(entries) }
+        if (SecretVault.materialVersion(projectID) === version) patternCache.set(projectID, material)
+        return material
+      })
+      .finally(() => {
+        if (patternInflight.get(projectID)?.promise === loading) patternInflight.delete(projectID)
+      })
+    patternInflight.set(projectID, { version, promise: loading })
+    return clonePatterns((await loading).patterns)
+  }
+
+  export function fromEntries(entries: SecretVault.SensitiveEntry[]) {
     return entries.map((entry): Pattern => {
       const variants = new Set<string>([entry.value])
       const urlEncoded = encodeURIComponent(entry.value)
@@ -24,6 +47,10 @@ export namespace SecretRedaction {
         values: [...variants].filter((value) => value.length >= MIN_VALUE_LENGTH),
       }
     })
+  }
+
+  function clonePatterns(patterns: Pattern[]) {
+    return patterns.map((pattern) => ({ ...pattern, values: [...pattern.values] }))
   }
 
   export function apply(value: string, patterns: Pattern[]) {
@@ -69,8 +96,9 @@ export namespace SecretRedaction {
 
   export async function forCurrentProject<T>(value: T) {
     try {
-      return forProject(SecretScope.currentID(), value)
-    } catch {
+      return await forProject(SecretScope.currentID(), value)
+    } catch (error) {
+      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
       return value
     }
   }
@@ -79,9 +107,36 @@ export namespace SecretRedaction {
     return patterns(SecretScope.currentID())
   }
 
-  export async function forSession<T>(sessionID: string, value: T) {
+  export async function patternsForSession(sessionID: string) {
     const scope = SecretScope.forSession(sessionID)
-    if (scope) return forProject(scope.id, value)
-    return forCurrentProject(value)
+    if (scope) return patterns(scope.id)
+    try {
+      return await patternsForCurrentProject()
+    } catch (error) {
+      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
+      return []
+    }
+  }
+
+  export async function forSession<T>(sessionID: string, value: T) {
+    try {
+      return applyUnknown(value, await patternsForSession(sessionID))
+    } catch (error) {
+      if (SecretVault.KeyUnavailableError.isInstance(error)) throw error
+      return value
+    }
+  }
+
+  export const __testing = {
+    stats() {
+      return { patternLoads }
+    },
+    resetRuntimeCaches() {
+      patternCache.clear()
+      patternInflight.clear()
+    },
+    resetStats() {
+      patternLoads = 0
+    },
   }
 }

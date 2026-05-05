@@ -1,9 +1,7 @@
 // OCO-only file: hostile-agent-safe secret vault foundation. See oco-dev skill deltas-catalog.md.
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
 import fs from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
-import { $ } from "bun"
 import { NamedError } from "@opencode-ai/util/error"
 import { and, asc, Database, eq, NotFoundError } from "@/storage/db"
 import { Global } from "@/global"
@@ -65,6 +63,10 @@ export namespace SecretVault {
     "SecretVaultUnauthorizedError",
     z.object({ message: z.string() }),
   )
+  export const KeyUnavailableError = NamedError.create(
+    "SecretVaultKeyUnavailableError",
+    z.object({ message: z.string() }),
+  )
 
   export const CreateProfile = z.object({
     name: z.string().min(1),
@@ -96,9 +98,20 @@ export namespace SecretVault {
 
   const keyPath = path.join(Global.Path.data, "secret-vault.key")
   const adminTokens = new Map<string, AdminToken>()
+  const projectVersions = new Map<string, number>()
+  const sensitiveCache = new Map<string, { version: number; entries: SensitiveEntry[] }>()
+  const sensitiveInflight = new Map<string, Promise<{ version: number; entries: SensitiveEntry[] }>>()
   const TOKEN_TTL = 5 * 60 * 1000
   const VALUE_VERSION = 1
   const MIN_PROTECTABLE_VALUE_LENGTH = 8
+  type KeySource = "local-existing" | "local-generated" | "missing-existing-material"
+  let keyCache: Buffer | undefined
+  let keyInflight: Promise<Buffer> | undefined
+  let keyPathOverride: string | undefined
+  let existingMaterialOverride: boolean | undefined
+  let keyLoads = 0
+  let keySource: KeySource | undefined
+  let sensitiveLoads = 0
 
   export function assertProtectableValue(value: string) {
     if (value.length < MIN_PROTECTABLE_VALUE_LENGTH) {
@@ -108,34 +121,85 @@ export namespace SecretVault {
     }
   }
 
+  function cloneEntries(entries: SensitiveEntry[]) {
+    return entries.map((entry) => ({ ...entry }))
+  }
+
+  function version(projectID: string) {
+    return projectVersions.get(projectID) ?? 0
+  }
+
+  function invalidate(projectID: string) {
+    projectVersions.set(projectID, version(projectID) + 1)
+    sensitiveCache.delete(projectID)
+    sensitiveInflight.delete(projectID)
+  }
+
+  export function materialVersion(projectID: string) {
+    return version(projectID)
+  }
+
+  function vaultKeyPath() {
+    return keyPathOverride ?? keyPath
+  }
+
+  async function hasExistingEncryptedMaterial() {
+    if (existingMaterialOverride !== undefined) return existingMaterialOverride
+    if (process.env.OPENCODE_TEST_HOME || process.env.OCO_TEST_HOME) return false
+    return hasAnyEntries()
+  }
+
   async function key() {
-    if (process.platform === "darwin" && !process.env.OPENCODE_TEST_HOME && !process.env.OCO_TEST_HOME) {
-      const keychain = await keychainKey().catch(() => undefined)
-      if (keychain) return keychain
-    }
-    const existing = await fs.readFile(keyPath).catch(() => undefined)
+    if (keyCache) return keyCache
+    if (keyInflight) return keyInflight
+    keyInflight = loadKey()
+      .then((value) => {
+        keyCache = value
+        return value
+      })
+      .finally(() => {
+        keyInflight = undefined
+      })
+    return keyInflight
+  }
+
+  async function loadKey() {
+    keyLoads++
+    const existing = await fs.readFile(vaultKeyPath()).catch(() => undefined)
     if (existing) {
-      await fs.chmod(keyPath, 0o600).catch(() => {})
-      return Buffer.from(existing.toString("utf8"), "base64")
+      await fs.chmod(vaultKeyPath(), 0o600).catch(() => {})
+      keySource = "local-existing"
+      return decodeKey(existing)
+    }
+
+    if (await hasExistingEncryptedMaterial()) {
+      keySource = "missing-existing-material"
+      throw new KeyUnavailableError({
+        message: "Secure Env local vault key is missing; delete and re-enter Secure Env values to recover",
+      })
     }
 
     const generated = randomBytes(32)
-    await fs.mkdir(path.dirname(keyPath), { recursive: true })
-    await fs.writeFile(keyPath, generated.toString("base64"), { mode: 0o600 })
-    await fs.chmod(keyPath, 0o600).catch(() => {})
+    await persistKey(generated)
+    keySource = "local-generated"
     return generated
   }
 
-  async function keychainKey() {
-    const service = "oco.secret-vault"
-    const account = os.userInfo().username || "default"
-    const existing = await $`security find-generic-password -a ${account} -s ${service} -w`.quiet().nothrow().text()
-    const value = existing.trim()
-    if (value) return Buffer.from(value, "base64")
+  async function persistKey(value: Buffer) {
+    validateKey(value)
+    await fs.mkdir(path.dirname(vaultKeyPath()), { recursive: true })
+    await fs.writeFile(vaultKeyPath(), value.toString("base64"), { mode: 0o600 })
+    await fs.chmod(vaultKeyPath(), 0o600).catch(() => {})
+  }
 
-    const generated = randomBytes(32)
-    await $`security add-generic-password -a ${account} -s ${service} -w ${generated.toString("base64")} -U`.quiet()
-    return generated
+  function decodeKey(value: Buffer | string) {
+    const decoded = Buffer.from(value.toString().trim(), "base64")
+    return validateKey(decoded)
+  }
+
+  function validateKey(value: Buffer) {
+    if (value.length !== 32) throw new KeyUnavailableError({ message: "Secure Env vault key is invalid" })
+    return value
   }
 
   async function encrypt(value: string) {
@@ -150,12 +214,20 @@ export namespace SecretVault {
   }
 
   async function decrypt(row: typeof SecretEntryTable.$inferSelect) {
-    const decipher = createDecipheriv("aes-256-gcm", await key(), Buffer.from(row.value_iv, "base64"))
-    decipher.setAuthTag(Buffer.from(row.value_tag, "base64"))
-    return Buffer.concat([
-      decipher.update(Buffer.from(row.value_ciphertext, "base64")),
-      decipher.final(),
-    ]).toString("utf8")
+    return decryptWithKey(row, await key())
+  }
+
+  function decryptWithKey(row: typeof SecretEntryTable.$inferSelect, value: Buffer) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", value, Buffer.from(row.value_iv, "base64"))
+      decipher.setAuthTag(Buffer.from(row.value_tag, "base64"))
+      return Buffer.concat([
+        decipher.update(Buffer.from(row.value_ciphertext, "base64")),
+        decipher.final(),
+      ]).toString("utf8")
+    } catch {
+      throw new KeyUnavailableError({ message: "Secure Env vault key is invalid" })
+    }
   }
 
   function profile(row: typeof SecretProfileTable.$inferSelect): Profile {
@@ -226,7 +298,9 @@ export namespace SecretVault {
       label: input.label,
       enabled: true,
     }
-    return profile(Database.use((db) => db.insert(SecretProfileTable).values(row).returning().get()))
+    const created = profile(Database.use((db) => db.insert(SecretProfileTable).values(row).returning().get()))
+    invalidate(input.projectID)
+    return created
   }
 
   export async function updateProfile(input: { projectID: string; profileID: string } & z.infer<typeof UpdateProfile>) {
@@ -239,6 +313,7 @@ export namespace SecretVault {
         .returning()
         .get(),
     )
+    invalidate(input.projectID)
     return profile(row)
   }
 
@@ -250,6 +325,7 @@ export namespace SecretVault {
         .where(and(eq(SecretProfileTable.id, input.profileID), eq(SecretProfileTable.project_id, input.projectID)))
         .run(),
     )
+    invalidate(input.projectID)
     return true
   }
 
@@ -277,7 +353,9 @@ export namespace SecretVault {
       value_tag: sealed.tag,
       value_version: VALUE_VERSION,
     }
-    return entry(Database.use((db) => db.insert(SecretEntryTable).values(row).returning().get()))
+    const created = entry(Database.use((db) => db.insert(SecretEntryTable).values(row).returning().get()))
+    invalidate(input.projectID)
+    return created
   }
 
   export async function updateEntry(input: { projectID: string; profileID: string; entryID: string } & z.infer<typeof UpdateEntry>) {
@@ -307,6 +385,7 @@ export namespace SecretVault {
         .returning()
         .get(),
     )
+    invalidate(input.projectID)
     return entry(row)
   }
 
@@ -324,6 +403,7 @@ export namespace SecretVault {
         )
         .run(),
     )
+    invalidate(input.projectID)
     return true
   }
 
@@ -338,6 +418,27 @@ export namespace SecretVault {
 
   export async function sensitiveEntries(projectID: string): Promise<SensitiveEntry[]> {
     await requireProject(projectID)
+    const currentVersion = version(projectID)
+    const cached = sensitiveCache.get(projectID)
+    if (cached?.version === currentVersion) return cloneEntries(cached.entries)
+    const existing = sensitiveInflight.get(projectID)
+    if (existing) return cloneEntries((await existing).entries)
+
+    const loading = loadSensitiveEntries(projectID)
+      .then((entries) => {
+        const material = { version: currentVersion, entries }
+        if (version(projectID) === currentVersion) sensitiveCache.set(projectID, material)
+        return material
+      })
+      .finally(() => {
+        if (sensitiveInflight.get(projectID) === loading) sensitiveInflight.delete(projectID)
+      })
+    sensitiveInflight.set(projectID, loading)
+    return cloneEntries((await loading).entries)
+  }
+
+  async function loadSensitiveEntries(projectID: string): Promise<SensitiveEntry[]> {
+    sensitiveLoads++
     const rows = Database.use((db) =>
       db
         .select()
@@ -371,7 +472,7 @@ export namespace SecretVault {
 
   export async function hasVaultMaterial() {
     if (await hasAnyEntries()) return true
-    return fs.stat(keyPath).then(() => true).catch(() => false)
+    return fs.stat(vaultKeyPath()).then(() => true).catch(() => false)
   }
 
   export async function importEnv(input: { projectID: string; profileID: string; content: string; overwrite?: boolean; risk: Risk }) {
@@ -427,6 +528,42 @@ export namespace SecretVault {
       throw new UnauthorizedError({ message: "Secret vault admin token is scoped to another project" })
     }
     return grant
+  }
+
+  export const __testing = {
+    stats() {
+      return {
+        keyLoads,
+        sensitiveLoads,
+      }
+    },
+    resetRuntimeCaches() {
+      keyCache = undefined
+      keyInflight = undefined
+      sensitiveCache.clear()
+      sensitiveInflight.clear()
+    },
+    resetStats() {
+      keyLoads = 0
+      keySource = undefined
+      sensitiveLoads = 0
+    },
+    async keyDiagnostics() {
+      return {
+        localKeyExists: await fs.stat(vaultKeyPath()).then(() => true).catch(() => false),
+        keySource,
+      }
+    },
+    setKeyPathForTesting(value: string | undefined) {
+      keyPathOverride = value
+      keyCache = undefined
+      keyInflight = undefined
+    },
+    setExistingMaterialForTesting(value: boolean | undefined) {
+      existingMaterialOverride = value
+      keyCache = undefined
+      keyInflight = undefined
+    },
   }
 
   async function requireProfile(projectID: string, profileID: string) {

@@ -89,7 +89,10 @@ export const BashTool = Tool.define("bash", async () => {
       const secureEnvScope = (await SecretScope.forDirectory(cwd)).id
       const secureEnvEntries = await SecretVault.sensitiveEntries(secureEnvScope)
       const secureEnv = Object.fromEntries(secureEnvEntries.map((entry) => [entry.name, entry.value]))
-      const redactionPatterns = await SecretRedaction.patterns(secureEnvScope)
+      const redactionPatterns = SecretRedaction.fromEntries(secureEnvEntries)
+      const metadataRedactionLimit =
+        MAX_METADATA_LENGTH +
+        Math.max(0, ...redactionPatterns.flatMap((pattern) => pattern.values.map((value) => value.length - 1)))
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")
@@ -200,7 +203,8 @@ export const BashTool = Tool.define("bash", async () => {
 
       const append = (chunk: Buffer) => {
         output += chunk.toString()
-        const redactedOutput = SecretRedaction.applyStreaming(output, redactionPatterns)
+        const metadataInput = output.length > metadataRedactionLimit ? output.slice(0, metadataRedactionLimit) : output
+        const redactedOutput = SecretRedaction.applyStreaming(metadataInput, redactionPatterns)
         ctx.metadata({
           metadata: {
             // truncate the metadata to avoid GIANT blobs of data (has nothing to do w/ what agent can access)
