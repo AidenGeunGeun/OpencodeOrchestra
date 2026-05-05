@@ -40,6 +40,8 @@ export namespace Config {
   const GLOBAL_CONFIG_FALLBACK_FILENAMES = ["config.json", ...CONFIG_FILENAMES]
   const LEGACY_GLOBAL_CONFIG_FALLBACK_FILENAMES = ["config.json", ...LEGACY_CONFIG_FILENAMES]
   const PROJECT_CONFIG_DIRS = [Global.Namespace.legacyProjectDir, Global.Namespace.projectDir]
+  const dependencyInstalls = new Map<string, Promise<void>>()
+  const localDependencyFreshnessChecked = new Set<string>()
 
   function containsPath(parent: string, child: string) {
     const relative = path.relative(parent, child)
@@ -227,10 +229,12 @@ export namespace Config {
         }
       }
 
-      const exists = existsSync(path.join(dir, "node_modules"))
-      const installing = installDependencies(dir)
-      deps.push(installing)
-      if (!exists) await installing
+      if (shouldInstallDependencies(dir)) {
+        const exists = existsSync(path.join(dir, "node_modules"))
+        const installing = installDependencies(dir)
+        deps.push(installing)
+        if (!exists) await installing
+      }
 
       result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
       result.agent = mergeDeep(result.agent, await loadAgent(dir))
@@ -298,7 +302,68 @@ export namespace Config {
     }
   })
 
+  async function fileMtime(filepath: string) {
+    return fs
+      .stat(filepath)
+      .then((x) => x.mtimeMs)
+      .catch(() => 0)
+  }
+
+  async function readPackageJSON(filepath: string) {
+    return Bun.file(filepath)
+      .json()
+      .catch(() => ({} as any))
+  }
+
+  function shouldInstallDependencies(dir: string) {
+    return (
+      existsSync(path.join(dir, "package.json")) ||
+      existsSync(path.join(dir, "node_modules"))
+    )
+  }
+
+  function shouldRefreshLocalDependencies(dir: string) {
+    if (!Installation.isLocal()) return false
+    if (localDependencyFreshnessChecked.has(dir)) return false
+    return process.env.OCO_REFRESH_PLUGIN_DEPS === "1" || process.env.OPENCODE_REFRESH_PLUGIN_DEPS === "1"
+  }
+
+  async function dependenciesSatisfied(dir: string, pluginVersion: string) {
+    const pkg = path.join(dir, "package.json")
+    const lock = path.join(dir, "bun.lock")
+    const nodeModules = path.join(dir, "node_modules")
+    const pluginPackage = path.join(nodeModules, "@opencode-ai", "plugin", "package.json")
+
+    if (!existsSync(nodeModules) || !existsSync(pluginPackage)) return false
+
+    const data = await readPackageJSON(pkg)
+    const installed = await readPackageJSON(pluginPackage)
+    const dependency = data.dependencies?.["@opencode-ai/plugin"]
+    if (!dependency) return false
+    if (shouldRefreshLocalDependencies(dir)) return false
+    if (Installation.isLocal()) return true
+    if (!Installation.isLocal() && dependency !== pluginVersion) return false
+    if (!Installation.isLocal() && installed.version !== pluginVersion) return false
+
+    const pkgMtime = await fileMtime(pkg)
+    const lockMtime = await fileMtime(lock)
+    if (pkgMtime && !lockMtime) return false
+    if (pkgMtime && lockMtime && pkgMtime > lockMtime) return false
+
+    return true
+  }
+
   export async function installDependencies(dir: string) {
+    const pluginVersion = Installation.isLocal() ? "latest" : Installation.VERSION
+    const existing = dependencyInstalls.get(dir)
+    if (existing) return existing
+
+    const installing = installDependenciesOnce(dir, pluginVersion).finally(() => dependencyInstalls.delete(dir))
+    dependencyInstalls.set(dir, installing)
+    return installing
+  }
+
+  async function installDependenciesOnce(dir: string, pluginVersion: string) {
     const pkg = path.join(dir, "package.json")
 
     if (!(await Bun.file(pkg).exists())) {
@@ -309,16 +374,21 @@ export namespace Config {
     const hasGitIgnore = await Bun.file(gitignore).exists()
     if (!hasGitIgnore) await Bun.write(gitignore, ["node_modules", "package.json", "bun.lock", ".gitignore"].join("\n"))
 
-    await BunProc.run(
-      ["add", "@opencode-ai/plugin@" + (Installation.isLocal() ? "latest" : Installation.VERSION), "--exact"],
-      {
-        cwd: dir,
-      },
-    ).catch(() => {})
+    if (await dependenciesSatisfied(dir, pluginVersion)) return
+
+    await BunProc.run(["add", "@opencode-ai/plugin@" + pluginVersion, "--exact"], {
+      cwd: dir,
+    }).catch((err) => {
+      log.error("failed to install plugin dependency", { dir, err })
+    })
+
+    if (Installation.isLocal()) localDependencyFreshnessChecked.add(dir)
 
     // Install any additional dependencies defined in the package.json
     // This allows local plugins and custom tools to use external packages
-    await BunProc.run(["install"], { cwd: dir }).catch(() => {})
+    await BunProc.run(["install"], { cwd: dir }).catch((err) => {
+      log.error("failed to install config dependencies", { dir, err })
+    })
   }
 
   function rel(item: string, patterns: string[]) {

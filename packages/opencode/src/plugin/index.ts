@@ -38,6 +38,7 @@ export namespace Plugin {
     // - depth 2+ (Subagent): keeps parentID → compress plugin skips pruning
     const client = wrapClientForDepthAwareness(rawClient)
     const config = await Config.get()
+    await Config.waitForDependencies()
     const hooks: Hooks[] = []
     const input: PluginInput = {
       client,
