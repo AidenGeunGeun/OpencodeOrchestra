@@ -57,6 +57,13 @@ const icons = {
   "status-active": `<path d="M18 2H2V10H18V2Z" fill="currentColor" fill-opacity="0.1"/>
 <path d="M2 18H18V10H2V18Z" fill="currentColor" fill-opacity="0.1"/>
 <path d="M2 10V18H18V10M2 10V2H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
+  analytics: `<path d="M2.5 17.5H17.5M5 14.5V8.75M9.16667 14.5V4.16667M13.3333 14.5V11.25M17.5 14.5V6.25" stroke="currentColor" stroke-linecap="square"/>`,
+  "analytics-active": `<path d="M2.5 17.5H17.5" stroke="currentColor" stroke-linecap="square"/>
+<rect x="3.95833" y="8.75" width="2.08333" height="5.75" fill="currentColor" fill-opacity="0.16"/>
+<rect x="8.125" y="4.16667" width="2.08333" height="10.3333" fill="currentColor" fill-opacity="0.16"/>
+<rect x="12.2917" y="11.25" width="2.08333" height="3.25" fill="currentColor" fill-opacity="0.16"/>
+<rect x="16.4583" y="6.25" width="2.08333" height="8.25" fill="currentColor" fill-opacity="0.16"/>
+<path d="M5 14.5V8.75M9.16667 14.5V4.16667M13.3333 14.5V11.25M17.5 14.5V6.25" stroke="currentColor" stroke-linecap="square"/>`,
   sidebar: `<path d="M7.86667 2H5.2H2V18H5.2H7.86667M7.86667 2H18V18H7.86667M7.86667 2V18" stroke="currentColor"/>`,
   "sidebar-active": `<path d="M2 2V18H5.2H7.86667V2H5.2H2Z" fill="currentColor" fill-opacity="0.1"/>
 <path d="M7.86667 2H5.2H2V18H5.2H7.86667M7.86667 2H18V18H7.86667M7.86667 2V18" stroke="currentColor"/>`,

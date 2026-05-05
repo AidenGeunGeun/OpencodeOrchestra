@@ -11,7 +11,7 @@ import {
   Show,
   untrack,
 } from "solid-js"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
@@ -124,6 +124,7 @@ export default function Layout(props: ParentProps) {
   const server = useServer()
   const notification = useNotification()
   const permission = usePermission()
+  const location = useLocation()
   const navigate = useNavigate()
   setNavigate(navigate)
   const providers = useProviders()
@@ -314,6 +315,7 @@ export default function Layout(props: ParentProps) {
   const currentBrowserAppRoute = () => {
     const path = window.location.pathname
     if (!path || path === "/" || path === "/index.html") return undefined
+    if (path === "/analytics") return undefined
     if (!/^\/[A-Za-z0-9_-]+(?:\/session(?:\/[^/?#]+)?)?$/.test(path)) return undefined
     return `${path}${window.location.search}${window.location.hash}`
   }
@@ -584,6 +586,10 @@ export default function Layout(props: ParentProps) {
         if (!value.layoutReady) return
         if (!state.autoselect) return
         if (value.dir) return
+        if (location.pathname === "/analytics") {
+          setState("autoselect", false)
+          return
+        }
 
         const browserRoute = currentBrowserAppRoute()
         if (browserRoute) {
@@ -1090,6 +1096,12 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openServer(),
       },
       {
+        id: "analytics.open",
+        title: "Open Analytics",
+        category: language.t("command.category.view"),
+        onSelect: () => openAnalytics(),
+      },
+      {
         id: "settings.open",
         title: language.t("command.settings.open"),
         category: language.t("command.category.settings"),
@@ -1242,6 +1254,16 @@ export default function Layout(props: ParentProps) {
 
   function openSettings() {
     dialog.show(() => <DialogSettings />)
+  }
+
+  function analyticsHref() {
+    // Analytics is a global destination — never scope to the current project from the sidebar.
+    // Users can pick a specific project from the in-page filter if they want.
+    return "/analytics"
+  }
+
+  function openAnalytics() {
+    navigate(analyticsHref())
   }
 
   function projectRoot(directory: string) {
@@ -2288,6 +2310,9 @@ export default function Layout(props: ParentProps) {
       openProjectKeybind={() => command.keybind("project.open")}
       onOpenProject={chooseProject}
       renderProjectOverlay={projectOverlay}
+      analyticsLabel={() => "Analytics"}
+      analyticsActive={() => location.pathname === "/analytics"}
+      onOpenAnalytics={openAnalytics}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
       onOpenSettings={openSettings}

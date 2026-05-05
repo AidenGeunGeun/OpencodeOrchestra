@@ -39,6 +39,8 @@ import type {
   FindSymbolsResponses,
   FindTextResponses,
   FormatterStatusResponses,
+  GlobalAnalyticsRebuildResponses,
+  GlobalAnalyticsResponses,
   GlobalDisposeResponses,
   GlobalEventResponses,
   GlobalHealthResponses,
@@ -251,6 +253,56 @@ export class Global extends HeyApiClient {
   public health<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).get<GlobalHealthResponses, unknown, ThrowOnError>({
       url: "/global/health",
+      ...options,
+    })
+  }
+
+  /**
+   * Get analytics summary
+   *
+   * Get compact local usage analytics without exposing conversation content or tool output. When `project` is omitted, the summary covers every project with usage in the selected period.
+   */
+  public analytics<ThrowOnError extends boolean = false>(
+    parameters?: {
+      period?: "today" | "7d" | "30d" | "thisMonth" | "allTime"
+      project?: string
+      model?: string
+      agent?: string
+      day?: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "period" },
+            { in: "query", key: "project" },
+            { in: "query", key: "model" },
+            { in: "query", key: "agent" },
+            { in: "query", key: "day" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GlobalAnalyticsResponses, unknown, ThrowOnError>({
+      url: "/global/analytics",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Rebuild analytics summary cache
+   *
+   * Clear the persistent analytics summary store and trigger a fresh backfill. Returns the current backfill progress state.
+   */
+  public analyticsRebuild<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).post<GlobalAnalyticsRebuildResponses, unknown, ThrowOnError>({
+      url: "/global/analytics/rebuild",
       ...options,
     })
   }

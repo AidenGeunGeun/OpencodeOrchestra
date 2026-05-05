@@ -4,6 +4,136 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+export type AnalyticsEstimatedCost = {
+  amount: number
+  estimated: boolean
+  knownResponses: number
+  unknownResponses: number
+}
+
+export type AnalyticsTokenTotals = {
+  freshInput: number
+  output: number
+  reasoning: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+}
+
+export type AnalyticsCostBuckets = {
+  freshInput: AnalyticsEstimatedCost
+  output: AnalyticsEstimatedCost
+  reasoning: AnalyticsEstimatedCost
+  cacheRead: AnalyticsEstimatedCost
+  cacheWrite: AnalyticsEstimatedCost
+  total: AnalyticsEstimatedCost
+}
+
+export type AnalyticsTotals = {
+  actualCost: number
+  apiEquivalentCost: AnalyticsEstimatedCost
+  calls: number
+  sessions: number
+  tokens: AnalyticsTokenTotals
+  apiEquivalentCostBuckets: AnalyticsCostBuckets
+  cacheHitRate: number
+}
+
+export type AnalyticsTopAttribution = {
+  id: string
+  label: string
+  tokens: number
+}
+
+export type AnalyticsBreakdownRow = {
+  id: string
+  label: string
+  actualCost: number
+  apiEquivalentCost: AnalyticsEstimatedCost
+  apiEquivalentCostBuckets: AnalyticsCostBuckets
+  calls: number
+  sessions: number
+  tokens: AnalyticsTokenTotals
+  topModel?: AnalyticsTopAttribution
+  topProject?: AnalyticsTopAttribution
+  topAgent?: AnalyticsTopAttribution
+}
+
+export type AnalyticsSessionRow = {
+  sessionID: string
+  title: string
+  project: string
+  directory: string
+  actualCost: number
+  apiEquivalentCost: AnalyticsEstimatedCost
+  calls: number
+  tokens: AnalyticsTokenTotals
+  lastMessageAt: number
+}
+
+export type AnalyticsResponseRow = {
+  messageID: string
+  sessionID: string
+  title: string
+  project: string
+  directory: string
+  model: string
+  provider: string
+  agent: string
+  actualCost: number
+  apiEquivalentCost: AnalyticsEstimatedCost
+  tokens: AnalyticsTokenTotals
+  createdAt: number
+}
+
+export type AnalyticsPricingGap = {
+  provider: string
+  model: string
+  tokens: number
+  missingApiEquivalent: number
+  calls: number
+  kind: "unpriced" | "partial"
+}
+
+export type AnalyticsCoverage = {
+  hasGaps: boolean
+  gaps: Array<AnalyticsPricingGap>
+}
+
+export type AnalyticsProjectOption = {
+  id: string
+  label: string
+  directory: string
+  calls: number
+}
+
+export type AnalyticsSummary = {
+  period: "today" | "7d" | "30d" | "thisMonth" | "allTime"
+  project?: string
+  generatedAt: number
+  range: {
+    start?: number
+    end: number
+  }
+  totals: AnalyticsTotals
+  breakdowns: {
+    byDay: Array<AnalyticsBreakdownRow>
+    byProject: Array<AnalyticsBreakdownRow>
+    byModel: Array<AnalyticsBreakdownRow>
+    byAgent: Array<AnalyticsBreakdownRow>
+  }
+  highImpact: {
+    sessions: Array<AnalyticsSessionRow>
+    responses: Array<AnalyticsResponseRow>
+  }
+  coverage: AnalyticsCoverage
+  availableProjects: Array<AnalyticsProjectOption>
+  backfilling?: {
+    total: number
+    processed: number
+  }
+}
+
 export type EventInstallationUpdated = {
   type: "installation.updated"
   properties: {
@@ -2322,6 +2452,48 @@ export type GlobalHealthResponses = {
 }
 
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
+
+export type GlobalAnalyticsData = {
+  body?: never
+  path?: never
+  query?: {
+    period?: "today" | "7d" | "30d" | "thisMonth" | "allTime"
+    project?: string
+    model?: string
+    agent?: string
+    day?: string
+    directory?: string
+  }
+  url: "/global/analytics"
+}
+
+export type GlobalAnalyticsResponses = {
+  /**
+   * Analytics summary
+   */
+  200: AnalyticsSummary
+}
+
+export type GlobalAnalyticsResponse = GlobalAnalyticsResponses[keyof GlobalAnalyticsResponses]
+
+export type GlobalAnalyticsRebuildData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/analytics/rebuild"
+}
+
+export type GlobalAnalyticsRebuildResponses = {
+  /**
+   * Analytics rebuild started
+   */
+  200: {
+    total: number
+    processed: number
+  }
+}
+
+export type GlobalAnalyticsRebuildResponse = GlobalAnalyticsRebuildResponses[keyof GlobalAnalyticsRebuildResponses]
 
 export type GlobalEventData = {
   body?: never

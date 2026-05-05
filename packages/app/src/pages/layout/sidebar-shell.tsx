@@ -25,6 +25,9 @@ export const SidebarContent = (props: {
   openProjectKeybind: Accessor<string | undefined>
   onOpenProject: () => void
   renderProjectOverlay: () => JSX.Element
+  analyticsLabel: Accessor<string>
+  analyticsActive: Accessor<boolean>
+  onOpenAnalytics: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
   onOpenSettings: () => void
@@ -90,6 +93,16 @@ export const SidebarContent = (props: {
           </DragDropProvider>
         </div>
         <div class="shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2">
+          <Tooltip placement={placement()} value={props.analyticsLabel()}>
+            <IconButton
+              icon={props.analyticsActive() ? "analytics-active" : "analytics"}
+              variant="ghost"
+              size="large"
+              classList={{ "bg-surface-base-active text-text-strong": props.analyticsActive() }}
+              onClick={props.onOpenAnalytics}
+              aria-label={props.analyticsLabel()}
+            />
+          </Tooltip>
           <TooltipKeybind placement={placement()} title={props.settingsLabel()} keybind={props.settingsKeybind() ?? ""}>
             <IconButton
               icon="settings-gear"

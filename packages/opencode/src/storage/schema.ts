@@ -10,3 +10,9 @@ export {
 export { SessionShareTable } from "../share/share.sql"
 export { ProjectTable } from "../project/project.sql"
 export { SecretProfileTable, SecretEntryTable } from "../secret/vault.sql"
+export {
+  AnalyticsDailyTable,
+  AnalyticsSessionTable,
+  AnalyticsResponseTable,
+  AnalyticsWatermarkTable,
+} from "../session/analytics-summary.sql"

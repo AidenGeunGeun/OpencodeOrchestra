@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { describeRoute, resolver } from "hono-openapi"
+import { describeRoute, resolver, validator } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
@@ -7,6 +7,7 @@ import { GlobalBus } from "@/bus/global"
 import { Instance } from "../../project/instance"
 import { Installation } from "@/installation"
 import { Config } from "../../config/config"
+import { Analytics } from "@/session/analytics"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 
@@ -35,6 +36,60 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json({ healthy: true, version: Installation.VERSION })
+      },
+    )
+    .get(
+      "/analytics",
+      describeRoute({
+        summary: "Get analytics summary",
+        description:
+          "Get compact local usage analytics without exposing conversation content or tool output. " +
+          "When `project` is omitted, the summary covers every project with usage in the selected period.",
+        operationId: "global.analytics",
+        responses: {
+          200: {
+            description: "Analytics summary",
+            content: {
+              "application/json": {
+                schema: resolver(Analytics.Summary),
+              },
+            },
+          },
+        },
+      }),
+      validator("query", Analytics.Query),
+      async (c) => {
+        const query = c.req.valid("query")
+        return c.json(await Analytics.summary(query))
+      },
+    )
+    .post(
+      "/analytics/rebuild",
+      describeRoute({
+        summary: "Rebuild analytics summary cache",
+        description:
+          "Clear the persistent analytics summary store and trigger a fresh backfill. " +
+          "Returns the current backfill progress state.",
+        operationId: "global.analyticsRebuild",
+        responses: {
+          200: {
+            description: "Analytics rebuild started",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    total: z.number(),
+                    processed: z.number(),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const result = await Analytics.rebuildSummary({ period: "30d" })
+        return c.json(result.backfilling ?? { total: 0, processed: 0 })
       },
     )
     .get(
