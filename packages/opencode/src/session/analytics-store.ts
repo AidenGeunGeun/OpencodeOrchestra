@@ -409,6 +409,15 @@ export namespace AnalyticsStore {
     return path.basename(source) || source || "Unknown project"
   }
 
+  function isSubscriptionActualCostProvider(providerID: string) {
+    return providerID === "opencode" || providerID === "opencode-go"
+  }
+
+  function billableActualCost(providerID: string, actualCost: number) {
+    if (isSubscriptionActualCostProvider(providerID)) return 0
+    return actualCost
+  }
+
   function toStorageRecord(row: {
     message: typeof MessageTable.$inferSelect
     session: typeof SessionTable.$inferSelect
@@ -440,7 +449,7 @@ export namespace AnalyticsStore {
       agent: data.agent,
       time_created: timeCreated,
       watermarkTime: row.message.time_created,
-      actualCost: data.cost,
+      actualCost: billableActualCost(data.providerID, data.cost),
       tokens: {
         freshInput: data.tokens.input,
         output: data.tokens.output,

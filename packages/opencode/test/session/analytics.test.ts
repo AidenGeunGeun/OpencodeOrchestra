@@ -89,6 +89,33 @@ describe("Analytics.summarizeRecords core math", () => {
     expect(summary.totals.apiEquivalentCost.unknownResponses).toBe(0)
   })
 
+  test("excludes subscription providers from actual cost while preserving API-equivalent value", () => {
+    const summary = Analytics.summarizeRecords(
+      [
+        record({
+          providerID: "opencode-go",
+          actualCost: 9.99,
+          tokens: {
+            freshInput: 1_000_000,
+            output: 1_000_000,
+            reasoning: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 2_000_000,
+          },
+        }),
+      ],
+      { period: "30d" },
+      () => ({ input: 2, output: 8, cacheRead: 0, cacheWrite: 0 }),
+      now,
+    )
+
+    expect(summary.totals.actualCost).toBe(0)
+    expect(summary.totals.apiEquivalentCost.amount).toBe(10)
+    expect(summary.breakdowns.byModel[0].actualCost).toBe(0)
+    expect(summary.highImpact.responses[0].actualCost).toBe(0)
+  })
+
   test("labels API-equivalent cost as partial when standard pricing is unknown", () => {
     const summary = Analytics.summarizeRecords(
       [record({ messageID: "known", modelID: "known" }), record({ messageID: "unknown", modelID: "unknown" })],

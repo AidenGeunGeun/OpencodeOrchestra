@@ -295,6 +295,15 @@ export namespace Analytics {
     return (tokens * rate) / 1_000_000
   }
 
+  function isSubscriptionActualCostProvider(providerID: string) {
+    return providerID === "opencode" || providerID === "opencode-go"
+  }
+
+  function billableActualCost(record: Pick<UsageRecord, "providerID" | "actualCost">) {
+    if (isSubscriptionActualCostProvider(record.providerID)) return 0
+    return record.actualCost
+  }
+
   function hasRate(rate: number | undefined): rate is number {
     return rate !== undefined && rate > 0
   }
@@ -404,7 +413,7 @@ export namespace Analytics {
     let actualCost = 0
     for (const record of records) {
       addTokens(tokens, record.tokens)
-      actualCost += record.actualCost
+      actualCost += billableActualCost(record)
       sessions.add(record.sessionID)
     }
     const apiEquivalentCostBuckets = summarizeCost(records, lookup)
@@ -563,7 +572,7 @@ export namespace Analytics {
           }
         prior.tokens += record.tokens.total
         prior.calls += 1
-        prior.missing += record.actualCost
+        prior.missing += billableActualCost(record)
         prior.kind = "unpriced"
         acc.set(key, prior)
         continue
@@ -582,7 +591,7 @@ export namespace Analytics {
         cost(record.tokens.reasoning, rates.output) +
         (cacheReadCost(record, rates) ?? 0) +
         (cacheWriteCost(record, rates) ?? 0)
-      const missingForRecord = Math.max(record.actualCost - covered, 0)
+      const missingForRecord = Math.max(billableActualCost(record) - covered, 0)
       const prior =
         acc.get(key) ?? {
           provider: record.providerID,
