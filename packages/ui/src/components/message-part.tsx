@@ -507,6 +507,12 @@ function partDefaultOpen(part: PartType, shell = false, edit = false) {
   return toolDefaultOpen(part.tool, shell, edit)
 }
 
+function taskChildSessionId(metadata: Record<string, any> | undefined) {
+  const value = metadata?.sessionId
+  if (typeof value === "string" && value) return value
+  return undefined
+}
+
 export function AssistantParts(props: {
   messages: AssistantMessage[]
   showAssistantCopyPartID?: string | null
@@ -589,15 +595,19 @@ export function AssistantParts(props: {
 
                 return (
                   <Show when={message()}>
-                    <Show when={item()}>
-                      <Part
-                        part={item()!}
-                        message={message()!}
-                        showAssistantCopyPartID={props.showAssistantCopyPartID}
-                        turnDurationMs={props.turnDurationMs}
-                        defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
-                      />
-                    </Show>
+                    {(currentMessage) => (
+                      <Show when={item()}>
+                        {(currentItem) => (
+                          <Part
+                            part={currentItem()}
+                            message={currentMessage()!}
+                            showAssistantCopyPartID={props.showAssistantCopyPartID}
+                            turnDurationMs={props.turnDurationMs}
+                            defaultOpen={partDefaultOpen(currentItem(), props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                          />
+                        )}
+                      </Show>
+                    )}
                   </Show>
                 )
               })()}
@@ -801,11 +811,9 @@ export function AssistantMessageDisplay(props: {
 
                 return (
                   <Show when={item()}>
-                    <Part
-                      part={item()!}
-                      message={props.message}
-                      showAssistantCopyPartID={props.showAssistantCopyPartID}
-                    />
+                    {(currentItem) => (
+                      <Part part={currentItem()} message={props.message} showAssistantCopyPartID={props.showAssistantCopyPartID} />
+                    )}
                   </Show>
                 )
               })()}
@@ -1313,8 +1321,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const partMetadata = () => part().state?.metadata ?? emptyMetadata
   const taskId = createMemo(() => {
     if (part().tool !== "task") return
-    const value = partMetadata().sessionId
-    if (typeof value === "string" && value) return value
+    return taskChildSessionId(partMetadata())
   })
   const taskHref = createMemo(() => {
     if (part().tool !== "task") return
@@ -1727,7 +1734,7 @@ ToolRegistry.register({
     const data = useData()
     const i18n = useI18n()
     const location = useLocation()
-    const childSessionId = () => props.metadata.sessionId as string | undefined
+    const childSessionId = () => taskChildSessionId(props.metadata)
     const type = createMemo(() => {
       const raw = props.input.subagent_type
       if (typeof raw !== "string" || !raw) return undefined
