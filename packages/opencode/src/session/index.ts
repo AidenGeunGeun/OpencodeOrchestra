@@ -53,28 +53,146 @@ export namespace Session {
     return ["session_async", Instance.project.id, sessionID]
   }
 
+  type SideMetadataKind = "agent" | "async"
+
+  type SideMetadataCache = {
+    projectID: string
+    agentIDs: Set<string>
+    asyncIDs: Set<string>
+    agent: Map<string, string | undefined>
+    async: Map<string, boolean | undefined>
+    files: number
+  }
+
+  const sideMetadataCaches = new Map<string, Promise<SideMetadataCache>>()
+  const maxSideMetadataCaches = 32
+
+  async function readSideMetadata<T>(key: string[]) {
+    return Storage.read<T>(key).catch(() => undefined)
+  }
+
+  async function loadSideMetadataCache(projectID: string): Promise<SideMetadataCache> {
+    const [agentKeys, asyncKeys] = await Promise.all([
+      Storage.list(["session_agent", projectID]),
+      Storage.list(["session_async", projectID]),
+    ])
+    const agentIDs = new Set<string>()
+    const asyncIDs = new Set<string>()
+    const agent = new Map<string, string>()
+    const async = new Map<string, boolean>()
+
+    for (const key of agentKeys) {
+      const sessionID = key.at(-1)
+      if (sessionID) agentIDs.add(sessionID)
+    }
+    for (const key of asyncKeys) {
+      const sessionID = key.at(-1)
+      if (sessionID) asyncIDs.add(sessionID)
+    }
+
+    return {
+      projectID,
+      agentIDs,
+      asyncIDs,
+      agent,
+      async,
+      files: agentKeys.length + asyncKeys.length,
+    }
+  }
+
+  async function hydrateSideMetadata(cache: SideMetadataCache, sessionIDs: string[]) {
+    let reads = 0
+    await Promise.all(
+      sessionIDs.map(async (sessionID) => {
+        if (cache.agentIDs.has(sessionID) && !cache.agent.has(sessionID)) {
+          reads++
+          const value = await readSideMetadata<string>(sessionAgentKey(sessionID))
+          cache.agent.set(sessionID, value)
+        }
+        if (cache.asyncIDs.has(sessionID) && !cache.async.has(sessionID)) {
+          reads++
+          const value = await readSideMetadata<boolean>(sessionAsyncKey(sessionID))
+          cache.async.set(sessionID, value)
+        }
+      }),
+    )
+    return reads
+  }
+
+  function getSideMetadataCache() {
+    const projectID = Instance.project.id
+    const cache = sideMetadataCaches.get(projectID)
+    if (cache) {
+      sideMetadataCaches.delete(projectID)
+      sideMetadataCaches.set(projectID, cache)
+      return { hit: true, promise: cache }
+    }
+
+    const promise = loadSideMetadataCache(projectID).catch((error) => {
+      if (sideMetadataCaches.get(projectID) === promise) sideMetadataCaches.delete(projectID)
+      throw error
+    })
+    sideMetadataCaches.set(projectID, promise)
+    while (sideMetadataCaches.size > maxSideMetadataCaches) {
+      const oldest = sideMetadataCaches.keys().next().value
+      if (!oldest) break
+      sideMetadataCaches.delete(oldest)
+    }
+    return { hit: false, promise }
+  }
+
+  function updateSideMetadataCache(kind: SideMetadataKind, sessionID: string, value: string | boolean | undefined) {
+    const cache = sideMetadataCaches.get(Instance.project.id)
+    if (!cache) return
+    cache
+      .then((metadata) => {
+        if (kind === "agent") {
+          if (typeof value === "string") {
+            metadata.agentIDs.add(sessionID)
+            metadata.agent.set(sessionID, value)
+          } else {
+            metadata.agentIDs.delete(sessionID)
+            metadata.agent.delete(sessionID)
+          }
+          return
+        }
+        if (typeof value === "boolean") {
+          metadata.asyncIDs.add(sessionID)
+          metadata.async.set(sessionID, value)
+        } else {
+          metadata.asyncIDs.delete(sessionID)
+          metadata.async.delete(sessionID)
+        }
+      })
+      .catch(() => {})
+  }
+
   async function getAgentID(sessionID: string) {
-    return Storage.read<string>(sessionAgentKey(sessionID)).catch(() => undefined)
+    return readSideMetadata<string>(sessionAgentKey(sessionID))
   }
 
   async function getAsync(sessionID: string) {
-    return Storage.read<boolean>(sessionAsyncKey(sessionID)).catch(() => undefined)
+    return readSideMetadata<boolean>(sessionAsyncKey(sessionID))
   }
 
   async function setAgentID(sessionID: string, agentID: string | undefined) {
     if (agentID) {
       await Storage.write(sessionAgentKey(sessionID), agentID)
+      updateSideMetadataCache("agent", sessionID, agentID)
       return
     }
     await Storage.remove(sessionAgentKey(sessionID)).catch(() => {})
+    updateSideMetadataCache("agent", sessionID, undefined)
   }
 
   async function setAsync(sessionID: string, value: boolean | undefined) {
     if (value) {
       await Storage.write(sessionAsyncKey(sessionID), value)
+      updateSideMetadataCache("async", sessionID, value)
       return
     }
     await Storage.remove(sessionAsyncKey(sessionID)).catch(() => {})
+    updateSideMetadataCache("async", sessionID, undefined)
   }
 
   function scopedConditions() {
@@ -634,6 +752,8 @@ export namespace Session {
       const info = fromRow(row)
       info.agentID = draft.agentID
       info.async = draft.async
+      updateSideMetadataCache("agent", id, draft.agentID)
+      updateSideMetadataCache("async", id, draft.async)
       Database.effect(async () => {
         await setAgentID(id, draft.agentID)
         await setAsync(id, draft.async)
@@ -741,14 +861,27 @@ export namespace Session {
     },
   )
 
-  export async function* list(input?: {
+  export type ListInput = {
     directory?: string
     workspaceID?: string
     roots?: boolean
     start?: number
     search?: string
     limit?: number
-  }) {
+  }
+
+  export type ListStats = {
+    rows: number
+    limit: number
+    queryMs: number
+    metadataMs: number
+    metadataCacheHit: boolean
+    metadataReadMode: "project-sidecar-cache"
+    metadataReads: number
+    metadataFiles: number
+  }
+
+  export async function listWithStats(input?: ListInput) {
     const conditions = scopedConditions()
 
     if (input?.directory) {
@@ -764,8 +897,9 @@ export namespace Session {
       conditions.push(like(SessionTable.title, `%${input.search}%`))
     }
 
-    const limit = input?.limit ?? 100
+    const limit = Math.max(1, Math.floor(input?.limit ?? 100))
 
+    const queryStart = performance.now()
     const rows = Database.use((db) =>
       db
         .select()
@@ -775,17 +909,43 @@ export namespace Session {
         .limit(limit)
         .all(),
     )
+    const queryMs = performance.now() - queryStart
 
-    // OCO: load project-switch metadata concurrently while preserving row order.
-    const infos = rows.map(async (row) => {
+    const metadataStart = performance.now()
+    // OCO: avoid per-row sidecar misses during desktop session warmup.
+    const metadata = getSideMetadataCache()
+    const side = await metadata.promise
+    const metadataReads = await hydrateSideMetadata(
+      side,
+      rows.map((row) => row.id),
+    )
+    const metadataMs = performance.now() - metadataStart
+    const infos = rows.map((row) => {
       const info = fromRow(row)
-      info.agentID = await getAgentID(info.id)
-      info.async = await getAsync(info.id)
+      info.agentID = side.agent.get(info.id)
+      info.async = side.async.get(info.id)
       return info
     })
 
-    for (const info of infos) {
-      yield await info
+    return {
+      sessions: infos,
+      stats: {
+        rows: infos.length,
+        limit,
+        queryMs,
+        metadataMs,
+        metadataCacheHit: metadata.hit,
+        metadataReadMode: "project-sidecar-cache" as const,
+        metadataReads,
+        metadataFiles: side.files,
+      } satisfies ListStats,
+    }
+  }
+
+  export async function* list(input?: ListInput) {
+    const result = await listWithStats(input)
+    for (const info of result.sessions) {
+      yield info
     }
   }
 
@@ -921,8 +1081,9 @@ export namespace Session {
 
   export const updatePart = fn(UpdatePartInput, async (input) => {
     const originalPart = "delta" in input ? input.part : input
-    const part = await SecretRedaction.forSession(originalPart.sessionID, originalPart)
-    const delta = "delta" in input ? await SecretRedaction.forSession(originalPart.sessionID, input.delta) : undefined
+    const patterns = await SecretRedaction.patternsForSession(originalPart.sessionID)
+    const part = SecretRedaction.applyUnknown(originalPart, patterns)
+    const delta = "delta" in input ? SecretRedaction.applyUnknown(input.delta, patterns) : undefined
     const { id, messageID, sessionID, ...data } = part
     const time_created = Date.now()
     Database.use((db) => {

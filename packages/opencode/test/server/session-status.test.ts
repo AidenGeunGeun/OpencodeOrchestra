@@ -132,4 +132,51 @@ describe("session.list", () => {
       },
     })
   }, 10000)
+
+  test("hydrates list side metadata from a project cache and keeps updates in sync", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const first = await Session.create({ title: "first", agentID: "build", async: true })
+        await Bun.sleep(5)
+        const second = await Session.create({ title: "second" })
+
+        try {
+          const initial = await Session.listWithStats({ limit: 2 })
+          expect(initial.sessions.map((session) => session.id)).toEqual([second.id, first.id])
+          expect(initial.sessions.map((session) => session.agentID)).toEqual([undefined, "build"])
+          expect(initial.sessions.map((session) => session.async)).toEqual([undefined, true])
+          expect(initial.stats.metadataCacheHit).toBe(false)
+          expect(initial.stats.metadataReads).toBe(2)
+
+          const cached = await Session.listWithStats({ limit: 2 })
+          expect(cached.stats.metadataCacheHit).toBe(true)
+          expect(cached.stats.metadataReads).toBe(0)
+
+          await Session.update(second.id, (draft) => {
+            draft.agentID = "plan"
+            draft.async = true
+          })
+          const updated = await Session.listWithStats({ limit: 2 })
+          const updatedSecond = updated.sessions.find((session) => session.id === second.id)
+          expect(updated.stats.metadataCacheHit).toBe(true)
+          expect(updatedSecond?.agentID).toBe("plan")
+          expect(updatedSecond?.async).toBe(true)
+
+          await Session.update(second.id, (draft) => {
+            draft.agentID = undefined
+            draft.async = undefined
+          })
+          const removed = await Session.listWithStats({ limit: 2 })
+          const removedSecond = removed.sessions.find((session) => session.id === second.id)
+          expect(removedSecond?.agentID).toBeUndefined()
+          expect(removedSecond?.async).toBeUndefined()
+        } finally {
+          await Session.remove(second.id)
+          await Session.remove(first.id)
+        }
+      },
+    })
+  }, 10000)
 })

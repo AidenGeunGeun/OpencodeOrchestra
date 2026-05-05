@@ -36,6 +36,13 @@ export const SessionTable = sqliteTable(
     index("session_project_idx").on(table.project_id),
     index("session_workspace_idx").on(table.workspace_id),
     index("session_parent_idx").on(table.parent_id),
+    index("session_directory_recent_idx").on(
+      table.project_id,
+      table.workspace_id,
+      table.directory,
+      table.parent_id,
+      table.time_updated,
+    ),
   ],
 )
 
@@ -49,7 +56,10 @@ export const MessageTable = sqliteTable(
     ...Timestamps,
     data: text({ mode: "json" }).notNull().$type<InfoData>(),
   },
-  (table) => [index("message_session_idx").on(table.session_id)],
+  (table) => [
+    index("message_session_idx").on(table.session_id),
+    index("message_time_created_idx").on(table.time_created),
+  ],
 )
 
 export const PartTable = sqliteTable(

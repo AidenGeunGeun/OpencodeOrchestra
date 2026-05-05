@@ -16,6 +16,8 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Instance } from "@/project/instance"
+import { WorkspaceContext } from "@/control-plane/workspace-context"
 
 const log = Log.create({ service: "server" })
 
@@ -29,6 +31,49 @@ function round(value: number) {
 function perfLog(label: string, fields: Record<string, unknown>) {
   if (!perfEnabled) return
   console.info(`[oco-perf] ${label}`, fields)
+}
+
+type SessionListQuery = {
+  directory?: string
+  roots?: boolean
+  start?: number
+  search?: string
+  limit?: number
+}
+
+const sessionListInFlight = new Map<string, Promise<Awaited<ReturnType<typeof Session.listWithStats>>>>()
+
+function sessionListKey(query: SessionListQuery) {
+  return JSON.stringify({
+    projectID: Instance.project.id,
+    instanceDirectory: Instance.directory,
+    workspaceID: WorkspaceContext.workspaceID,
+    directory: query.directory,
+    roots: query.roots ?? false,
+    start: query.start,
+    search: query.search,
+    limit: query.limit ?? 100,
+  })
+}
+
+async function listSessions(query: SessionListQuery) {
+  const key = sessionListKey(query)
+  const pending = sessionListInFlight.get(key)
+  if (pending) return { ...(await pending), coalesced: true }
+
+  const promise = Session.listWithStats({
+    directory: query.directory,
+    roots: query.roots,
+    start: query.start,
+    search: query.search,
+    limit: query.limit,
+  })
+  sessionListInFlight.set(key, promise)
+  try {
+    return { ...(await promise), coalesced: false }
+  } finally {
+    if (sessionListInFlight.get(key) === promise) sessionListInFlight.delete(key)
+  }
 }
 
 export async function visibleSessionStatuses(input: {
@@ -73,32 +118,39 @@ export const SessionRoutes = lazy(() =>
             .optional()
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
-          limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
+          limit: z.coerce
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .meta({ description: "Maximum number of sessions to return" }),
         }),
       ),
       async (c) => {
         const start = performance.now()
         const query = c.req.valid("query")
-        const sessions: Session.Info[] = []
-        for await (const session of Session.list({
+        const result = await listSessions({
           directory: query.directory,
           roots: query.roots,
           start: query.start,
           search: query.search,
           limit: query.limit,
-        })) {
-          sessions.push(session)
-        }
+        })
         perfLog("session.list", {
           durationMs: round(performance.now() - start),
-          rows: sessions.length,
-          metadataReadMode: "parallel",
-          metadataReads: sessions.length * 2,
+          rows: result.sessions.length,
+          queryMs: round(result.stats.queryMs),
+          metadataMs: round(result.stats.metadataMs),
+          metadataReadMode: result.stats.metadataReadMode,
+          metadataReads: result.stats.metadataReads,
+          metadataFiles: result.stats.metadataFiles,
+          metadataCacheHit: result.stats.metadataCacheHit,
+          coalesced: result.coalesced,
           directory: query.directory,
           roots: query.roots ?? false,
           limit: query.limit ?? 100,
         })
-        return c.json(sessions)
+        return c.json(result.sessions)
       },
     )
     .get(
