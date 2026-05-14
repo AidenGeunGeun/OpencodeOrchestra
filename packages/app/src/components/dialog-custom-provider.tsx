@@ -13,6 +13,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { type FormState, headerRow, modelRow, validateCustomProvider } from "./dialog-custom-provider-form"
 import { DialogSelectProvider } from "./dialog-select-provider"
+import { enableProviderIfDisabled } from "./provider-handlers"
 
 type Props = {
   back?: "providers" | "close"
@@ -125,39 +126,39 @@ export function DialogCustomProvider(props: Props) {
 
     setForm("saving", true)
 
-    const disabledProviders = globalSync.data.config.disabled_providers ?? []
-    const nextDisabled = disabledProviders.filter((id) => id !== result.providerID)
+    try {
+      await enableProviderIfDisabled(result.providerID, {
+        getDisabledProviders: () => globalSync.data.config.disabled_providers,
+        setDisabledProviders: (next) => globalSync.set("config", "disabled_providers", next),
+        updateConfig: (patch) => globalSync.updateConfig(patch),
+        showErrorToast: (message) => showToast({ title: language.t("common.requestFailed"), description: message }),
+      })
 
-    const auth = result.key
-      ? globalSDK.client.auth.set({
+      if (result.key) {
+        await globalSDK.client.auth.set({
           providerID: result.providerID,
           auth: {
             type: "api",
             key: result.key,
           },
         })
-      : Promise.resolve()
+      }
 
-    auth
-      .then(() =>
-        globalSync.updateConfig({ provider: { [result.providerID]: result.config }, disabled_providers: nextDisabled }),
-      )
-      .then(() => {
-        dialog.close()
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: language.t("provider.connect.toast.connected.title", { provider: result.name }),
-          description: language.t("provider.connect.toast.connected.description", { provider: result.name }),
-        })
+      await globalSync.updateConfig({ provider: { [result.providerID]: result.config } })
+      await globalSDK.client.global.dispose()
+      dialog.close()
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: language.t("provider.connect.toast.connected.title", { provider: result.name }),
+        description: language.t("provider.connect.toast.connected.description", { provider: result.name }),
       })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
-      .finally(() => {
-        setForm("saving", false)
-      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description: message })
+    } finally {
+      setForm("saving", false)
+    }
   }
 
   return (

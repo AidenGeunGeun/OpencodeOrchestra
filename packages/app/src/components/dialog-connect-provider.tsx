@@ -18,6 +18,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { usePlatform } from "@/context/platform"
 import { DialogSelectModel } from "./dialog-select-model"
 import { DialogSelectProvider } from "./dialog-select-provider"
+import { enableProviderIfDisabled, handleConnectComplete } from "./provider-handlers"
 
 export function DialogConnectProvider(props: { provider: string }) {
   const dialog = useDialog()
@@ -179,13 +180,25 @@ export function DialogConnectProvider(props: { provider: string }) {
   })
 
   async function complete() {
-    await globalSDK.client.global.dispose()
-    dialog.close()
-    showToast({
-      variant: "success",
-      icon: "circle-check",
-      title: language.t("provider.connect.toast.connected.title", { provider: provider().name }),
-      description: language.t("provider.connect.toast.connected.description", { provider: provider().name }),
+    const enableIfDisabled = (id: string) =>
+      enableProviderIfDisabled(id, {
+        getDisabledProviders: () => globalSync.data.config.disabled_providers,
+        setDisabledProviders: (next) => globalSync.set("config", "disabled_providers", next),
+        updateConfig: (patch) => globalSync.updateConfig(patch),
+        showErrorToast: (message) => showToast({ title: language.t("common.requestFailed"), description: message }),
+      })
+
+    await handleConnectComplete(props.provider, provider().name, {
+      enableProviderIfDisabled: enableIfDisabled,
+      globalDispose: () => globalSDK.client.global.dispose(),
+      closeDialog: () => dialog.close(),
+      showSuccessToast: (name) =>
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: language.t("provider.connect.toast.connected.title", { provider: name }),
+          description: language.t("provider.connect.toast.connected.description", { provider: name }),
+        }),
     })
   }
 

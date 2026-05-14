@@ -11,6 +11,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 import { DialogCustomProvider } from "./dialog-custom-provider"
+import { handleDisconnect } from "./provider-handlers"
 
 type ProviderSource = "env" | "api" | "config" | "custom"
 type ProviderItem = ReturnType<ReturnType<typeof useProviders>["connected"]>[number]
@@ -103,26 +104,19 @@ export const SettingsProviders: Component = () => {
   }
 
   const disconnect = async (providerID: string, name: string) => {
-    if (isConfigCustom(providerID)) {
-      await globalSDK.client.auth.remove({ providerID }).catch(() => undefined)
-      await disableProvider(providerID, name)
-      return
-    }
-    await globalSDK.client.auth
-      .remove({ providerID })
-      .then(async () => {
-        await globalSDK.client.global.dispose()
+    await handleDisconnect(providerID, name, isConfigCustom(providerID), {
+      authRemove: (id) => globalSDK.client.auth.remove({ providerID: id }),
+      disableProvider: (id, n) => disableProvider(id, n),
+      globalDispose: () => globalSDK.client.global.dispose(),
+      showSuccessToast: (n) =>
         showToast({
           variant: "success",
           icon: "circle-check",
-          title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
+          title: language.t("provider.disconnect.toast.disconnected.title", { provider: n }),
+          description: language.t("provider.disconnect.toast.disconnected.description", { provider: n }),
+        }),
+      showErrorToast: (message) => showToast({ title: language.t("common.requestFailed"), description: message }),
+    })
   }
 
   return (
