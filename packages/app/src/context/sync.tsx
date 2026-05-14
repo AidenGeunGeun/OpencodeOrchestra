@@ -50,6 +50,69 @@ type OptimisticRemoveInput = {
   messageID: string
 }
 
+type OptimisticItem = {
+  message: Message
+  parts: Part[]
+}
+
+type MessagePage = {
+  session: Message[]
+  part: { id: string; part: Part[] }[]
+  complete: boolean
+}
+
+type OptimisticSideStore = {
+  item: Record<string, Record<string, OptimisticItem | undefined> | undefined>
+}
+
+const hasParts = (parts: Part[] | undefined, want: Part[]) => {
+  if (!parts) return want.length === 0
+  return want.every((part) => Binary.search(parts, part.id, (item) => item.id).found)
+}
+
+const mergeParts = (parts: Part[] | undefined, want: Part[]) => {
+  if (!parts) return sortParts(want)
+  const next = [...parts]
+  let changed = false
+  for (const part of want) {
+    const result = Binary.search(next, part.id, (item) => item.id)
+    if (result.found) continue
+    next.splice(result.index, 0, part)
+    changed = true
+  }
+  if (!changed) return parts
+  return next
+}
+
+export function mergeOptimisticPage(page: MessagePage, items: OptimisticItem[]) {
+  if (items.length === 0) return { ...page, confirmed: [] as string[] }
+
+  const session = [...page.session]
+  const part = new Map(page.part.map((item) => [item.id, sortParts(item.part)]))
+  const confirmed: string[] = []
+
+  for (const item of items) {
+    const result = Binary.search(session, item.message.id, (message) => message.id)
+    const found = result.found
+    if (!found) session.splice(result.index, 0, item.message)
+
+    const current = part.get(item.message.id)
+    if (found && hasParts(current, item.parts)) {
+      confirmed.push(item.message.id)
+      continue
+    }
+
+    part.set(item.message.id, mergeParts(current, item.parts))
+  }
+
+  return {
+    complete: page.complete,
+    session,
+    part: [...part.entries()].sort((a, b) => cmp(a[0], b[0])).map(([id, part]) => ({ id, part })),
+    confirmed,
+  }
+}
+
 export function applyOptimisticAdd(draft: OptimisticStore, input: OptimisticAddInput) {
   const messages = draft.message[input.sessionID]
   if (messages) {
@@ -121,6 +184,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const inflight = new Map<string, Promise<void>>()
     const inflightDiff = new Map<string, Promise<void>>()
     const inflightTodo = new Map<string, Promise<void>>()
+    const [optimistic, setOptimisticStore] = createStore<OptimisticSideStore>({ item: {} })
     const maxDirs = 30
     const seen = new Map<string, Set<string>>()
     const [meta, setMeta] = createStore({
@@ -136,6 +200,36 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       if (match.found) return store.session[match.index]
       return undefined
     }
+
+    const setOptimistic = (directory: string, sessionID: string, item: OptimisticItem) => {
+      const key = keyFor(directory, sessionID)
+      setOptimisticStore("item", key, (items) => ({
+        ...(items ?? {}),
+        [item.message.id]: { message: item.message, parts: sortParts(item.parts) },
+      }))
+    }
+
+    const clearOptimistic = (directory: string, sessionID: string, messageID?: string) => {
+      const key = keyFor(directory, sessionID)
+      setOptimisticStore(
+        produce((draft) => {
+          if (!messageID) {
+            delete draft.item[key]
+            return
+          }
+
+          const list = draft.item[key]
+          if (!list) return
+          delete list[messageID]
+          if (Object.values(list).every((item) => !item)) delete draft.item[key]
+        }),
+      )
+    }
+
+    const getOptimistic = (directory: string, sessionID: string) =>
+      Object.values(optimistic.item[keyFor(directory, sessionID)] ?? {}).filter(
+        (item): item is OptimisticItem => !!item,
+      )
 
     const seenFor = (directory: string) => {
       const existing = seen.get(directory)
@@ -159,6 +253,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
     const clearMeta = (directory: string, sessionIDs: string[]) => {
       if (sessionIDs.length === 0) return
+      for (const sessionID of sessionIDs) {
+        clearOptimistic(directory, sessionID)
+      }
       setMeta(
         produce((draft) => {
           for (const sessionID of sessionIDs) {
@@ -257,9 +354,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
       setMeta("loading", key, true)
       await fetchMessages(input)
-        .then((next) => {
+        .then((page) => {
           if (!tracked(input.directory, input.sessionID)) return
+          const next = mergeOptimisticPage(page, getOptimistic(input.directory, input.sessionID))
           batch(() => {
+            for (const messageID of next.confirmed) {
+              clearOptimistic(input.directory, input.sessionID, messageID)
+            }
             input.setStore("message", input.sessionID, reconcile(next.session, { key: "id" }))
             for (const p of next.part) {
               input.setStore("part", p.id, p.part)
@@ -311,12 +412,20 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         get: getSession,
         optimistic: {
           add(input: { directory?: string; sessionID: string; message: Message; parts: Part[] }) {
+            const directory = input.directory ?? sdk.directory
             const [, setStore] = target(input.directory)
-            setOptimisticAdd(setStore as (...args: unknown[]) => void, input)
+            batch(() => {
+              setOptimistic(directory, input.sessionID, { message: input.message, parts: input.parts })
+              setOptimisticAdd(setStore as (...args: unknown[]) => void, input)
+            })
           },
           remove(input: { directory?: string; sessionID: string; messageID: string }) {
+            const directory = input.directory ?? sdk.directory
             const [, setStore] = target(input.directory)
-            setOptimisticRemove(setStore as (...args: unknown[]) => void, input)
+            batch(() => {
+              clearOptimistic(directory, input.sessionID, input.messageID)
+              setOptimisticRemove(setStore as (...args: unknown[]) => void, input)
+            })
           },
         },
         addOptimisticMessage(input: {
@@ -337,10 +446,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             variant: input.variant,
           }
           const [, setStore] = target()
-          setOptimisticAdd(setStore as (...args: unknown[]) => void, {
-            sessionID: input.sessionID,
-            message,
-            parts: input.parts,
+          batch(() => {
+            setOptimistic(sdk.directory, input.sessionID, { message, parts: input.parts })
+            setOptimisticAdd(setStore as (...args: unknown[]) => void, {
+              sessionID: input.sessionID,
+              message,
+              parts: input.parts,
+            })
           })
         },
         async sync(sessionID: string, opts?: { force?: boolean }) {
