@@ -1,7 +1,9 @@
 import { spawn as nodeSpawn } from "node:child_process"
 import { accessSync, constants, createReadStream, readdirSync, realpathSync, statSync } from "node:fs"
 import { access, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises"
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { createRequire } from "node:module"
+import { createConnection } from "node:net"
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path"
 import { Readable } from "node:stream"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -368,6 +370,233 @@ function xxHash32(input: string | ArrayBuffer | Uint8Array) {
   return hash >>> 0
 }
 
+type ServeFetchHandler = (req: Request) => Response | Promise<Response>
+
+type ServeOptions = {
+  port: number
+  hostname?: string
+  fetch: ServeFetchHandler
+}
+
+type ServeReturn = {
+  port: number
+  hostname: string
+  url: URL
+  development: boolean
+  pendingRequests: number
+  pendingWebSockets: number
+  stop(closeActiveConnections?: boolean): Promise<void>
+}
+
+async function handleHttpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  port: number,
+  handler: ServeFetchHandler,
+) {
+  try {
+    const host = req.headers.host ?? `127.0.0.1:${port}`
+    const url = `http://${host}${req.url ?? "/"}`
+    const method = req.method ?? "GET"
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value === undefined) continue
+      if (Array.isArray(value)) {
+        for (const entry of value) headers.append(key, entry)
+      } else {
+        headers.set(key, String(value))
+      }
+    }
+    const hasBody = method !== "GET" && method !== "HEAD"
+    const init: RequestInit & { duplex?: "half" } = { method, headers }
+    if (hasBody) {
+      init.body = Readable.toWeb(req) as unknown as BodyInit
+      init.duplex = "half"
+    }
+    const request = new Request(url, init as RequestInit)
+    const response = await handler(request)
+    if (res.headersSent || res.writableEnded) return
+    res.statusCode = response.status
+    const headersWithCookies = response.headers as Headers & { getSetCookie?: () => string[] }
+    const setCookies = headersWithCookies.getSetCookie?.()
+    if (setCookies && setCookies.length > 0) {
+      try {
+        res.setHeader("set-cookie", setCookies)
+      } catch {}
+    }
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "set-cookie") return
+      try {
+        res.setHeader(key, value)
+      } catch {}
+    })
+    if (response.body) {
+      const buffer = Buffer.from(await response.arrayBuffer())
+      res.end(buffer)
+    } else {
+      res.end()
+    }
+  } catch {
+    try {
+      if (!res.headersSent && !res.writableEnded) {
+        res.statusCode = 500
+        res.setHeader("Content-Type", "text/plain")
+        res.end("Internal Server Error")
+      } else if (!res.writableEnded) {
+        res.end()
+      }
+    } catch {}
+  }
+}
+
+// Minimal Node-backed reimplementation of Bun.serve. Used only when the Node
+// shim is loaded (Electron desktop backend); the Bun runtime path keeps using
+// Bun's native serve. Drop-in compatible with the existing OAuth call sites,
+// which use { port, fetch } and a synchronous server.stop().
+function serve(options: ServeOptions): ServeReturn {
+  const port = options.port
+  const hostname = options.hostname ?? "127.0.0.1"
+  const handler = options.fetch
+  const httpServer = createHttpServer((req, res) => {
+    void handleHttpRequest(req, res, port, handler)
+  })
+  // Reset half-formed client connections instead of crashing the process.
+  httpServer.on("clientError", (_err, socket) => {
+    try {
+      socket.destroy()
+    } catch {}
+  })
+  // Track bind failures so .stop() doesn't hang and so the failure is loud
+  // in logs. Node emits listen errors asynchronously, so we cannot match Bun's
+  // synchronous throw-on-EADDRINUSE behavior exactly. We deliberately do NOT
+  // re-throw via queueMicrotask here: in the Electron main process, where the
+  // Node backend can run in-process, an unhandled async throw would crash the
+  // desktop app. stderr keeps the failure visible in OCO logs without that
+  // risk; the OAuth call sites that cache the returned wrapper will surface
+  // the underlying "connection refused" to the user's browser if bind failed.
+  let bindError: Error | undefined
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (!httpServer.listening) {
+      bindError = err
+      console.error(`[node-bun-shim] Bun.serve failed to bind ${hostname}:${port}:`, err)
+    }
+  })
+  httpServer.listen(port, hostname)
+  return {
+    port,
+    hostname,
+    url: new URL(`http://${hostname}:${port}/`),
+    development: false,
+    pendingRequests: 0,
+    pendingWebSockets: 0,
+    stop(closeActiveConnections?: boolean): Promise<void> {
+      return new Promise<void>((resolve) => {
+        if (bindError) {
+          resolve()
+          return
+        }
+        try {
+          if (closeActiveConnections) {
+            const closeAll = (httpServer as unknown as { closeAllConnections?: () => void }).closeAllConnections
+            if (typeof closeAll === "function") closeAll.call(httpServer)
+          }
+          if (!httpServer.listening) {
+            try {
+              httpServer.close()
+            } catch {}
+            resolve()
+            return
+          }
+          httpServer.close(() => resolve())
+        } catch {
+          resolve()
+        }
+      })
+    },
+  }
+}
+
+type ConnectSocketWrapper = {
+  end(): void
+  write(data: string | Uint8Array): boolean
+  destroy(err?: Error): void
+}
+
+type ConnectSocketHandlers = {
+  open?(socket: ConnectSocketWrapper): void | Promise<void>
+  close?(socket: ConnectSocketWrapper, err?: Error): void | Promise<void>
+  error?(socket: ConnectSocketWrapper, err: Error): void | Promise<void>
+  data?(socket: ConnectSocketWrapper, data: Buffer): void | Promise<void>
+  drain?(socket: ConnectSocketWrapper): void | Promise<void>
+}
+
+type ConnectOptions = {
+  hostname: string
+  port: number
+  socket: ConnectSocketHandlers
+}
+
+// Minimal Node-backed reimplementation of Bun.connect. The only call site
+// (mcp/oauth-callback.ts isPortInUse) uses this as a TCP probe: it expects the
+// promise to reject on ECONNREFUSED and to resolve with an .end()-capable
+// socket otherwise.
+function connect(options: ConnectOptions): Promise<ConnectSocketWrapper> {
+  return new Promise<ConnectSocketWrapper>((resolve, reject) => {
+    const tcp = createConnection({
+      host: options.hostname,
+      port: options.port,
+    })
+    const wrapper: ConnectSocketWrapper = {
+      end() {
+        try {
+          tcp.end()
+        } catch {}
+      },
+      write(data) {
+        try {
+          return tcp.write(data)
+        } catch {
+          return false
+        }
+      },
+      destroy(err?: Error) {
+        try {
+          tcp.destroy(err)
+        } catch {}
+      },
+    }
+    let settled = false
+    tcp.on("connect", () => {
+      try {
+        void options.socket.open?.(wrapper)
+      } catch {}
+      if (!settled) {
+        settled = true
+        resolve(wrapper)
+      }
+    })
+    tcp.on("error", (err) => {
+      try {
+        void options.socket.error?.(wrapper, err)
+      } catch {}
+      if (!settled) {
+        settled = true
+        reject(err)
+      }
+    })
+    tcp.on("data", (data: Buffer) => {
+      try {
+        void options.socket.data?.(wrapper, data)
+      } catch {}
+    })
+    tcp.on("close", (hadError) => {
+      try {
+        void options.socket.close?.(wrapper, hadError ? new Error("Socket closed with error") : undefined)
+      } catch {}
+    })
+  })
+}
+
 const shim = {
   $,
   file,
@@ -377,6 +606,8 @@ const shim = {
   sleep,
   stdin,
   readableStreamToText,
+  serve,
+  connect,
   Glob: NodeGlob,
   env: process.env,
   hash: { xxHash32 },
