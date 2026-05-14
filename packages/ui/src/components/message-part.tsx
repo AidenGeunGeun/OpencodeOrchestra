@@ -1095,7 +1095,7 @@ export function UserMessageDisplay(props: {
         <>
           <div data-slot="user-message-body">
             <div data-slot="user-message-text">
-              <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+              <HighlightedText text={text() ?? ""} references={inlineFiles()} agents={agents()} />
             </div>
           </div>
           <div data-slot="user-message-copy-wrapper" data-interrupted={props.interrupted ? "" : undefined}>
@@ -1179,6 +1179,8 @@ type HighlightSegment = { text: string; type?: "file" | "agent" }
 function HighlightedText(props: { text: string; references: FilePart[]; agents: AgentPart[] }) {
   const segments = createMemo(() => {
     const text = props.text
+    // OCO: guard Solid stale-prop races during rapid session switching.
+    if (typeof text !== "string") return []
 
     const allRefs: { start: number; end: number; type: "file" | "agent" }[] = [
       ...props.references
