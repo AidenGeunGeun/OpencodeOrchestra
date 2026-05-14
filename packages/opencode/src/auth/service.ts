@@ -46,7 +46,11 @@ export class AuthServiceError extends Error {
   }
 }
 
-const file = path.join(Global.Path.data, "auth.json")
+let testFile: string | undefined
+export function __setTestFile(p: string) {
+  testFile = p
+}
+const getFile = () => testFile ?? path.join(Global.Path.data, "auth.json")
 
 const fail =
   (message: string) =>
@@ -58,12 +62,17 @@ export function normalizeProviderID(providerID: string) {
 }
 
 async function readAuthFile(): Promise<Record<string, unknown>> {
-  return Bun.file(file).json().catch(() => ({}))
+  return Bun.file(getFile()).json().catch(() => ({}))
+}
+
+async function writeAuthFileRaw(data: unknown) {
+  const file = getFile()
+  await Bun.write(file, JSON.stringify(data, null, 2))
+  await fs.chmod(file, 0o600)
 }
 
 async function writeAuthFile(data: Record<string, Info>) {
-  await Bun.write(file, JSON.stringify(data, null, 2))
-  await fs.chmod(file, 0o600)
+  await writeAuthFileRaw(data)
 }
 
 export namespace AuthService {
@@ -121,20 +130,17 @@ export class AuthService extends ServiceMap.Service<AuthService, AuthService.Ser
       )
 
       const remove = Effect.fn("AuthService.remove")((providerID: string) =>
-        all().pipe(
-          Effect.flatMap((auth) =>
-            Effect.tryPromise({
-              try: async () => {
-                const normalized = normalizeProviderID(providerID)
-                delete auth[providerID]
-                delete auth[normalized]
-                delete auth[`${normalized}/`]
-                await writeAuthFile(auth)
-              },
-              catch: fail("Failed to write auth data"),
-            }),
-          ),
-        ),
+        Effect.tryPromise({
+          try: async () => {
+            const data = await readAuthFile()
+            const normalized = normalizeProviderID(providerID)
+            delete data[providerID]
+            delete data[normalized]
+            delete data[`${normalized}/`]
+            await writeAuthFileRaw(data)
+          },
+          catch: fail("Failed to write auth data"),
+        }),
       )
 
       return AuthService.of({
