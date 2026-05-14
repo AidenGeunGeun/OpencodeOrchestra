@@ -29,7 +29,6 @@ export const AnalyticsDailyTable = sqliteTable(
     cache_write: integer("cache_write").notNull().default(0),
     actual_cost: real("actual_cost").notNull().default(0),
     calls: integer("calls").notNull().default(0),
-    session_count: integer("session_count").notNull().default(0),
   },
   (table) => [
     uniqueIndex("analytics_daily_unique").on(

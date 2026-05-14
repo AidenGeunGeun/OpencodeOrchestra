@@ -96,6 +96,7 @@ export namespace Analytics {
     .object({
       id: z.string(),
       label: z.string(),
+      day: z.string().optional(),
       actualCost: z.number(),
       apiEquivalentCost: EstimatedCost,
       apiEquivalentCostBuckets: CostBuckets,
@@ -183,7 +184,7 @@ export namespace Analytics {
       range: z.object({ start: z.number().optional(), end: z.number() }),
       totals: Totals,
       breakdowns: z.object({
-        byDay: BreakdownRow.array(),
+        byBucket: BreakdownRow.array(),
         byProject: BreakdownRow.array(),
         byModel: BreakdownRow.array(),
         byAgent: BreakdownRow.array(),
@@ -379,6 +380,75 @@ export namespace Analytics {
     return new Date(timestamp).toISOString().slice(0, 10)
   }
 
+  function hourLabel(timestamp: number) {
+    return `${new Date(timestamp).toISOString().slice(0, 13).replace("T", " ")}:00`
+  }
+
+  const HOUR_MS = 60 * 60 * 1000
+  const DAY_MS = 24 * HOUR_MS
+
+  type TimeBucket = {
+    id: string
+    label: string
+    day: string
+    start: number
+  }
+
+  function startOfDay(timestamp: number) {
+    const date = new Date(timestamp)
+    date.setHours(0, 0, 0, 0)
+    return date.getTime()
+  }
+
+  function floorToHour(timestamp: number) {
+    const date = new Date(timestamp)
+    date.setMinutes(0, 0, 0)
+    return date.getTime()
+  }
+
+  function floorToFourHour(timestamp: number) {
+    const date = new Date(timestamp)
+    date.setMinutes(0, 0, 0)
+    date.setHours(Math.floor(date.getHours() / 4) * 4)
+    return date.getTime()
+  }
+
+  function bucketFromStart(start: number, interval: number): TimeBucket {
+    const daily = interval >= DAY_MS
+    return {
+      id: daily ? dayLabel(start) : hourLabel(start),
+      label: daily ? dayLabel(start) : hourLabel(start),
+      day: dayLabel(start),
+      start,
+    }
+  }
+
+  function bucketForRecord(period: Period, record: UsageRecord): TimeBucket {
+    if (period === "today") return bucketFromStart(floorToHour(record.createdAt), HOUR_MS)
+    if (period === "7d") return bucketFromStart(floorToFourHour(record.createdAt), 4 * HOUR_MS)
+    return bucketFromStart(startOfDay(record.createdAt), DAY_MS)
+  }
+
+  function periodBuckets(period: Period, now: number, records: UsageRecord[]): TimeBucket[] {
+    if (period === "today") {
+      const start = periodStart(period, now) ?? startOfDay(now)
+      return Array.from({ length: 24 }, (_, index) => bucketFromStart(start + index * HOUR_MS, HOUR_MS))
+    }
+    if (period === "7d") {
+      const start = floorToFourHour(periodStart(period, now) ?? now - 7 * DAY_MS)
+      return Array.from({ length: 42 }, (_, index) => bucketFromStart(start + index * 4 * HOUR_MS, 4 * HOUR_MS))
+    }
+    if (period === "30d" || period === "thisMonth") {
+      const start = startOfDay(periodStart(period, now) ?? now)
+      const end = startOfDay(now)
+      const count = Math.max(1, Math.floor((end - start) / DAY_MS) + 1)
+      return Array.from({ length: count }, (_, index) => bucketFromStart(start + index * DAY_MS, DAY_MS))
+    }
+
+    const days = Array.from(new Set(records.map((record) => dayLabel(record.createdAt)))).sort()
+    return days.map((day) => ({ id: day, label: day, day, start: new Date(day).getTime() }))
+  }
+
   function periodStart(period: Period, now: number) {
     const date = new Date(now)
     if (period === "allTime") return undefined
@@ -391,8 +461,12 @@ export namespace Analytics {
       date.setHours(0, 0, 0, 0)
       return date.getTime()
     }
-    const days = period === "7d" ? 7 : 30
-    return now - days * 24 * 60 * 60 * 1000
+    if (period === "7d") {
+      date.setDate(date.getDate() - 6)
+      date.setHours(0, 0, 0, 0)
+      return date.getTime()
+    }
+    return now - 30 * DAY_MS
   }
 
   function cacheHitRate(tokens: TokenTotals): number {
@@ -455,11 +529,11 @@ export namespace Analytics {
 
   function breakdown(
     records: UsageRecord[],
-    key: (record: UsageRecord) => { id: string; label: string },
+    key: (record: UsageRecord) => { id: string; label: string; day?: string },
     lookup: RatesLookup,
     limit?: number,
   ): BreakdownRow[] {
-    const groups = new Map<string, { id: string; label: string; records: UsageRecord[] }>()
+    const groups = new Map<string, { id: string; label: string; day?: string; records: UsageRecord[] }>()
     for (const record of records) {
       const item = key(record)
       const group = groups.get(item.id) ?? { ...item, records: [] }
@@ -481,10 +555,47 @@ export namespace Analytics {
           id: r.agent || "unknown",
           label: r.agent || "Unknown",
         }))
-        return { id: group.id, label: group.label, ...totals, topModel, topProject, topAgent }
+        return { id: group.id, label: group.label, day: group.day, ...totals, topModel, topProject, topAgent }
       })
       .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost)
     return limit === undefined ? rows : rows.slice(0, limit)
+  }
+
+  function bucketBreakdown(records: UsageRecord[], period: Period, now: number, lookup: RatesLookup): BreakdownRow[] {
+    const groups = new Map<string, TimeBucket & { records: UsageRecord[] }>()
+    for (const bucket of periodBuckets(period, now, records)) groups.set(bucket.id, { ...bucket, records: [] })
+    for (const record of records) {
+      const bucket = bucketForRecord(period, record)
+      const group = groups.get(bucket.id) ?? { ...bucket, records: [] }
+      group.records.push(record)
+      groups.set(bucket.id, group)
+    }
+    return Array.from(groups.values())
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((group) => {
+        const totals = summarizeTotals(group.records, lookup)
+        const topModel = topByTokens(group.records, (r) => ({
+          id: `${r.providerID}/${r.modelID}`,
+          label: `${r.providerID}/${r.modelID}`,
+        }))
+        const topProject = topByTokens(group.records, (r) => ({
+          id: projectKey(r),
+          label: projectLabel(r),
+        }))
+        const topAgent = topByTokens(group.records, (r) => ({
+          id: r.agent || "unknown",
+          label: r.agent || "Unknown",
+        }))
+        return {
+          id: group.id,
+          label: group.label,
+          day: group.day,
+          ...totals,
+          topModel,
+          topProject,
+          topAgent,
+        }
+      })
   }
 
   function highImpactSessions(records: UsageRecord[], lookup: RatesLookup) {
@@ -707,7 +818,7 @@ export namespace Analytics {
       range: { start, end: now },
       totals,
       breakdowns: {
-        byDay: breakdown(applyFilters(records, filters, "day"), (record) => ({ id: dayLabel(record.createdAt), label: dayLabel(record.createdAt) }), lookup),
+        byBucket: bucketBreakdown(applyFilters(records, filters, "day"), query.period, now, lookup),
         byProject: breakdown(applyFilters(records, filters, "project"), (record) => ({ id: projectKey(record), label: projectLabel(record) }), lookup),
         byModel: breakdown(
           applyFilters(records, filters, "model"),
@@ -891,7 +1002,7 @@ export namespace Analytics {
         },
         cacheHitRate: 0,
       },
-      breakdowns: { byDay: [], byProject: [], byModel: [], byAgent: [] },
+      breakdowns: { byBucket: [], byProject: [], byModel: [], byAgent: [] },
       highImpact: { sessions: [], responses: [] },
       coverage: { hasGaps: false, gaps: [] },
       availableProjects: [],

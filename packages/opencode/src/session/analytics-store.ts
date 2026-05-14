@@ -157,23 +157,9 @@ export namespace AnalyticsStore {
       }
     }
 
-    // Mark complete if not already.
-    Database.use((db) => {
-      const wm = db
-        .select()
-        .from(AnalyticsWatermarkTable)
-        .where(eq(AnalyticsWatermarkTable.id, 1))
-        .get()
-      if (wm && wm.processed_messages < wm.total_messages) {
-        db.update(AnalyticsWatermarkTable)
-          .set({
-            processed_messages: wm.total_messages,
-            updated_at: Date.now(),
-          })
-          .where(eq(AnalyticsWatermarkTable.id, 1))
-          .run()
-      }
-    })
+    // Completion is represented by processed_messages reaching total_messages via
+    // real folds. Do not force-complete here: the next row may be a streamed
+    // placeholder that must remain behind the watermark until it finishes.
   }
 
   /**
@@ -205,31 +191,36 @@ export namespace AnalyticsStore {
 
       let maxTimeCreated = afterTime
       let maxMessageID = afterID
+      let folded = 0
 
       for (const row of rows) {
         const record = toStorageRecord(row)
-        if (!record) continue
+        if (!record) break
         upsertDaily(db, record)
         upsertSession(db, record)
         upsertResponse(db, record)
+        folded += 1
         if (record.watermarkTime > maxTimeCreated || (record.watermarkTime === maxTimeCreated && record.messageID > maxMessageID)) {
           maxTimeCreated = record.watermarkTime
           maxMessageID = record.messageID
         }
       }
 
-      // Advance watermark.
+      if (folded === 0) return 0
+
+      // Advance watermark only over rows that were actually folded. Incomplete streamed
+      // assistant placeholders must stay visible to a later fold after completion.
       db.update(AnalyticsWatermarkTable)
         .set({
           last_time_created: maxTimeCreated,
           last_message_id: maxMessageID,
-          processed_messages: sql`${AnalyticsWatermarkTable.processed_messages} + ${rows.length}`,
+          processed_messages: sql`${AnalyticsWatermarkTable.processed_messages} + ${folded}`,
           updated_at: Date.now(),
         })
         .where(eq(AnalyticsWatermarkTable.id, 1))
         .run()
 
-      return rows.length
+      return folded
     })
   }
 
@@ -418,13 +409,17 @@ export namespace AnalyticsStore {
     return actualCost
   }
 
+  export function isFoldableAssistantMessage(data: MessageV2.Info): data is MessageV2.Assistant {
+    return data.role === "assistant" && (data.time.completed !== undefined || data.finish !== undefined)
+  }
+
   function toStorageRecord(row: {
     message: typeof MessageTable.$inferSelect
     session: typeof SessionTable.$inferSelect
     project: typeof ProjectTable.$inferSelect | null
   }): StorageRecord | undefined {
     const data = row.message.data as MessageV2.Info
-    if (data.role !== "assistant") return undefined
+    if (!isFoldableAssistantMessage(data)) return undefined
     const timeCreated = data.time.completed ?? data.time.created ?? row.message.time_created
     const pk = computeProjectKey({
       projectWorktree: row.project?.worktree ?? undefined,
@@ -520,7 +515,6 @@ export namespace AnalyticsStore {
           cache_write: record.tokens.cacheWrite,
           actual_cost: roundCost(record.actualCost),
           calls: 1,
-          session_count: 0, // Updated separately via session dedup
         })
         .run()
     }

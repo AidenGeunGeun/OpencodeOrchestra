@@ -633,7 +633,7 @@ function Dashboard(props: {
       <KpiStrip totals={totals} />
 
       <TimeSeriesChart
-        rows={() => props.summary.breakdowns.byDay}
+        rows={() => props.summary.breakdowns.byBucket}
         view={props.view}
         setView={props.setView}
         activeDay={() => props.filters().day}
@@ -758,7 +758,8 @@ function TimeSeriesChart(props: {
         value: isCost ? row.apiEquivalentCostBuckets[b].amount : row.tokens[b],
       }))
       const total = segments.reduce((acc, s) => acc + s.value, 0)
-      return { id: row.id, label: row.label, total, segments, raw: row }
+      const day = row.day ?? row.id.slice(0, 10)
+      return { id: row.id, label: row.label, day, total, segments, raw: row }
     })
   })
   const max = createMemo(() => Math.max(...data().map((d) => d.total), 1))
@@ -791,7 +792,7 @@ function TimeSeriesChart(props: {
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-col">
           <div class="text-14-medium text-text-strong">Usage over time</div>
-          <div class="text-12-regular text-text-weak">Click a day to filter every panel below to it</div>
+          <div class="text-12-regular text-text-weak">Click a bar to filter every panel below to its day</div>
         </div>
         <div class="flex items-center gap-1 rounded-lg bg-background-base p-0.5">
           <ChartViewToggle value={props.view} setValue={props.setView} />
@@ -860,7 +861,7 @@ function TimeSeriesChart(props: {
                       return { ...s, x, y, w, h }
                     })
                   })
-                  const isActive = () => props.activeDay() === d.id
+                  const isActive = () => props.activeDay() === d.day
                   const isHover = () => hover() === i()
                   const fade = () => props.activeDay() !== undefined && !isActive() && !isHover()
                   return (
@@ -899,7 +900,7 @@ function TimeSeriesChart(props: {
             >
               <For each={data()}>
                 {(d, i) => {
-                  const isActive = () => props.activeDay() === d.id
+                  const isActive = () => props.activeDay() === d.day
                   const isHover = () => hover() === i()
                   const ariaLabel = createMemo(() => {
                     const view = props.view()
@@ -922,7 +923,7 @@ function TimeSeriesChart(props: {
                       onMouseLeave={() => setHover((h) => (h === i() ? undefined : h))}
                       onFocus={() => setHover(i())}
                       onBlur={() => setHover((h) => (h === i() ? undefined : h))}
-                      onClick={() => props.onPickDay(d.id)}
+                      onClick={() => props.onPickDay(d.day)}
                       aria-pressed={isActive()}
                       aria-label={ariaLabel()}
                     >
@@ -952,9 +953,9 @@ function TimeSeriesChart(props: {
             {(d, i) => (
               <div
                 class="min-w-0 flex-1 truncate text-center"
-                classList={{ "text-text-strong": props.activeDay() === d.id }}
+                classList={{ "text-text-strong": props.activeDay() === d.day }}
               >
-                <Show when={i() % labelEvery() === 0 || i() === data().length - 1}>{shortDate(d.id)}</Show>
+                <Show when={i() % labelEvery() === 0 || i() === data().length - 1}>{shortBucketLabel(d.id)}</Show>
               </div>
             )}
           </For>
@@ -1430,9 +1431,10 @@ function formatViewValue(value: number, view: View) {
   return compactFmt.format(value)
 }
 
-function shortDate(iso: string) {
-  // iso is YYYY-MM-DD
-  const [, m, d] = iso.split("-")
-  if (!m || !d) return iso
+function shortBucketLabel(id: string) {
+  const [date, hour] = id.split(" ")
+  const [, m, d] = date?.split("-") ?? []
+  if (!m || !d) return id
+  if (hour) return `${m}/${d} ${hour.slice(0, 2)}`
   return `${m}/${d}`
 }

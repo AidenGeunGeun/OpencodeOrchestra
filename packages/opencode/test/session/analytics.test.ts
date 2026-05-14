@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { eq } from "drizzle-orm"
+import { ProjectTable } from "../../src/project/project.sql"
 import { Analytics } from "../../src/session/analytics"
 import { AnalyticsOverrides } from "../../src/session/analytics-overrides"
+import { AnalyticsStore } from "../../src/session/analytics-store"
+import { MessageTable, SessionTable } from "../../src/session/session.sql"
+import { Database } from "../../src/storage/db"
 import type { ModelsDev } from "../../src/provider/models"
 
 const now = Date.UTC(2026, 4, 5, 12, 0, 0)
@@ -202,8 +207,139 @@ describe("Analytics.summarizeRecords cross-filter exclude-self behavior", () => 
     const summary = Analytics.summarizeRecords(records, { period: "allTime", day: "2026-05-01" }, stdRates, now)
     expect(summary.totals.calls).toBe(1)
     expect(summary.breakdowns.byModel.map((r) => r.id)).toEqual(["openai/m1"])
-    // byDay still shows both days so the user can switch focus.
-    expect(summary.breakdowns.byDay.map((r) => r.id).sort()).toEqual(["2026-05-01", "2026-05-03"])
+    // byBucket still shows both days so the user can switch focus.
+    expect(summary.breakdowns.byBucket.map((r) => r.id).sort()).toEqual(["2026-05-01", "2026-05-03"])
+  })
+})
+
+describe("Analytics.summarizeRecords adaptive time buckets", () => {
+  test("uses hourly buckets for today and four-hour buckets for 7d", () => {
+    const today = Analytics.summarizeRecords([record({ createdAt: now })], { period: "today" }, stdRates, now)
+    expect(today.breakdowns.byBucket).toHaveLength(24)
+    expect(today.breakdowns.byBucket.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:00$/.test(row.id))).toBe(true)
+    expect(today.breakdowns.byBucket.every((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.day ?? ""))).toBe(true)
+
+    const sevenDays = Analytics.summarizeRecords([record({ createdAt: now })], { period: "7d" }, stdRates, now)
+    expect(sevenDays.breakdowns.byBucket).toHaveLength(42)
+    expect(sevenDays.breakdowns.byBucket.every((row) => /^\d{4}-\d{2}-\d{2} \d{2}:00$/.test(row.id))).toBe(true)
+  })
+
+  test("uses daily buckets for 30d, this month, and all time", () => {
+    const older = Date.UTC(2026, 4, 1, 12, 0, 0)
+    const records = [record({ messageID: "old", createdAt: older }), record({ messageID: "new", createdAt: now })]
+
+    for (const period of ["30d", "thisMonth", "allTime"] as const) {
+      const summary = Analytics.summarizeRecords(records, { period }, stdRates, now)
+      expect(summary.breakdowns.byBucket.length).toBeGreaterThan(1)
+      expect(summary.breakdowns.byBucket.every((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.id))).toBe(true)
+    }
+  })
+})
+
+describe("AnalyticsStore streamed placeholder readiness", () => {
+  function assistant(input: { completed?: number; finish?: string; tokens?: number }) {
+    return {
+      id: "msg_1",
+      sessionID: "ses_1",
+      role: "assistant",
+      time: { created: now, ...(input.completed !== undefined ? { completed: input.completed } : {}) },
+      parentID: "msg_parent",
+      modelID: "gpt-test",
+      providerID: "openai",
+      mode: "build",
+      agent: "build",
+      path: { cwd: "/repo/alpha", root: "/repo/alpha" },
+      cost: 0,
+      tokens: {
+        input: input.tokens ?? 0,
+        output: input.tokens ?? 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      ...(input.finish !== undefined ? { finish: input.finish } : {}),
+    } as const
+  }
+
+  test("does not fold a streamed placeholder before a completion signal", () => {
+    expect(AnalyticsStore.isFoldableAssistantMessage(assistant({}))).toBe(false)
+    expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ completed: now, tokens: 0 }))).toBe(true)
+    expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ finish: "stop", tokens: 0 }))).toBe(true)
+  })
+
+  test("incremental fold skips a placeholder and later matches rebuild after completion", async () => {
+    const projectID = "proj_analytics_stream"
+    const sessionID = "ses_analytics_stream"
+    const messageID = "msg_analytics_stream"
+    const placeholder = assistant({})
+    const completed = assistant({ completed: now + 1000, tokens: 100 })
+    const { id: _placeholderID, sessionID: _placeholderSessionID, ...placeholderData } = placeholder
+    const { id: _completedID, sessionID: _completedSessionID, ...completedData } = completed
+
+    Database.use((db) => {
+      db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run()
+    })
+    AnalyticsStore.rebuild()
+
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({
+          id: projectID,
+          worktree: "/repo/analytics-stream",
+          vcs: "git",
+          name: "Analytics Stream",
+          time_created: now,
+          time_updated: now,
+          sandboxes: [],
+        })
+        .run()
+      db.insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: projectID,
+          slug: "analytics-stream",
+          directory: "/repo/analytics-stream",
+          title: "Analytics Stream",
+          version: "test",
+          time_created: now,
+          time_updated: now,
+        })
+        .run()
+      db.insert(MessageTable)
+        .values({
+          id: messageID,
+          session_id: sessionID,
+          time_created: now,
+          time_updated: now,
+          data: placeholderData,
+        })
+        .run()
+    })
+
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    expect(AnalyticsStore.queryResponses().some((row) => row.message_id === messageID)).toBe(false)
+
+    Database.use((db) => {
+      db.update(MessageTable)
+        .set({ data: completedData, time_updated: now + 1000 })
+        .where(eq(MessageTable.id, messageID))
+        .run()
+    })
+    await AnalyticsStore.ensureBackfilled()
+    const incremental = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
+    expect(incremental?.output).toBe(100)
+
+    AnalyticsStore.rebuild()
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const rebuilt = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
+    expect(rebuilt?.output).toBe(incremental?.output)
+    expect(rebuilt?.actual_cost).toBe(incremental?.actual_cost)
+
+    Database.use((db) => {
+      db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run()
+    })
+    AnalyticsStore.rebuild()
   })
 })
 
@@ -437,7 +573,7 @@ describe("Analytics.summarizeRecords dominant attribution per breakdown row", ()
       }),
     ]
     const summary = Analytics.summarizeRecords(records, { period: "allTime" }, stdRates, now)
-    const dayRow = summary.breakdowns.byDay[0]
+    const dayRow = summary.breakdowns.byBucket.find((row) => row.id === "2026-05-05")
     expect(dayRow?.topModel?.id).toBe("openai/m1")
     expect(dayRow?.topProject?.label).toBe("Alpha")
     expect(dayRow?.topAgent?.id).toBe("build")
@@ -521,10 +657,19 @@ describe("Analytics V2.1 persistent summary implementation", () => {
 
   test("summary store persists tokens and actual cost but not API-equivalent dollars", async () => {
     const schema = await Bun.file(new URL("../../src/session/analytics-summary.sql.ts", import.meta.url)).text()
+    const store = await Bun.file(new URL("../../src/session/analytics-store.ts", import.meta.url)).text()
 
     expect(schema).toContain("actual_cost")
     expect(schema).toContain("fresh_input")
     expect(schema).not.toContain("api_equivalent")
+    expect(schema).not.toContain("session_count")
+    expect(store).not.toContain("session_count")
+  })
+
+  test("session_count is dropped by a forward migration", async () => {
+    const migration = await Bun.file(new URL("../../migration/20260514120000_drop_analytics_session_count/migration.sql", import.meta.url)).text()
+
+    expect(migration).toContain("ALTER TABLE `analytics_daily` DROP COLUMN `session_count`")
   })
 
   test("normal analytics summary path reads overrides before building from the store", async () => {
