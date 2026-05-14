@@ -45,6 +45,7 @@ Compress conversation history while PRESERVING with FULL DETAIL:
 9. NEVER ABBREVIATE: Do not use phrases like "various changes were made," "several files were updated," or "similar patterns applied." List every single one explicitly
 10. DEPENDENCY CONTEXT: MUST include package versions, import paths, and dependency relationships that were relevant
 11. QUALITY OVER SPEED: MUST prioritize thoroughness and continuity quality over speed. Sloppy compaction is UNACCEPTABLE.
+12. SEARCH SAFETY: If tool access is available, MUST NOT use wide-scope `glob`/`grep`; broad roots can hang indefinitely and interrupt or kill the agent before it can recover.
 </rules>
 
 <output-structure>
