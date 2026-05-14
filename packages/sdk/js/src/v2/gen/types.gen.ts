@@ -48,6 +48,7 @@ export type AnalyticsTopAttribution = {
 export type AnalyticsBreakdownRow = {
   id: string
   label: string
+  day?: string
   actualCost: number
   apiEquivalentCost: AnalyticsEstimatedCost
   apiEquivalentCostBuckets: AnalyticsCostBuckets
@@ -117,7 +118,7 @@ export type AnalyticsSummary = {
   }
   totals: AnalyticsTotals
   breakdowns: {
-    byDay: Array<AnalyticsBreakdownRow>
+    byBucket: Array<AnalyticsBreakdownRow>
     byProject: Array<AnalyticsBreakdownRow>
     byModel: Array<AnalyticsBreakdownRow>
     byAgent: Array<AnalyticsBreakdownRow>
