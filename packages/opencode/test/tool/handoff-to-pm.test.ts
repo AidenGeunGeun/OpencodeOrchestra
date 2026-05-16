@@ -117,7 +117,7 @@ describe("tool.handoff-to-pm", () => {
     })
   })
 
-  test("is idempotent across repeated handoff calls", async () => {
+  test("delivers a new PM message on every handoff call", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -130,11 +130,12 @@ describe("tool.handoff-to-pm", () => {
         const handoffs = await parentHandoffMessages(parent.id)
         const state = await OrchestratorCompletion.getByChild(child.id)
 
-        expect(handoffs).toHaveLength(1)
-        expect(first.metadata.messageID).toBe(second.metadata.messageID)
-        expect(second.metadata.duplicate).toBe(true)
-        expect(state?.status).toBe("failed")
-        expect(state?.summary).toBe("First result")
+        expect(handoffs).toHaveLength(2)
+        expect(first.metadata.messageID).not.toBe(second.metadata.messageID)
+        expect(second.metadata.duplicate).toBe(false)
+        expect(state?.status).toBe("completed")
+        expect(state?.summary).toBe("Second result")
+        expect(state?.messageID).toBe(second.metadata.messageID)
       },
     })
   })

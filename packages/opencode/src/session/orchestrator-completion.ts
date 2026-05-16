@@ -4,7 +4,7 @@ import { Agent } from "../agent/agent"
 import { Bus } from "../bus"
 import { Identifier } from "../id/id"
 import { Provider } from "../provider/provider"
-import { Database, NotFoundError, and, eq, isNull } from "../storage/db"
+import { Database, NotFoundError, eq } from "../storage/db"
 import { Log } from "../util/log"
 import { Session } from "."
 import { MessageV2 } from "./message-v2"
@@ -271,14 +271,6 @@ export namespace OrchestratorCompletion {
         .where(eq(OrchestratorCompletionTable.child_session_id, child.id))
         .get()
 
-      if (existing?.message_id) {
-        return {
-          info: fromRow(existing),
-          delivered: false,
-          duplicate: true,
-        }
-      }
-
       db.insert(MessageTable).values(messageRow).run()
 
       db.insert(PartTable).values(partRow).run()
@@ -299,12 +291,7 @@ export namespace OrchestratorCompletion {
         ? db
             .update(OrchestratorCompletionTable)
             .set(values)
-            .where(
-              and(
-                eq(OrchestratorCompletionTable.child_session_id, child.id),
-                isNull(OrchestratorCompletionTable.message_id),
-              ),
-            )
+            .where(eq(OrchestratorCompletionTable.child_session_id, child.id))
             .returning()
             .get()
         : db.insert(OrchestratorCompletionTable).values(values).returning().get()
