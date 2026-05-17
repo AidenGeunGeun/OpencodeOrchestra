@@ -12,7 +12,10 @@ const LLM_PATH = path.join(SRC_ROOT, "session/llm.ts")
 const MESSAGE_V2_PATH = path.join(SRC_ROOT, "session/message-v2.ts")
 const PLUGIN_PATH = path.join(SRC_ROOT, "plugin/index.ts")
 const PROMPT_PATH = path.join(SRC_ROOT, "session/prompt.ts")
+const COMPACTION_PATH = path.join(SRC_ROOT, "session/compaction.ts")
 const SESSION_PATH = path.join(SRC_ROOT, "session/index.ts")
+const SUMMARY_PATH = path.join(SRC_ROOT, "session/summary.ts")
+const SNAPSHOT_PATH = path.join(SRC_ROOT, "snapshot/index.ts")
 const STATUS_PATH = path.join(SRC_ROOT, "session/status.ts")
 const restoreModuleMocks = await createModuleMockRestorer([
   BUS_PATH,
@@ -21,7 +24,10 @@ const restoreModuleMocks = await createModuleMockRestorer([
   MESSAGE_V2_PATH,
   PLUGIN_PATH,
   PROMPT_PATH,
+  COMPACTION_PATH,
   SESSION_PATH,
+  SUMMARY_PATH,
+  SNAPSHOT_PATH,
   STATUS_PATH,
 ])
 
@@ -193,6 +199,95 @@ describe("session.processor legacy finish_task behavior", () => {
 
         expect(result).toBe("continue")
         expect(getMessages).not.toHaveBeenCalled()
+      },
+    })
+  })
+})
+
+describe("session.processor finish-step usage aggregation", () => {
+  beforeEach(async () => {
+    await restoreModuleMocks()
+  })
+
+  afterEach(async () => {
+    await restoreModuleMocks()
+  })
+
+  test("sums three finish-step token buckets and cost on one assistant message", async () => {
+    const updatePart = mock((part) => Promise.resolve("part" in part ? part.part : part))
+    const updateMessage = mock((message) => Promise.resolve(message))
+    const usage = [
+      { cost: 0.1, tokens: { input: 10, output: 1, reasoning: 2, cache: { read: 3, write: 4 } } },
+      { cost: 0.2, tokens: { input: 20, output: 2, reasoning: 3, cache: { read: 4, write: 5 } } },
+      { cost: 0.3, tokens: { input: 30, output: 3, reasoning: 4, cache: { read: 5, write: 6 } } },
+    ]
+    let usageIndex = 0
+
+    mock.module(BUS_PATH, () => ({ Bus: { publish: mock(() => {}) } }))
+    mock.module(CONFIG_PATH, () => ({ Config: { get: mock(() => Promise.resolve({})) } }))
+    mock.module(LLM_PATH, () => ({
+      LLM: {
+        stream: mock(() =>
+          Promise.resolve({
+            fullStream: createStream([
+              { type: "start" },
+              { type: "finish-step", finishReason: "tool-calls", usage: { step: 1 } },
+              { type: "finish-step", finishReason: "tool-calls", usage: { step: 2 } },
+              { type: "finish-step", finishReason: "stop", usage: { step: 3 } },
+              { type: "finish" },
+            ]),
+          }),
+        ),
+      },
+    }))
+    mock.module(MESSAGE_V2_PATH, () => ({
+      MessageV2: {
+        APIError: { isInstance: mock(() => false) },
+        parts: mock(() => Promise.resolve([])),
+        fromError: mock(() => ({ name: "UnknownError" })),
+      },
+    }))
+    mock.module(SESSION_PATH, () => ({
+      Session: {
+        updateMessage,
+        updatePart,
+        getUsage: mock(() => usage[usageIndex++]),
+        Event: { Error: "session.error" },
+      },
+    }))
+    mock.module(COMPACTION_PATH, () => ({
+      SessionCompaction: { isOverflow: mock(() => Promise.resolve(false)) },
+    }))
+    mock.module(SUMMARY_PATH, () => ({
+      SessionSummary: { summarize: mock(() => {}) },
+    }))
+    mock.module(SNAPSHOT_PATH, () => ({
+      Snapshot: {
+        track: mock(() => Promise.resolve("snapshot-test")),
+        patch: mock(() => Promise.resolve({ hash: "patch-test", files: [] })),
+      },
+    }))
+    mock.module(STATUS_PATH, () => ({ SessionStatus: { get: mock(() => ({ type: "busy" })), set: mock(() => {}) } }))
+
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const processor = SessionProcessor.create({
+          assistantMessage: structuredClone(assistantMessage),
+          sessionID: "session-child",
+          model: { id: "gpt-5.5-fast", modelID: "gpt-5.5-fast", providerID: "openai" } as any,
+          abort: new AbortController().signal,
+        })
+
+        const result = await processor.process({} as any)
+
+        expect(result).toBe("continue")
+        expect(processor.message.cost).toBeCloseTo(0.6)
+        expect(processor.message.tokens).toEqual({ input: 60, output: 6, reasoning: 9, cache: { read: 12, write: 15 } })
+        expect(updatePart).toHaveBeenCalledWith(expect.objectContaining({ type: "step-finish", tokens: usage[0].tokens }))
+        expect(updatePart).toHaveBeenCalledWith(expect.objectContaining({ type: "step-finish", tokens: usage[1].tokens }))
+        expect(updatePart).toHaveBeenCalledWith(expect.objectContaining({ type: "step-finish", tokens: usage[2].tokens }))
       },
     })
   })

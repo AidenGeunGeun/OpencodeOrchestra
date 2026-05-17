@@ -1,12 +1,13 @@
-import { sql, eq, gt, gte, lte, and, or, type SQL } from "drizzle-orm"
+import { sql, eq, gt, gte, lte, and, or, inArray, type SQL } from "drizzle-orm"
 import { Database } from "@/storage/db"
 import {
   AnalyticsDailyTable,
   AnalyticsSessionTable,
   AnalyticsResponseTable,
+  AnalyticsSkippedResponseTable,
   AnalyticsWatermarkTable,
 } from "./analytics-summary.sql"
-import { MessageTable, SessionTable } from "./session.sql"
+import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "@/project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import path from "node:path"
@@ -16,6 +17,7 @@ const log = Log.create({ service: "analytics.store" })
 
 const BACKFILL_CHUNK_SIZE = 250
 const BACKFILL_YIELD_INTERVAL_MS = 16 // ~1 frame at 60fps — keeps UI responsive
+const STALE_UNFINISHED_WINDOW_MS = 60 * 60 * 1000
 
 export namespace AnalyticsStore {
   export type Progress = { total: number; processed: number }
@@ -39,8 +41,29 @@ export namespace AnalyticsStore {
   export function storeStatus(): Status {
     const wm = readWatermark()
     if (!wm || wm.total_messages === 0) return "empty"
-    if (wm.processed_messages < wm.total_messages) return "backfilling"
+    if (wm.processed_messages < wm.total_messages) return hasPendingRowAfterWatermark(wm) ? "backfilling" : "ready"
     return "ready"
+  }
+
+  function hasPendingRowAfterWatermark(wm: Watermark): boolean {
+    return Database.use((db) => {
+      const row = db
+        .select({ id: MessageTable.id })
+        .from(MessageTable)
+        .where(
+          and(
+            sql`json_extract(${MessageTable.data}, '$.role') = 'assistant'`,
+            or(
+              gt(MessageTable.time_created, wm.last_time_created),
+              and(eq(MessageTable.time_created, wm.last_time_created), gt(MessageTable.id, wm.last_message_id)),
+            ),
+          ),
+        )
+        .orderBy(MessageTable.time_created, MessageTable.id)
+        .limit(1)
+        .get()
+      return row !== undefined
+    })
   }
 
   export function progress(): Progress | undefined {
@@ -52,6 +75,11 @@ export namespace AnalyticsStore {
   /** Seed the watermark with an accurate total count so the first UI response can show progress. */
   export function prepareBackfill(): Progress {
     const total = countAssistantMessages()
+    seedOrRefreshWatermarkTotal(total)
+    return { total, processed: readWatermark()?.processed_messages ?? 0 }
+  }
+
+  function seedOrRefreshWatermarkTotal(total = countAssistantMessages()): void {
     Database.use((db) => {
       const existing = db
         .select()
@@ -76,7 +104,6 @@ export namespace AnalyticsStore {
           .run()
       }
     })
-    return { total, processed: readWatermark()?.processed_messages ?? 0 }
   }
 
   // ---------------------------------------------------------------------------
@@ -114,31 +141,7 @@ export namespace AnalyticsStore {
     const total = countAssistantMessages()
 
     // Seed watermark if missing.
-    Database.use((db) => {
-      const existing = db
-        .select()
-        .from(AnalyticsWatermarkTable)
-        .where(eq(AnalyticsWatermarkTable.id, 1))
-        .get()
-      if (!existing) {
-        db.insert(AnalyticsWatermarkTable)
-          .values({
-            id: 1,
-            last_time_created: 0,
-            last_message_id: "",
-            total_messages: total,
-            processed_messages: 0,
-            updated_at: Date.now(),
-          })
-          .run()
-      } else if (existing.total_messages < total) {
-        // New messages appeared since last count.
-        db.update(AnalyticsWatermarkTable)
-          .set({ total_messages: total, updated_at: Date.now() })
-          .where(eq(AnalyticsWatermarkTable.id, 1))
-          .run()
-      }
-    })
+    seedOrRefreshWatermarkTotal(total)
 
     if (total === 0) return
 
@@ -188,25 +191,30 @@ export namespace AnalyticsStore {
         .all()
 
       if (rows.length === 0) return 0
+      const stepUsage = providerStepUsageByMessage(db, rows.map((row) => row.message.id))
 
       let maxTimeCreated = afterTime
       let maxMessageID = afterID
-      let folded = 0
+      let processed = 0
 
       for (const row of rows) {
-        const record = toStorageRecord(row)
+        const record = toStorageRecord(row, stepUsage.get(row.message.id))
         if (!record) break
-        upsertDaily(db, record)
-        upsertSession(db, record)
-        upsertResponse(db, record)
-        folded += 1
+        if (record.kind === "fold") {
+          upsertDaily(db, record)
+          upsertSession(db, record)
+          upsertResponse(db, record)
+        } else {
+          upsertSkipped(db, record)
+        }
+        processed += 1
         if (record.watermarkTime > maxTimeCreated || (record.watermarkTime === maxTimeCreated && record.messageID > maxMessageID)) {
           maxTimeCreated = record.watermarkTime
           maxMessageID = record.messageID
         }
       }
 
-      if (folded === 0) return 0
+      if (processed === 0) return 0
 
       // Advance watermark only over rows that were actually folded. Incomplete streamed
       // assistant placeholders must stay visible to a later fold after completion.
@@ -214,13 +222,13 @@ export namespace AnalyticsStore {
         .set({
           last_time_created: maxTimeCreated,
           last_message_id: maxMessageID,
-          processed_messages: sql`${AnalyticsWatermarkTable.processed_messages} + ${folded}`,
+          processed_messages: sql`${AnalyticsWatermarkTable.processed_messages} + ${processed}`,
           updated_at: Date.now(),
         })
         .where(eq(AnalyticsWatermarkTable.id, 1))
         .run()
 
-      return folded
+      return processed
     })
   }
 
@@ -247,6 +255,7 @@ export namespace AnalyticsStore {
   export async function foldIncremental(): Promise<number> {
     const wm = readWatermark()
     if (!wm) return 0
+    seedOrRefreshWatermarkTotal()
     let total = 0
     let lastYield = Date.now()
     while (true) {
@@ -347,6 +356,7 @@ export namespace AnalyticsStore {
       db.delete(AnalyticsDailyTable).run()
       db.delete(AnalyticsSessionTable).run()
       db.delete(AnalyticsResponseTable).run()
+      db.delete(AnalyticsSkippedResponseTable).run()
       db.delete(AnalyticsWatermarkTable).run()
     })
     log.info("summary store cleared for rebuild")
@@ -357,6 +367,7 @@ export namespace AnalyticsStore {
   // ---------------------------------------------------------------------------
 
   interface StorageRecord {
+    kind: "fold"
     messageID: string
     sessionID: string
     sessionTitle: string
@@ -369,6 +380,7 @@ export namespace AnalyticsStore {
     time_created: number
     watermarkTime: number
     actualCost: number
+    calls: number
     tokens: {
       freshInput: number
       output: number
@@ -378,6 +390,18 @@ export namespace AnalyticsStore {
       total: number
     }
   }
+
+  interface SkippedRecord {
+    kind: "skip"
+    messageID: string
+    sessionID: string
+    watermarkTime: number
+    reason: string
+    sourceCreatedAt: number
+    cutoffAt: number
+  }
+
+  type ProcessRecord = StorageRecord | SkippedRecord
 
   function toDayString(ts: number): string {
     return new Date(ts).toISOString().slice(0, 10)
@@ -409,18 +433,124 @@ export namespace AnalyticsStore {
     return actualCost
   }
 
+  type AssistantReadiness = { kind: "foldable" } | { kind: "stale-abandoned"; cutoffAt: number } | { kind: "active-unfinished" }
+
+  function hasTokenEvidence(data: MessageV2.Assistant) {
+    return (
+      data.tokens.input > 0 ||
+      data.tokens.output > 0 ||
+      data.tokens.reasoning > 0 ||
+      data.tokens.cache.read > 0 ||
+      data.tokens.cache.write > 0 ||
+      data.cost > 0
+    )
+  }
+
+  function isTerminalFinish(reason: unknown) {
+    if (typeof reason !== "string") return false
+    return reason !== "tool-calls" && reason !== "unknown"
+  }
+
+  function assistantReadiness(data: MessageV2.Info, now: number, stepUsage?: StepUsage): AssistantReadiness {
+    if (data.role !== "assistant") return { kind: "active-unfinished" }
+    if (data.time.completed !== undefined) return { kind: "foldable" }
+    if (isTerminalFinish(data.finish) || stepUsage?.hasTerminalFinish) return { kind: "foldable" }
+    const cutoffAt = now - STALE_UNFINISHED_WINDOW_MS
+    const createdAt = data.time.created ?? 0
+    if (createdAt > cutoffAt) return { kind: "active-unfinished" }
+    if (stepUsage || data.finish !== undefined || hasTokenEvidence(data)) return { kind: "foldable" }
+    if (createdAt <= cutoffAt) return { kind: "stale-abandoned", cutoffAt }
+    return { kind: "active-unfinished" }
+  }
+
   export function isFoldableAssistantMessage(data: MessageV2.Info): data is MessageV2.Assistant {
-    return data.role === "assistant" && (data.time.completed !== undefined || data.finish !== undefined)
+    return data.role === "assistant" && assistantReadiness(data, Date.now()).kind === "foldable"
+  }
+
+  function isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value)
+  }
+
+  function parseTokens(value: unknown): MessageV2.Assistant["tokens"] | undefined {
+    if (!value || typeof value !== "object") return undefined
+    const tokens = value as Partial<MessageV2.Assistant["tokens"]>
+    if (!isFiniteNumber(tokens.input)) return undefined
+    if (!isFiniteNumber(tokens.output)) return undefined
+    if (!isFiniteNumber(tokens.reasoning)) return undefined
+    if (!tokens.cache || typeof tokens.cache !== "object") return undefined
+    if (!isFiniteNumber(tokens.cache.read)) return undefined
+    if (!isFiniteNumber(tokens.cache.write)) return undefined
+    return { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning, cache: { read: tokens.cache.read, write: tokens.cache.write } }
+  }
+
+  function emptyStepUsage() {
+    return { calls: 0, cost: 0, hasTerminalFinish: false, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }
+  }
+
+  function addStepTokens(target: MessageV2.Assistant["tokens"], input: MessageV2.Assistant["tokens"]) {
+    target.input += input.input
+    target.output += input.output
+    target.reasoning += input.reasoning
+    target.cache.read += input.cache.read
+    target.cache.write += input.cache.write
+  }
+
+  type StepUsage = ReturnType<typeof emptyStepUsage>
+
+  function providerStepUsageByMessage(db: Database.TxOrDb, messageIDs: string[]) {
+    const map = new Map<string, StepUsage>()
+    const corrupt = new Set<string>()
+    if (messageIDs.length === 0) return map
+    const rows = db
+      .select({ messageID: PartTable.message_id, data: PartTable.data })
+      .from(PartTable)
+      .where(inArray(PartTable.message_id, messageIDs))
+      .orderBy(PartTable.message_id, PartTable.time_created, PartTable.id)
+      .all()
+    for (const row of rows) {
+      const part = row.data as MessageV2.Part
+      if (part?.type !== "step-finish") continue
+      const tokens = parseTokens((part as MessageV2.StepFinishPart).tokens)
+      if (!tokens) {
+        corrupt.add(row.messageID)
+        map.delete(row.messageID)
+        continue
+      }
+      if (corrupt.has(row.messageID)) continue
+      const usage = map.get(row.messageID) ?? emptyStepUsage()
+      usage.calls += 1
+      usage.cost += isFiniteNumber((part as MessageV2.StepFinishPart).cost) ? (part as MessageV2.StepFinishPart).cost : 0
+      usage.hasTerminalFinish ||= isTerminalFinish((part as MessageV2.StepFinishPart).reason)
+      addStepTokens(usage.tokens, tokens)
+      map.set(row.messageID, usage)
+    }
+    return map
   }
 
   function toStorageRecord(row: {
     message: typeof MessageTable.$inferSelect
     session: typeof SessionTable.$inferSelect
     project: typeof ProjectTable.$inferSelect | null
-  }): StorageRecord | undefined {
+  }, stepUsage?: StepUsage): ProcessRecord | undefined {
     const data = row.message.data as MessageV2.Info
-    if (!isFoldableAssistantMessage(data)) return undefined
+    const readiness = assistantReadiness(data, Date.now(), stepUsage)
+    if (readiness.kind === "active-unfinished") return undefined
+    if (readiness.kind === "stale-abandoned") {
+      return {
+        kind: "skip",
+        messageID: row.message.id,
+        sessionID: row.session.id,
+        watermarkTime: row.message.time_created,
+        reason: "stale-unfinished-zero-usage",
+        sourceCreatedAt: data.time?.created ?? row.message.time_created,
+        cutoffAt: readiness.cutoffAt,
+      }
+    }
+    if (data.role !== "assistant") return undefined
     const timeCreated = data.time.completed ?? data.time.created ?? row.message.time_created
+    const tokens = stepUsage?.tokens ?? data.tokens
+    const actualCost = stepUsage?.cost ?? data.cost
+    const calls = stepUsage?.calls ?? 1
     const pk = computeProjectKey({
       projectWorktree: row.project?.worktree ?? undefined,
       projectID: row.session.project_id,
@@ -434,6 +564,7 @@ export namespace AnalyticsStore {
     })
     return {
       messageID: row.message.id,
+      kind: "fold",
       sessionID: row.session.id,
       sessionTitle: row.session.title,
       directory: row.session.directory,
@@ -444,19 +575,20 @@ export namespace AnalyticsStore {
       agent: data.agent,
       time_created: timeCreated,
       watermarkTime: row.message.time_created,
-      actualCost: billableActualCost(data.providerID, data.cost),
+      actualCost: billableActualCost(data.providerID, actualCost),
+      calls,
       tokens: {
-        freshInput: data.tokens.input,
-        output: data.tokens.output,
-        reasoning: data.tokens.reasoning,
-        cacheRead: data.tokens.cache.read,
-        cacheWrite: data.tokens.cache.write,
+        freshInput: tokens.input,
+        output: tokens.output,
+        reasoning: tokens.reasoning,
+        cacheRead: tokens.cache.read,
+        cacheWrite: tokens.cache.write,
         total:
-          data.tokens.input +
-          data.tokens.output +
-          data.tokens.reasoning +
-          data.tokens.cache.read +
-          data.tokens.cache.write,
+          tokens.input +
+          tokens.output +
+          tokens.reasoning +
+          tokens.cache.read +
+          tokens.cache.write,
       },
     }
   }
@@ -471,84 +603,70 @@ export namespace AnalyticsStore {
    */
   function upsertDaily(db: Database.TxOrDb, record: StorageRecord): void {
     const day = toDayString(record.time_created)
-    const existing = db
-      .select()
-      .from(AnalyticsDailyTable)
-      .where(
-        and(
-          eq(AnalyticsDailyTable.day, day),
-          eq(AnalyticsDailyTable.provider, record.provider),
-          eq(AnalyticsDailyTable.model, record.model),
-          eq(AnalyticsDailyTable.agent, record.agent),
-          eq(AnalyticsDailyTable.project_key, record.projectKey),
-        ),
-      )
-      .get()
-
-    if (existing) {
-      db.update(AnalyticsDailyTable)
-        .set({
-          fresh_input: existing.fresh_input + record.tokens.freshInput,
-          output: existing.output + record.tokens.output,
-          reasoning: existing.reasoning + record.tokens.reasoning,
-          cache_read: existing.cache_read + record.tokens.cacheRead,
-          cache_write: existing.cache_write + record.tokens.cacheWrite,
-          actual_cost: roundCost(existing.actual_cost + record.actualCost),
-          calls: existing.calls + 1,
-        })
-        .where(eq(AnalyticsDailyTable.id, existing.id))
-        .run()
-    } else {
-      db.insert(AnalyticsDailyTable)
-        .values({
-          day,
-          provider: record.provider,
-          model: record.model,
-          agent: record.agent,
-          project_key: record.projectKey,
+    db.insert(AnalyticsDailyTable)
+      .values({
+        day,
+        provider: record.provider,
+        model: record.model,
+        agent: record.agent,
+        project_key: record.projectKey,
+        project_label: record.projectLabel,
+        directory: record.directory,
+        fresh_input: record.tokens.freshInput,
+        output: record.tokens.output,
+        reasoning: record.tokens.reasoning,
+        cache_read: record.tokens.cacheRead,
+        cache_write: record.tokens.cacheWrite,
+        actual_cost: roundCost(record.actualCost),
+        calls: record.calls,
+      })
+      .onConflictDoUpdate({
+        target: [
+          AnalyticsDailyTable.day,
+          AnalyticsDailyTable.provider,
+          AnalyticsDailyTable.model,
+          AnalyticsDailyTable.agent,
+          AnalyticsDailyTable.project_key,
+        ],
+        set: {
           project_label: record.projectLabel,
           directory: record.directory,
-          fresh_input: record.tokens.freshInput,
-          output: record.tokens.output,
-          reasoning: record.tokens.reasoning,
-          cache_read: record.tokens.cacheRead,
-          cache_write: record.tokens.cacheWrite,
-          actual_cost: roundCost(record.actualCost),
-          calls: 1,
-        })
-        .run()
-    }
+          fresh_input: sql`${AnalyticsDailyTable.fresh_input} + ${record.tokens.freshInput}`,
+          output: sql`${AnalyticsDailyTable.output} + ${record.tokens.output}`,
+          reasoning: sql`${AnalyticsDailyTable.reasoning} + ${record.tokens.reasoning}`,
+          cache_read: sql`${AnalyticsDailyTable.cache_read} + ${record.tokens.cacheRead}`,
+          cache_write: sql`${AnalyticsDailyTable.cache_write} + ${record.tokens.cacheWrite}`,
+          actual_cost: sql`round((${AnalyticsDailyTable.actual_cost} + ${record.actualCost}) * 1000000) / 1000000`,
+          calls: sql`${AnalyticsDailyTable.calls} + ${record.calls}`,
+        },
+      })
+      .run()
   }
 
   /** Upsert a session aggregate row. */
   function upsertSession(db: Database.TxOrDb, record: StorageRecord): void {
-    const existing = db
-      .select()
-      .from(AnalyticsSessionTable)
-      .where(eq(AnalyticsSessionTable.session_id, record.sessionID))
-      .get()
-
-    if (existing) {
-      db.update(AnalyticsSessionTable)
-        .set({
-          fresh_input: existing.fresh_input + record.tokens.freshInput,
-          output: existing.output + record.tokens.output,
-          reasoning: existing.reasoning + record.tokens.reasoning,
-          cache_read: existing.cache_read + record.tokens.cacheRead,
-          cache_write: existing.cache_write + record.tokens.cacheWrite,
-          actual_cost: roundCost(existing.actual_cost + record.actualCost),
-          calls: existing.calls + 1,
-          last_message_at: Math.max(existing.last_message_at, record.time_created),
-          provider: record.provider || existing.provider,
-          model: record.model || existing.model,
-          agent: record.agent || existing.agent,
-        })
-        .where(eq(AnalyticsSessionTable.session_id, record.sessionID))
-        .run()
-    } else {
-      db.insert(AnalyticsSessionTable)
-        .values({
-          session_id: record.sessionID,
+    db.insert(AnalyticsSessionTable)
+      .values({
+        session_id: record.sessionID,
+        title: record.sessionTitle,
+        directory: record.directory,
+        project_key: record.projectKey,
+        project_label: record.projectLabel,
+        provider: record.provider,
+        model: record.model,
+        agent: record.agent,
+        fresh_input: record.tokens.freshInput,
+        output: record.tokens.output,
+        reasoning: record.tokens.reasoning,
+        cache_read: record.tokens.cacheRead,
+        cache_write: record.tokens.cacheWrite,
+        actual_cost: roundCost(record.actualCost),
+        calls: record.calls,
+        last_message_at: record.time_created,
+      })
+      .onConflictDoUpdate({
+        target: AnalyticsSessionTable.session_id,
+        set: {
           title: record.sessionTitle,
           directory: record.directory,
           project_key: record.projectKey,
@@ -556,20 +674,20 @@ export namespace AnalyticsStore {
           provider: record.provider,
           model: record.model,
           agent: record.agent,
-          fresh_input: record.tokens.freshInput,
-          output: record.tokens.output,
-          reasoning: record.tokens.reasoning,
-          cache_read: record.tokens.cacheRead,
-          cache_write: record.tokens.cacheWrite,
-          actual_cost: roundCost(record.actualCost),
-          calls: 1,
-          last_message_at: record.time_created,
-        })
-        .run()
-    }
+          fresh_input: sql`${AnalyticsSessionTable.fresh_input} + ${record.tokens.freshInput}`,
+          output: sql`${AnalyticsSessionTable.output} + ${record.tokens.output}`,
+          reasoning: sql`${AnalyticsSessionTable.reasoning} + ${record.tokens.reasoning}`,
+          cache_read: sql`${AnalyticsSessionTable.cache_read} + ${record.tokens.cacheRead}`,
+          cache_write: sql`${AnalyticsSessionTable.cache_write} + ${record.tokens.cacheWrite}`,
+          actual_cost: sql`round((${AnalyticsSessionTable.actual_cost} + ${record.actualCost}) * 1000000) / 1000000`,
+          calls: sql`${AnalyticsSessionTable.calls} + ${record.calls}`,
+          last_message_at: sql`max(${AnalyticsSessionTable.last_message_at}, ${record.time_created})`,
+        },
+      })
+      .run()
   }
 
-  /** Upsert a response row. Uses onConflictDoNothing since message_id is the PK. */
+  /** Upsert a response row keyed by message_id. */
   function upsertResponse(db: Database.TxOrDb, record: StorageRecord): void {
     db.insert(AnalyticsResponseTable)
       .values({
@@ -589,8 +707,38 @@ export namespace AnalyticsStore {
         cache_read: record.tokens.cacheRead,
         cache_write: record.tokens.cacheWrite,
         actual_cost: roundCost(record.actualCost),
+        calls: record.calls,
       })
       .onConflictDoNothing()
+      .run()
+  }
+
+  function upsertSkipped(db: Database.TxOrDb, record: SkippedRecord): void {
+    db.insert(AnalyticsSkippedResponseTable)
+      .values({
+        message_id: record.messageID,
+        session_id: record.sessionID,
+        reason: record.reason,
+        source_created_at: record.sourceCreatedAt,
+        cutoff_at: record.cutoffAt,
+        skipped_at: Date.now(),
+        fresh_input: 0,
+        output: 0,
+        reasoning: 0,
+        cache_read: 0,
+        cache_write: 0,
+        actual_cost: 0,
+        calls: 0,
+      })
+      .onConflictDoUpdate({
+        target: AnalyticsSkippedResponseTable.message_id,
+        set: {
+          reason: record.reason,
+          source_created_at: record.sourceCreatedAt,
+          cutoff_at: record.cutoffAt,
+          skipped_at: Date.now(),
+        },
+      })
       .run()
   }
 }

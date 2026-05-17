@@ -13,7 +13,8 @@ export namespace NodeBackend {
   }
 
   export async function migrate(opts: { onProgress?: (event: JsonToSqlite.Progress) => void } = {}) {
-    return JsonToSqlite.run({ onProgress: opts.onProgress })
+    const jsonMigrated = await JsonToSqlite.run({ onProgress: opts.onProgress })
+    return jsonMigrated
   }
 
   export async function listen(opts: {

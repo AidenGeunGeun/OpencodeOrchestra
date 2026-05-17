@@ -1,0 +1,143 @@
+{
+  "rowCount": 7700,
+  "rewrittenResponses": 3850,
+  "skipped": {
+    "noStepFinish": 3464,
+    "singleStepFinish": 385,
+    "corruptStepFinish": 1
+  },
+  "filterSamples": {
+    "project": "/fixture/alpha",
+    "model": "openai/gpt-fixture",
+    "agent": "build",
+    "day": "2026-05-15",
+    "combined": {
+      "project": "/fixture/alpha",
+      "model": "openai/gpt-fixture",
+      "agent": "build"
+    }
+  },
+  "referenceSession": {
+    "sessionID": "ses_fx_0015",
+    "preMigrationTokens": {
+      "input": 75130,
+      "output": 10773,
+      "reasoning": 75,
+      "cache": {
+        "read": 4050,
+        "write": 1110
+      }
+    },
+    "postMigrationTokens": {
+      "input": 444832,
+      "output": 64579,
+      "reasoning": 750,
+      "cache": {
+        "read": 53575,
+        "write": 6270
+      }
+    }
+  },
+  "periods": {
+    "today": {
+      "calls": 928,
+      "sessions": 154,
+      "tokens": {
+        "input": 2103290,
+        "output": 291277,
+        "reasoning": 5004,
+        "cache": {
+          "read": 553315,
+          "write": 16470
+        }
+      },
+      "actualCost": 1.851488,
+      "topModel": "openai/gpt-fixture-mini",
+      "topProject": "/fixture/beta",
+      "topAgent": "build",
+      "highImpactSessionID": "ses_fx_0059",
+      "highImpactResponseID": "msg_fx_00675",
+      "sampleDay": "2026-05-15"
+    },
+    "7d": {
+      "calls": 5701,
+      "sessions": 154,
+      "tokens": {
+        "input": 12531038,
+        "output": 1725168,
+        "reasoning": 216531,
+        "cache": {
+          "read": 1187815,
+          "write": 73185
+        }
+      },
+      "actualCost": 28.400354,
+      "topModel": "openai/gpt-fixture-mini",
+      "topProject": "/fixture/beta",
+      "topAgent": "build",
+      "highImpactSessionID": "ses_fx_0147",
+      "highImpactResponseID": "msg_fx_00857",
+      "sampleDay": "2026-05-15"
+    },
+    "30d": {
+      "calls": 23505,
+      "sessions": 154,
+      "tokens": {
+        "input": 50955150,
+        "output": 7075377,
+        "reasoning": 691165,
+        "cache": {
+          "read": 3713230,
+          "write": 305315
+        }
+      },
+      "actualCost": 121.533922,
+      "topModel": "openai/gpt-fixture-mini",
+      "topProject": "/fixture/beta",
+      "topAgent": "build",
+      "highImpactSessionID": "ses_fx_0145",
+      "highImpactResponseID": "msg_fx_06577",
+      "sampleDay": "2026-05-15"
+    },
+    "thisMonth": {
+      "calls": 12655,
+      "sessions": 154,
+      "tokens": {
+        "input": 27613971,
+        "output": 3816459,
+        "reasoning": 348120,
+        "cache": {
+          "read": 2414910,
+          "write": 172215
+        }
+      },
+      "actualCost": 62.506544,
+      "topModel": "openai/gpt-fixture-mini",
+      "topProject": "/fixture/beta",
+      "topAgent": "build",
+      "highImpactSessionID": "ses_fx_0135",
+      "highImpactResponseID": "msg_fx_06577",
+      "sampleDay": "2026-05-15"
+    },
+    "allTime": {
+      "calls": 35396,
+      "sessions": 154,
+      "tokens": {
+        "input": 76801443,
+        "output": 10678079,
+        "reasoning": 1046458,
+        "cache": {
+          "read": 5573300,
+          "write": 445470
+        }
+      },
+      "actualCost": 183.474002,
+      "topModel": "openai/gpt-fixture-mini",
+      "topProject": "/fixture/beta",
+      "topAgent": "build",
+      "highImpactSessionID": "ses_fx_0087",
+      "highImpactResponseID": "msg_fx_06577",
+      "sampleDay": "2026-05-15"
+    }
+  }
+}

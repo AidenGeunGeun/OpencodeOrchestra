@@ -39,6 +39,7 @@ afterAll(async () => {
 const testHome = path.join(dir, "home")
 await fs.mkdir(testHome, { recursive: true })
 process.env["OPENCODE_TEST_HOME"] = testHome
+process.env["OCO_TEST_PRELOAD"] = "1"
 
 process.env["XDG_DATA_HOME"] = path.join(dir, "share")
 process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")

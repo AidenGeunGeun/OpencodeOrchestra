@@ -14,5 +14,7 @@ export {
   AnalyticsDailyTable,
   AnalyticsSessionTable,
   AnalyticsResponseTable,
+  AnalyticsSkippedResponseTable,
   AnalyticsWatermarkTable,
+  AnalyticsTokenMigrationStateTable,
 } from "../session/analytics-summary.sql"

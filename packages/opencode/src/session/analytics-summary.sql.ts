@@ -92,11 +92,36 @@ export const AnalyticsResponseTable = sqliteTable(
     cache_read: integer("cache_read").notNull().default(0),
     cache_write: integer("cache_write").notNull().default(0),
     actual_cost: real("actual_cost").notNull().default(0),
+    calls: integer("calls").notNull().default(1),
   },
   (table) => [
     index("analytics_response_session_idx").on(table.session_id),
     index("analytics_response_created_idx").on(table.created_at),
   ],
+)
+
+/**
+ * Auditable analytics skips for abandoned assistant placeholders that are old
+ * enough to move past safely and carry no reliable final usage evidence.
+ */
+export const AnalyticsSkippedResponseTable = sqliteTable(
+  "analytics_skipped_response",
+  {
+    message_id: text("message_id").primaryKey(),
+    session_id: text("session_id").notNull().default(""),
+    reason: text("reason").notNull(),
+    source_created_at: integer("source_created_at").notNull().default(0),
+    cutoff_at: integer("cutoff_at").notNull().default(0),
+    skipped_at: integer("skipped_at").notNull().default(0),
+    fresh_input: integer("fresh_input").notNull().default(0),
+    output: integer("output").notNull().default(0),
+    reasoning: integer("reasoning").notNull().default(0),
+    cache_read: integer("cache_read").notNull().default(0),
+    cache_write: integer("cache_write").notNull().default(0),
+    actual_cost: real("actual_cost").notNull().default(0),
+    calls: integer("calls").notNull().default(0),
+  },
+  (table) => [index("analytics_skipped_response_reason_idx").on(table.reason)],
 )
 
 /**
@@ -118,3 +143,15 @@ export const AnalyticsWatermarkTable = sqliteTable(
   },
   () => [],
 )
+
+/**
+ * One-time historical rewrite state for aggregating assistant message tokens from
+ * already-persisted step-finish parts.
+ */
+export const AnalyticsTokenMigrationStateTable = sqliteTable("analytics_token_migration_state", {
+  id: text("id").primaryKey(),
+  status: text("status", { enum: ["pending", "in_progress", "completed"] }).notNull().default("pending"),
+  processed_messages: integer("processed_messages").notNull().default(0),
+  total_messages: integer("total_messages").notNull().default(0),
+  updated_at: integer("updated_at").notNull().default(0),
+})

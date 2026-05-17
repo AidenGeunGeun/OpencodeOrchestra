@@ -18,7 +18,28 @@ import { Question } from "@/question"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
+  const AI_SDK_FINISH_STEP_USAGE_SEMANTIC = "ai@6.0.x finish-step.usage is per-step; sum buckets across steps"
   const log = Log.create({ service: "session.processor" })
+
+  type TokenBuckets = MessageV2.Assistant["tokens"]
+
+  function addTokens(target: TokenBuckets, input: TokenBuckets) {
+    target.input += input.input
+    target.output += input.output
+    target.reasoning += input.reasoning
+    target.cache.read += input.cache.read
+    target.cache.write += input.cache.write
+  }
+
+  function sameTokens(left: TokenBuckets, right: TokenBuckets) {
+    return (
+      left.input === right.input &&
+      left.output === right.output &&
+      left.reasoning === right.reasoning &&
+      left.cache.read === right.cache.read &&
+      left.cache.write === right.cache.write
+    )
+  }
 
   function normalizeFinishReason(fr: unknown): string {
     if (typeof fr === "string") return fr
@@ -69,6 +90,12 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
+            const stepUsageTotal: TokenBuckets = {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            }
             const stream = await LLM.stream(streamInput)
 
             for await (const value of stream.fullStream) {
@@ -273,7 +300,8 @@ export namespace SessionProcessor {
                   })
                   input.assistantMessage.finish = normalizeFinishReason(value.finishReason)
                   input.assistantMessage.cost += usage.cost
-                  input.assistantMessage.tokens = usage.tokens
+                  addTokens(input.assistantMessage.tokens, usage.tokens)
+                  addTokens(stepUsageTotal, usage.tokens)
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
                     reason: normalizeFinishReason(value.finishReason),
@@ -361,8 +389,26 @@ export namespace SessionProcessor {
                   currentText = undefined
                   break
 
-                case "finish":
+                case "finish": {
+                  const totalUsage = (value as { totalUsage?: unknown }).totalUsage
+                  if (totalUsage) {
+                    const total = Session.getUsage({
+                      model: input.model,
+                      usage: totalUsage as any,
+                      metadata: (value as { providerMetadata?: any }).providerMetadata,
+                    })
+                    if (!sameTokens(total.tokens, stepUsageTotal)) {
+                      log.warn("finish-step token semantic mismatch", {
+                        expected: AI_SDK_FINISH_STEP_USAGE_SEMANTIC,
+                        messageID: input.assistantMessage.id,
+                        sessionID: input.assistantMessage.sessionID,
+                        summed: stepUsageTotal,
+                        terminal: total.tokens,
+                      })
+                    }
+                  }
                   break
+                }
 
                 default:
                   log.info("unhandled", {

@@ -140,6 +140,7 @@ export namespace Analytics {
       agent: z.string(),
       actualCost: z.number(),
       apiEquivalentCost: EstimatedCost,
+      calls: z.number(),
       tokens: TokenTotals,
       createdAt: z.number(),
     })
@@ -205,6 +206,12 @@ export namespace Analytics {
           processed: z.number(),
         })
         .optional(),
+      recalculating: z
+        .object({
+          total: z.number(),
+          processed: z.number(),
+        })
+        .optional(),
     })
     .meta({ ref: "AnalyticsSummary" })
   export type Summary = z.infer<typeof Summary>
@@ -232,12 +239,13 @@ export namespace Analytics {
     createdAt: number
     actualCost: number
     tokens: TokenTotals
+    calls?: number
   }
 
   type CostAccumulator = {
     amount: number
-    knownResponses: Set<string>
-    unknownResponses: Set<string>
+    knownResponses: number
+    unknownResponses: number
   }
 
   function emptyTokens(): TokenTotals {
@@ -254,15 +262,15 @@ export namespace Analytics {
   }
 
   function emptyCostAccumulator(): CostAccumulator {
-    return { amount: 0, knownResponses: new Set(), unknownResponses: new Set() }
+    return { amount: 0, knownResponses: 0, unknownResponses: 0 }
   }
 
   function finishCost(input: CostAccumulator): EstimatedCost {
     return {
       amount: roundCost(input.amount),
       estimated: true,
-      knownResponses: input.knownResponses.size,
-      unknownResponses: input.unknownResponses.size,
+      knownResponses: input.knownResponses,
+      unknownResponses: input.unknownResponses,
     }
   }
 
@@ -326,13 +334,17 @@ export namespace Analytics {
     return cost(record.tokens.cacheWrite, rate)
   }
 
-  function addCost(bucket: CostAccumulator, messageID: string, amount: number | undefined) {
+  function callCount(record: Pick<UsageRecord, "calls">) {
+    return record.calls ?? 1
+  }
+
+  function addCost(bucket: CostAccumulator, count: number, amount: number | undefined) {
     if (amount === undefined) {
-      bucket.unknownResponses.add(messageID)
+      bucket.unknownResponses += count
       return
     }
     bucket.amount += amount
-    bucket.knownResponses.add(messageID)
+    bucket.knownResponses += count
   }
 
   function addApiEquivalent(
@@ -340,13 +352,14 @@ export namespace Analytics {
     record: UsageRecord,
     rates: StandardRates | undefined,
   ) {
+    const calls = callCount(record)
     if (!rates) {
-      addCost(buckets.freshInput, record.messageID, undefined)
-      addCost(buckets.output, record.messageID, undefined)
-      addCost(buckets.reasoning, record.messageID, undefined)
-      addCost(buckets.cacheRead, record.messageID, undefined)
-      addCost(buckets.cacheWrite, record.messageID, undefined)
-      addCost(buckets.total, record.messageID, undefined)
+      addCost(buckets.freshInput, calls, undefined)
+      addCost(buckets.output, calls, undefined)
+      addCost(buckets.reasoning, calls, undefined)
+      addCost(buckets.cacheRead, calls, undefined)
+      addCost(buckets.cacheWrite, calls, undefined)
+      addCost(buckets.total, calls, undefined)
       return
     }
 
@@ -357,12 +370,12 @@ export namespace Analytics {
     const cacheWrite = cacheWriteCost(record, rates)
     const total = cacheRead === undefined || cacheWrite === undefined ? undefined : freshInput + output + reasoning + cacheRead + cacheWrite
 
-    addCost(buckets.freshInput, record.messageID, freshInput)
-    addCost(buckets.output, record.messageID, output)
-    addCost(buckets.reasoning, record.messageID, reasoning)
-    addCost(buckets.cacheRead, record.messageID, cacheRead)
-    addCost(buckets.cacheWrite, record.messageID, cacheWrite)
-    addCost(buckets.total, record.messageID, total)
+    addCost(buckets.freshInput, calls, freshInput)
+    addCost(buckets.output, calls, output)
+    addCost(buckets.reasoning, calls, reasoning)
+    addCost(buckets.cacheRead, calls, cacheRead)
+    addCost(buckets.cacheWrite, calls, cacheWrite)
+    addCost(buckets.total, calls, total)
   }
 
   function projectKey(record: Pick<UsageRecord, "projectWorktree" | "directory" | "projectID">) {
@@ -494,7 +507,7 @@ export namespace Analytics {
     return {
       actualCost: roundCost(actualCost),
       apiEquivalentCost: apiEquivalentCostBuckets.total,
-      calls: records.length,
+      calls: records.reduce((acc, record) => acc + callCount(record), 0),
       sessions: sessions.size,
       tokens,
       apiEquivalentCostBuckets,
@@ -517,7 +530,7 @@ export namespace Analytics {
     let bestTokens = -1
     let bestLabel = ""
     for (const [id, entry] of map.entries()) {
-      if (entry.tokens > bestTokens) {
+      if (entry.tokens > bestTokens || (entry.tokens === bestTokens && (bestId === undefined || id.localeCompare(bestId) < 0))) {
         bestId = id
         bestTokens = entry.tokens
         bestLabel = entry.label
@@ -557,7 +570,7 @@ export namespace Analytics {
         }))
         return { id: group.id, label: group.label, day: group.day, ...totals, topModel, topProject, topAgent }
       })
-      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost)
+      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost || a.id.localeCompare(b.id))
     return limit === undefined ? rows : rows.slice(0, limit)
   }
 
@@ -617,7 +630,7 @@ export namespace Analytics {
           lastMessageAt: Math.max(...items.map((item) => item.createdAt)),
         }
       })
-      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost)
+      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost || a.sessionID.localeCompare(b.sessionID))
       .slice(0, 10)
   }
 
@@ -636,11 +649,12 @@ export namespace Analytics {
           agent: record.agent,
           actualCost: totals.actualCost,
           apiEquivalentCost: totals.apiEquivalentCost,
+          calls: totals.calls,
           tokens: totals.tokens,
           createdAt: record.createdAt,
         }
       })
-      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost)
+      .sort((a, b) => b.apiEquivalentCost.amount - a.apiEquivalentCost.amount || b.actualCost - a.actualCost || a.messageID.localeCompare(b.messageID))
       .slice(0, 20)
   }
 
@@ -682,7 +696,7 @@ export namespace Analytics {
             kind: "unpriced" as const,
           }
         prior.tokens += record.tokens.total
-        prior.calls += 1
+        prior.calls += callCount(record)
         prior.missing += billableActualCost(record)
         prior.kind = "unpriced"
         acc.set(key, prior)
@@ -713,7 +727,7 @@ export namespace Analytics {
           kind: "partial" as const,
         }
       prior.tokens += record.tokens.total
-      prior.calls += 1
+      prior.calls += callCount(record)
       prior.missing += missingForRecord
       // Only escalate to "partial"; never downgrade an existing "unpriced".
       if (prior.kind !== "unpriced") prior.kind = "partial"
@@ -728,7 +742,7 @@ export namespace Analytics {
         missingApiEquivalent: roundCost(entry.missing),
         kind: entry.kind,
       }))
-      .sort((a, b) => b.tokens - a.tokens)
+      .sort((a, b) => b.tokens - a.tokens || `${a.provider}/${a.model}`.localeCompare(`${b.provider}/${b.model}`))
     return { hasGaps: gaps.length > 0, gaps }
   }
 
@@ -742,7 +756,7 @@ export namespace Analytics {
         directory: record.directory,
         calls: 0,
       }
-      prior.calls += 1
+      prior.calls += callCount(record)
       map.set(id, prior)
     }
     return Array.from(map.values()).sort((a, b) => b.calls - a.calls || a.label.localeCompare(b.label))
@@ -961,6 +975,10 @@ export namespace Analytics {
 
     // Store is ready — fold in any new messages since last aggregation, then read.
     await AnalyticsStore.foldIncremental()
+    if (AnalyticsStore.storeStatus() === "backfilling") {
+      const progress = AnalyticsStore.progress() ?? { total: 0, processed: 0 }
+      return buildBackfillingResponse(query, now, progress)
+    }
     return summaryFromStore(query, lookup, now)
   }
 
@@ -1010,12 +1028,21 @@ export namespace Analytics {
     }
   }
 
+  function buildRecalculatingResponse(query: Query, now: number, progress: { total: number; processed: number }): Summary {
+    const response = buildBackfillingResponse(query, now, { total: 0, processed: 0 })
+    delete response.backfilling
+    return {
+      ...response,
+      recalculating: progress,
+    }
+  }
+
   /**
    * Build a Summary from the persistent summary store. This is the steady-state path.
    *
-   * Daily rows provide per-(day, provider, model, agent, project_key) aggregates.
-   * Session rows provide per-session aggregates for high-impact lists.
-   * Response rows provide per-message aggregates for high-impact response lists.
+   * Daily rows provide per-(day, provider, model, agent, project_key) aggregates
+   * for daily-or-larger periods. Response rows preserve exact session counts,
+   * high-impact rows, coverage edge cases, and sub-daily buckets.
    *
    * All filtering (project, model, agent, day) happens in JS over the store rows,
    * matching V2's approach. API-equivalent dollars are computed at read time from
@@ -1023,8 +1050,100 @@ export namespace Analytics {
    */
   function summaryFromStore(query: Query, lookup: RatesLookup, now: number): Summary {
     const start = periodStart(query.period, now)
-    const records = AnalyticsStore.queryResponses(start).map(responseAggToUsageRecord)
-    return summarizeRecords(records, query, lookup, now)
+    const responseRecords = AnalyticsStore.queryResponses(start).map(responseAggToUsageRecord)
+    if (!usesDailyStore(query.period)) return summarizeRecords(responseRecords, query, lookup, now)
+
+    const dailyRecords = dailyRecordsForPeriod(query.period, start)
+    const aggregateRecords = [...dailyRecords, ...boundaryRecordsForDailyPath(responseRecords, start)]
+    const summary = summarizeRecords(aggregateRecords, query, lookup, now)
+    applyExactSessionCounts(summary, responseRecords, query)
+
+    const filters: ResolvedFilters = {
+      project: query.project || query.directory,
+      model: query.model,
+      agent: query.agent,
+      day: query.day,
+    }
+    const narrowed = applyFilters(responseRecords, filters)
+    summary.highImpact = {
+      sessions: highImpactSessions(narrowed, lookup),
+      responses: highImpactResponses(narrowed, lookup),
+    }
+    summary.coverage = detectGaps(narrowed, lookup)
+    return summary
+  }
+
+  export function summaryFromStoreForTest(query: Query, lookup: RatesLookup, now: number): Summary {
+    return summaryFromStore(query, lookup, now)
+  }
+
+  export function responseSummaryFromStoreForTest(query: Query, lookup: RatesLookup, now: number): Summary {
+    const start = periodStart(query.period, now)
+    return summarizeRecords(AnalyticsStore.queryResponses(start).map(responseAggToUsageRecord), query, lookup, now)
+  }
+
+  function usesDailyStore(period: Period) {
+    return period === "30d" || period === "thisMonth" || period === "allTime"
+  }
+
+  function dailyRecordsForPeriod(period: Period, start: number | undefined) {
+    if (period === "allTime" || start === undefined) return AnalyticsStore.queryDaily().map(dailyToRecord)
+    const dayStart = startOfDay(start)
+    const firstDailyStart = start === dayStart ? dayStart : dayStart + DAY_MS
+    return AnalyticsStore.queryDaily(toDayString(firstDailyStart)).map(dailyToRecord)
+  }
+
+  function boundaryRecordsForDailyPath(records: UsageRecord[], start: number | undefined) {
+    if (start === undefined) return []
+    const dayStart = startOfDay(start)
+    if (start === dayStart) return []
+    const boundaryDay = dayLabel(start)
+    return records.filter((record) => dayLabel(record.createdAt) === boundaryDay)
+  }
+
+  function sessionCountMap(
+    records: UsageRecord[],
+    key: (record: UsageRecord) => { id: string },
+  ) {
+    const groups = new Map<string, Set<string>>()
+    for (const record of records) {
+      const id = key(record).id
+      const sessions = groups.get(id) ?? new Set<string>()
+      sessions.add(record.sessionID)
+      groups.set(id, sessions)
+    }
+    return new Map(Array.from(groups.entries()).map(([id, sessions]) => [id, sessions.size]))
+  }
+
+  function applySessionCounts(rows: BreakdownRow[], counts: Map<string, number>) {
+    for (const row of rows) row.sessions = counts.get(row.id) ?? 0
+  }
+
+  function applyExactSessionCounts(summary: Summary, responseRecords: UsageRecord[], query: Query) {
+    const filters: ResolvedFilters = {
+      project: query.project || query.directory,
+      model: query.model,
+      agent: query.agent,
+      day: query.day,
+    }
+    const narrowed = applyFilters(responseRecords, filters)
+    summary.totals.sessions = new Set(narrowed.map((record) => record.sessionID)).size
+    applySessionCounts(
+      summary.breakdowns.byBucket,
+      sessionCountMap(applyFilters(responseRecords, filters, "day"), (record) => bucketForRecord(query.period, record)),
+    )
+    applySessionCounts(
+      summary.breakdowns.byProject,
+      sessionCountMap(applyFilters(responseRecords, filters, "project"), (record) => ({ id: projectKey(record) })),
+    )
+    applySessionCounts(
+      summary.breakdowns.byModel,
+      sessionCountMap(applyFilters(responseRecords, filters, "model"), (record) => ({ id: `${record.providerID}/${record.modelID}` })),
+    )
+    applySessionCounts(
+      summary.breakdowns.byAgent,
+      sessionCountMap(applyFilters(responseRecords, filters, "agent"), (record) => ({ id: record.agent || "unknown" })),
+    )
   }
 
   function toDayString(ts: number): string {
@@ -1046,6 +1165,7 @@ export namespace Analytics {
       agent: row.agent,
       createdAt: new Date(row.day).getTime(),
       actualCost: row.actual_cost,
+      calls: row.calls,
       tokens: {
         freshInput: row.fresh_input,
         output: row.output,
@@ -1071,6 +1191,7 @@ export namespace Analytics {
       agent: row.agent,
       createdAt: row.created_at,
       actualCost: row.actual_cost,
+      calls: row.calls,
       tokens: {
         freshInput: row.fresh_input,
         output: row.output,
@@ -1123,11 +1244,11 @@ export namespace Analytics {
       total: row.fresh_input + row.output + row.reasoning + row.cache_read + row.cache_write,
     }
     const rates = lookup(row.provider, row.model)
-    const apiEquiv = rates ? computeApiEquiv(row.provider, tokens, rates) : {
+    const apiEquiv = rates ? computeApiEquiv(row.provider, tokens, rates, row.calls) : {
       amount: 0,
       estimated: true,
       knownResponses: 0,
-      unknownResponses: 1,
+      unknownResponses: row.calls,
     }
     return {
       messageID: row.message_id,
@@ -1140,6 +1261,7 @@ export namespace Analytics {
       agent: row.agent,
       actualCost: roundCost(row.actual_cost),
       apiEquivalentCost: apiEquiv,
+      calls: row.calls,
       tokens,
       createdAt: row.created_at,
     }

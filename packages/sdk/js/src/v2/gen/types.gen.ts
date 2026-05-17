@@ -83,6 +83,7 @@ export type AnalyticsResponseRow = {
   agent: string
   actualCost: number
   apiEquivalentCost: AnalyticsEstimatedCost
+  calls: number
   tokens: AnalyticsTokenTotals
   createdAt: number
 }
@@ -130,6 +131,10 @@ export type AnalyticsSummary = {
   coverage: AnalyticsCoverage
   availableProjects: Array<AnalyticsProjectOption>
   backfilling?: {
+    total: number
+    processed: number
+  }
+  recalculating?: {
     total: number
     processed: number
   }

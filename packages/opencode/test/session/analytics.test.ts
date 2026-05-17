@@ -3,10 +3,23 @@ import { eq } from "drizzle-orm"
 import { ProjectTable } from "../../src/project/project.sql"
 import { Analytics } from "../../src/session/analytics"
 import { AnalyticsOverrides } from "../../src/session/analytics-overrides"
+import { AnalyticsTokenMigration } from "../../src/session/analytics-token-migration"
 import { AnalyticsStore } from "../../src/session/analytics-store"
-import { MessageTable, SessionTable } from "../../src/session/session.sql"
+import { AnalyticsResponseTable, AnalyticsTokenMigrationStateTable } from "../../src/session/analytics-summary.sql"
+import { MessageTable, PartTable, SessionTable } from "../../src/session/session.sql"
 import { Database } from "../../src/storage/db"
 import type { ModelsDev } from "../../src/provider/models"
+import {
+  FIXTURE_NOW,
+  fixtureRates,
+  installAnalyticsFixture,
+  resetAnalyticsFixture,
+} from "./fixtures/analytics-7700-fixture"
+
+const ANALYTICS_FIXTURE_MANIFEST = await Bun.file(new URL("./fixtures/analytics-7700-manifest.json", import.meta.url)).json()
+const ANALYTICS_PRE_MIGRATION_MANIFEST = await Bun.file(
+  new URL("./fixtures/analytics-7700-pre-migration-manifest.json", import.meta.url),
+).json()
 
 const now = Date.UTC(2026, 4, 5, 12, 0, 0)
 
@@ -237,12 +250,13 @@ describe("Analytics.summarizeRecords adaptive time buckets", () => {
 })
 
 describe("AnalyticsStore streamed placeholder readiness", () => {
-  function assistant(input: { completed?: number; finish?: string; tokens?: number }) {
+  function assistant(input: { completed?: number; finish?: string; tokens?: number; created?: number }) {
+    const created = input.created ?? now
     return {
       id: "msg_1",
       sessionID: "ses_1",
       role: "assistant",
-      time: { created: now, ...(input.completed !== undefined ? { completed: input.completed } : {}) },
+      time: { created, ...(input.completed !== undefined ? { completed: input.completed } : {}) },
       parentID: "msg_parent",
       modelID: "gpt-test",
       providerID: "openai",
@@ -264,14 +278,17 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
     expect(AnalyticsStore.isFoldableAssistantMessage(assistant({}))).toBe(false)
     expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ completed: now, tokens: 0 }))).toBe(true)
     expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ finish: "stop", tokens: 0 }))).toBe(true)
+    expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ created: Date.now(), finish: "stop", tokens: 0 }))).toBe(true)
+    expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ created: Date.now(), finish: "tool-calls", tokens: 0 }))).toBe(false)
   })
 
   test("incremental fold skips a placeholder and later matches rebuild after completion", async () => {
     const projectID = "proj_analytics_stream"
     const sessionID = "ses_analytics_stream"
     const messageID = "msg_analytics_stream"
-    const placeholder = assistant({})
-    const completed = assistant({ completed: now + 1000, tokens: 100 })
+    const activeNow = Date.now()
+    const placeholder = assistant({ created: activeNow })
+    const completed = assistant({ created: activeNow, completed: activeNow + 1000, tokens: 100 })
     const { id: _placeholderID, sessionID: _placeholderSessionID, ...placeholderData } = placeholder
     const { id: _completedID, sessionID: _completedSessionID, ...completedData } = completed
 
@@ -287,8 +304,8 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
           worktree: "/repo/analytics-stream",
           vcs: "git",
           name: "Analytics Stream",
-          time_created: now,
-          time_updated: now,
+          time_created: activeNow,
+          time_updated: activeNow,
           sandboxes: [],
         })
         .run()
@@ -321,7 +338,7 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
 
     Database.use((db) => {
       db.update(MessageTable)
-        .set({ data: completedData, time_updated: now + 1000 })
+        .set({ data: completedData, time_updated: activeNow + 1000 })
         .where(eq(MessageTable.id, messageID))
         .run()
     })
@@ -687,6 +704,659 @@ describe("Analytics V2.1 persistent summary implementation", () => {
     expect(store).toContain("db.delete(AnalyticsDailyTable)")
     expect(store).toContain("db.delete(AnalyticsSessionTable)")
     expect(store).toContain("db.delete(AnalyticsResponseTable)")
+    expect(store).toContain("db.delete(AnalyticsSkippedResponseTable)")
     expect(store).toContain("db.delete(AnalyticsWatermarkTable)")
+  })
+
+  test("fixture cleanup tooling is dry-run, backup, approval, and manifest gated", async () => {
+    const source = await Bun.file(new URL("../../src/cli/cmd/db.ts", import.meta.url)).text()
+
+    expect(source).toContain("analytics-preflight")
+    expect(source).toContain("analytics-fixture-cleanup")
+    expect(source).toContain("approve-fixture-cleanup")
+    expect(source).toContain("Refusing fixture cleanup without --backup")
+    expect(source).toContain("fixtureCountsMatch")
+    expect(source).toContain("COPYFILE_EXCL")
+  })
+})
+
+function clearTokenMigrationState() {
+  Database.use((db) => {
+    db.delete(AnalyticsTokenMigrationStateTable).where(eq(AnalyticsTokenMigrationStateTable.id, AnalyticsTokenMigration.ID)).run()
+  })
+}
+
+function migrationTestTokens(input = 10) {
+  return { input, output: input + 1, reasoning: input + 2, cache: { read: input + 3, write: input + 4 } }
+}
+
+function insertMigrationCase(input: {
+  projectID: string
+  sessionID: string
+  messageID: string
+  messageTokens: ReturnType<typeof migrationTestTokens>
+  parts: any[]
+}) {
+  Database.use((db) => {
+    db.delete(ProjectTable).where(eq(ProjectTable.id, input.projectID)).run()
+    db.insert(ProjectTable)
+      .values({
+        id: input.projectID,
+        worktree: `/tmp/${input.projectID}`,
+        vcs: "git",
+        name: input.projectID,
+        time_created: now,
+        time_updated: now,
+        sandboxes: [],
+      })
+      .run()
+    db.insert(SessionTable)
+      .values({
+        id: input.sessionID,
+        project_id: input.projectID,
+        slug: input.sessionID,
+        directory: `/tmp/${input.projectID}`,
+        title: input.sessionID,
+        version: "test",
+        time_created: now,
+        time_updated: now,
+      })
+      .run()
+    db.insert(MessageTable)
+      .values({
+        id: input.messageID,
+        session_id: input.sessionID,
+        time_created: now,
+        time_updated: now,
+        data: ({
+          role: "assistant",
+          parentID: `user_${input.messageID}`,
+          mode: "build",
+          agent: "build",
+          path: { cwd: `/tmp/${input.projectID}`, root: `/tmp/${input.projectID}` },
+          cost: 1.23,
+          tokens: input.messageTokens,
+          modelID: "gpt-test",
+          providerID: "openai",
+          finish: "stop",
+          time: { created: now, completed: now + 1 },
+        } as any),
+      })
+      .run()
+    for (const [index, part] of input.parts.entries()) {
+      db.insert(PartTable)
+        .values({
+          id: `${input.messageID}_part_${index}`,
+          message_id: input.messageID,
+          session_id: input.sessionID,
+          time_created: now + index,
+          time_updated: now + index,
+          data: part as any,
+        })
+        .run()
+    }
+  })
+}
+
+function readMessageTokens(messageID: string) {
+  return (Database.use((db) => db.select({ data: MessageTable.data }).from(MessageTable).where(eq(MessageTable.id, messageID)).get())!
+    .data as any).tokens
+}
+
+describe("AnalyticsTokenMigration", () => {
+  test("rewrites multi-step assistant tokens from step-finish parts", async () => {
+    clearTokenMigrationState()
+    AnalyticsStore.rebuild()
+    const projectID = "proj_migration_core"
+    const sessionID = "ses_migration_core"
+    const messageID = "msg_migration_core"
+    const parts = [migrationTestTokens(10), migrationTestTokens(20), migrationTestTokens(30)]
+    insertMigrationCase({
+      projectID,
+      sessionID,
+      messageID,
+      messageTokens: parts[2],
+      parts: parts.map((tokens) => ({ type: "step-finish", reason: "stop", cost: 0.1, tokens })),
+    })
+
+    const result = await AnalyticsTokenMigration.ensureCompleted()
+    expect(result.skipped).toBe(false)
+    expect((result as any).summary.rewritten).toBe(1)
+    expect(readMessageTokens(messageID)).toEqual({ input: 60, output: 63, reasoning: 66, cache: { read: 69, write: 72 } })
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    clearTokenMigrationState()
+  })
+
+  test("leaves rows with zero step-finish parts unchanged", async () => {
+    clearTokenMigrationState()
+    AnalyticsStore.rebuild()
+    const projectID = "proj_migration_zero"
+    const messageID = "msg_migration_zero"
+    const tokens = migrationTestTokens(40)
+    insertMigrationCase({ projectID, sessionID: "ses_migration_zero", messageID, messageTokens: tokens, parts: [] })
+
+    const result = await AnalyticsTokenMigration.ensureCompleted()
+    expect((result as any).summary.skipped.noStepFinish).toBe(1)
+    expect(readMessageTokens(messageID)).toEqual(tokens)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    clearTokenMigrationState()
+  })
+
+  test("leaves rows with one step-finish part unchanged", async () => {
+    clearTokenMigrationState()
+    AnalyticsStore.rebuild()
+    const projectID = "proj_migration_one"
+    const messageID = "msg_migration_one"
+    const tokens = migrationTestTokens(50)
+    insertMigrationCase({
+      projectID,
+      sessionID: "ses_migration_one",
+      messageID,
+      messageTokens: tokens,
+      parts: [{ type: "step-finish", reason: "stop", cost: 0.1, tokens }],
+    })
+
+    const result = await AnalyticsTokenMigration.ensureCompleted()
+    expect((result as any).summary.skipped.singleStepFinish).toBe(1)
+    expect(readMessageTokens(messageID)).toEqual(tokens)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    clearTokenMigrationState()
+  })
+
+  test("leaves rows with corrupt step-finish token data unchanged", async () => {
+    clearTokenMigrationState()
+    AnalyticsStore.rebuild()
+    const projectID = "proj_migration_corrupt"
+    const messageID = "msg_migration_corrupt"
+    const tokens = migrationTestTokens(60)
+    insertMigrationCase({
+      projectID,
+      sessionID: "ses_migration_corrupt",
+      messageID,
+      messageTokens: tokens,
+      parts: [
+        { type: "step-finish", reason: "stop", cost: 0.1, tokens: migrationTestTokens(1) },
+        { type: "step-finish", reason: "stop", cost: 0.1, tokens: { input: "bad" } },
+      ],
+    })
+
+    const result = await AnalyticsTokenMigration.ensureCompleted()
+    expect((result as any).summary.skipped.corruptStepFinish).toBe(1)
+    expect(readMessageTokens(messageID)).toEqual(tokens)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    clearTokenMigrationState()
+  })
+
+  test("completed migration state is a no-op and does not clear summaries", async () => {
+    clearTokenMigrationState()
+    Database.use((db) => {
+      db.insert(AnalyticsTokenMigrationStateTable)
+        .values({ id: AnalyticsTokenMigration.ID, status: "completed", processed_messages: 1, total_messages: 1, updated_at: now })
+        .run()
+      db.insert(AnalyticsResponseTable)
+        .values({
+          message_id: "msg_noop_response",
+          session_id: "ses_noop_response",
+          title: "noop",
+          directory: "/tmp/noop",
+          project_key: "/tmp/noop",
+          project_label: "noop",
+          provider: "openai",
+          model: "gpt-test",
+          agent: "build",
+          created_at: now,
+        })
+        .run()
+    })
+
+    const result = await AnalyticsTokenMigration.ensureCompleted()
+    expect(result.skipped).toBe(true)
+    expect(AnalyticsStore.queryResponses().some((row) => row.message_id === "msg_noop_response")).toBe(true)
+
+    Database.use((db) => {
+      db.delete(AnalyticsResponseTable).where(eq(AnalyticsResponseTable.message_id, "msg_noop_response")).run()
+    })
+    clearTokenMigrationState()
+  })
+
+  test("in-progress migration state resumes and completes with corrected rows", async () => {
+    clearTokenMigrationState()
+    AnalyticsStore.rebuild()
+    const projectID = "proj_migration_resume"
+    const messageID = "msg_migration_resume"
+    const parts = [migrationTestTokens(2), migrationTestTokens(3)]
+    insertMigrationCase({
+      projectID,
+      sessionID: "ses_migration_resume",
+      messageID,
+      messageTokens: parts[1],
+      parts: parts.map((tokens) => ({ type: "step-finish", reason: "stop", cost: 0.1, tokens })),
+    })
+    Database.use((db) => {
+      db.insert(AnalyticsTokenMigrationStateTable)
+        .values({ id: AnalyticsTokenMigration.ID, status: "in_progress", processed_messages: 0, total_messages: 1, updated_at: now })
+        .run()
+    })
+
+    await AnalyticsTokenMigration.ensureCompleted()
+    expect(readMessageTokens(messageID)).toEqual({ input: 5, output: 7, reasoning: 9, cache: { read: 11, write: 13 } })
+    expect(AnalyticsTokenMigration.state()).toBe("completed")
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    clearTokenMigrationState()
+  })
+})
+
+describe("AnalyticsStore placeholder stall fix", () => {
+  test("store status stays backfilling when the first row after the watermark is an active placeholder", async () => {
+    const projectID = "proj_analytics_stall_ready"
+    const sessionID = "ses_analytics_stall_ready"
+    const messageID = "msg_analytics_stall_ready"
+    const activeNow = Date.now()
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/stall-ready", vcs: "git", name: "stall", time_created: activeNow, time_updated: activeNow, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/stall-ready", title: "stall", version: "test", time_created: activeNow, time_updated: activeNow })
+        .run()
+      db.insert(MessageTable)
+        .values({
+          id: messageID,
+          session_id: sessionID,
+          time_created: activeNow,
+          time_updated: activeNow,
+          data: ({
+            role: "assistant",
+            parentID: "user_stall",
+            mode: "build",
+            agent: "build",
+            path: { cwd: "/tmp/stall-ready", root: "/tmp/stall-ready" },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "gpt-test",
+            providerID: "openai",
+            time: { created: activeNow },
+          } as any),
+        })
+        .run()
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    expect(AnalyticsStore.storeStatus()).toBe("backfilling")
+    expect(AnalyticsStore.readWatermark()?.last_message_id).toBe("")
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+
+  test("stale unfinished zero-usage placeholders are skipped and do not block later completed rows", async () => {
+    const projectID = "proj_analytics_stale_skip"
+    const sessionID = "ses_analytics_stale_skip"
+    const staleID = "msg_analytics_stale_skip"
+    const completedID = "msg_analytics_after_stale"
+    const staleAt = Date.now() - 2 * 60 * 60 * 1000
+    const completedAt = staleAt + 1000
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/stale-skip", vcs: "git", name: "stale", time_created: staleAt, time_updated: staleAt, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/stale-skip", title: "stale", version: "test", time_created: staleAt, time_updated: completedAt })
+        .run()
+      db.insert(MessageTable)
+        .values({
+          id: staleID,
+          session_id: sessionID,
+          time_created: staleAt,
+          time_updated: staleAt,
+          data: ({ role: "assistant", parentID: "user_stale", mode: "build", agent: "build", path: { cwd: "/tmp/stale-skip", root: "/tmp/stale-skip" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, modelID: "gpt-test", providerID: "openai", time: { created: staleAt } } as any),
+        })
+        .run()
+      db.insert(MessageTable)
+        .values({
+          id: completedID,
+          session_id: sessionID,
+          time_created: completedAt,
+          time_updated: completedAt,
+          data: ({ role: "assistant", parentID: "user_done", mode: "build", agent: "build", path: { cwd: "/tmp/stale-skip", root: "/tmp/stale-skip" }, cost: 0.01, tokens: migrationTestTokens(7), modelID: "gpt-test", providerID: "openai", finish: "stop", time: { created: completedAt, completed: completedAt } } as any),
+        })
+        .run()
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const responses = AnalyticsStore.queryResponses()
+    expect(responses.some((row) => row.message_id === staleID)).toBe(false)
+    expect(responses.find((row) => row.message_id === completedID)?.fresh_input).toBe(7)
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+
+  test("provider call counts come from persisted step-finish parts", async () => {
+    const projectID = "proj_analytics_provider_calls"
+    const sessionID = "ses_analytics_provider_calls"
+    const messageID = "msg_analytics_provider_calls"
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/provider-calls", vcs: "git", name: "calls", time_created: now, time_updated: now, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/provider-calls", title: "calls", version: "test", time_created: now, time_updated: now })
+        .run()
+      db.insert(MessageTable)
+        .values({ id: messageID, session_id: sessionID, time_created: now, time_updated: now, data: ({ role: "assistant", parentID: "user_calls", mode: "build", agent: "build", path: { cwd: "/tmp/provider-calls", root: "/tmp/provider-calls" }, cost: 0.99, tokens: migrationTestTokens(99), modelID: "gpt-test", providerID: "openai", finish: "stop", time: { created: now, completed: now } } as any) })
+        .run()
+      for (const [index, input] of [2, 3, 4].entries()) {
+        db.insert(PartTable)
+          .values({ id: `${messageID}_step_${index}`, message_id: messageID, session_id: sessionID, time_created: now + index, time_updated: now + index, data: { type: "step-finish", reason: "stop", cost: 0.1, tokens: migrationTestTokens(input) } as any })
+          .run()
+      }
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const response = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
+    expect(response?.calls).toBe(3)
+    expect(response?.fresh_input).toBe(9)
+    expect(response?.actual_cost).toBeCloseTo(0.3)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+
+  test("stale unfinished rows with step evidence are recovered instead of skipped", async () => {
+    const projectID = "proj_analytics_stale_step"
+    const sessionID = "ses_analytics_stale_step"
+    const messageID = "msg_analytics_stale_step"
+    const staleAt = Date.now() - 2 * 60 * 60 * 1000
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/stale-step", vcs: "git", name: "step", time_created: staleAt, time_updated: staleAt, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/stale-step", title: "step", version: "test", time_created: staleAt, time_updated: staleAt })
+        .run()
+      db.insert(MessageTable)
+        .values({ id: messageID, session_id: sessionID, time_created: staleAt, time_updated: staleAt, data: ({ role: "assistant", parentID: "user_step", mode: "build", agent: "build", path: { cwd: "/tmp/stale-step", root: "/tmp/stale-step" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, modelID: "gpt-test", providerID: "openai", time: { created: staleAt } } as any) })
+        .run()
+      db.insert(PartTable)
+        .values({ id: `${messageID}_step`, message_id: messageID, session_id: sessionID, time_created: staleAt, time_updated: staleAt, data: { type: "step-finish", reason: "stop", cost: 0.2, tokens: migrationTestTokens(8) } as any })
+        .run()
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const response = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
+    expect(response?.fresh_input).toBe(8)
+    expect(response?.calls).toBe(1)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+
+  test("a new active placeholder after a ready watermark puts the summary back into backfilling", async () => {
+    const projectID = "proj_analytics_ready_then_active"
+    const sessionID = "ses_analytics_ready_then_active"
+    const completedID = "msg_analytics_ready_done"
+    const activeID = "msg_analytics_ready_active"
+    const activeNow = Date.now()
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/ready-active", vcs: "git", name: "ready-active", time_created: activeNow, time_updated: activeNow, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/ready-active", title: "ready-active", version: "test", time_created: activeNow, time_updated: activeNow })
+        .run()
+      db.insert(MessageTable)
+        .values({ id: completedID, session_id: sessionID, time_created: activeNow, time_updated: activeNow, data: ({ role: "assistant", parentID: "user_ready_done", mode: "build", agent: "build", path: { cwd: "/tmp/ready-active", root: "/tmp/ready-active" }, cost: 0.01, tokens: migrationTestTokens(3), modelID: "gpt-test", providerID: "openai", finish: "stop", time: { created: activeNow, completed: activeNow } } as any) })
+        .run()
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
+    Database.use((db) => {
+      db.insert(MessageTable)
+        .values({ id: activeID, session_id: sessionID, time_created: activeNow + 1, time_updated: activeNow + 1, data: ({ role: "assistant", parentID: "user_ready_active", mode: "build", agent: "build", path: { cwd: "/tmp/ready-active", root: "/tmp/ready-active" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, modelID: "gpt-test", providerID: "openai", time: { created: activeNow + 1 } } as any) })
+        .run()
+    })
+    const response = await Analytics.summary({ period: "allTime" }, activeNow + 1)
+    expect(response.backfilling?.total).toBe(2)
+    expect(response.backfilling?.processed).toBe(1)
+    expect(AnalyticsStore.queryResponses().some((row) => row.message_id === activeID)).toBe(false)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+})
+
+function normalizeForCompare(value: any): any {
+  if (Array.isArray(value)) return value.map(normalizeForCompare)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeForCompare(item)]))
+}
+
+function expectSummaryClose(actual: any, expected: any, path = "summary") {
+  actual = normalizeForCompare(actual)
+  expected = normalizeForCompare(expected)
+  if (typeof actual === "number" || typeof expected === "number") {
+    expect(typeof actual, `${path} actual type`).toBe("number")
+    expect(typeof expected, `${path} expected type`).toBe("number")
+    if (Number.isInteger(actual) && Number.isInteger(expected)) expect(actual, path).toBe(expected)
+    else expect(Math.round(Math.abs(actual - expected) * 1_000_000), `${path}: ${actual} vs ${expected}`).toBeLessThanOrEqual(1)
+    return
+  }
+  if (Array.isArray(actual) || Array.isArray(expected)) {
+    expect(Array.isArray(actual), `${path} actual array`).toBe(true)
+    expect(Array.isArray(expected), `${path} expected array`).toBe(true)
+    expect(actual.length, `${path} length`).toBe(expected.length)
+    for (let index = 0; index < actual.length; index++) expectSummaryClose(actual[index], expected[index], `${path}[${index}]`)
+    return
+  }
+  if (actual && typeof actual === "object") {
+    expect(Object.keys(actual).sort(), `${path} keys`).toEqual(Object.keys(expected).sort())
+    for (const key of Object.keys(actual).sort()) expectSummaryClose(actual[key], expected[key], `${path}.${key}`)
+    return
+  }
+  expect(actual, path).toEqual(expected)
+}
+
+describe("Analytics 7,700-row fixture", () => {
+  test("fixture installer refuses to run without the test preload marker", () => {
+    const prior = process.env["OCO_TEST_PRELOAD"]
+    delete process.env["OCO_TEST_PRELOAD"]
+    try {
+      expect(() => installAnalyticsFixture()).toThrow("test preload marker")
+    } finally {
+      if (prior !== undefined) process.env["OCO_TEST_PRELOAD"] = prior
+    }
+  })
+
+  test("manifest exposes deterministic post- and pre-migration reference values", () => {
+    expect(ANALYTICS_FIXTURE_MANIFEST.rowCount).toBe(7_700)
+    expect(ANALYTICS_FIXTURE_MANIFEST.rewrittenResponses).toBeGreaterThan(0)
+    expect(ANALYTICS_FIXTURE_MANIFEST.skipped.corruptStepFinish).toBe(1)
+    expect(ANALYTICS_FIXTURE_MANIFEST.referenceSession.postMigrationTokens.input).toBeGreaterThan(
+      ANALYTICS_FIXTURE_MANIFEST.referenceSession.preMigrationTokens.input,
+    )
+    for (const period of ["today", "7d", "30d", "thisMonth", "allTime"] as const) {
+      expect(ANALYTICS_FIXTURE_MANIFEST.periods[period].highImpactSessionID).toStartWith("ses_fx_")
+      expect(ANALYTICS_FIXTURE_MANIFEST.periods[period].highImpactResponseID).toStartWith("msg_fx_")
+    }
+    expect(ANALYTICS_PRE_MIGRATION_MANIFEST.multiStepRows.length).toBeGreaterThan(1_000)
+  })
+
+  test("migration and summary rebuild match the fixture manifest", async () => {
+    clearTokenMigrationState()
+    installAnalyticsFixture()
+    await AnalyticsTokenMigration.ensureCompleted()
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const summary = Analytics.responseSummaryFromStoreForTest({ period: "allTime" }, fixtureRates, FIXTURE_NOW)
+
+    expect(summary.totals.calls).toBe(ANALYTICS_FIXTURE_MANIFEST.periods.allTime.calls)
+    expect(summary.totals.sessions).toBe(ANALYTICS_FIXTURE_MANIFEST.periods.allTime.sessions)
+    expect(summary.totals.tokens).toEqual({
+      freshInput: ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.input,
+      output: ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.output,
+      reasoning: ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.reasoning,
+      cacheRead: ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.cache.read,
+      cacheWrite: ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.cache.write,
+      total:
+        ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.input +
+        ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.output +
+        ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.reasoning +
+        ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.cache.read +
+        ANALYTICS_FIXTURE_MANIFEST.periods.allTime.tokens.cache.write,
+    })
+    const referenceTokens = AnalyticsStore.queryResponses()
+      .filter((row) => row.session_id === ANALYTICS_FIXTURE_MANIFEST.referenceSession.sessionID)
+      .reduce(
+        (acc, row) => ({
+          input: acc.input + row.fresh_input,
+          output: acc.output + row.output,
+          reasoning: acc.reasoning + row.reasoning,
+          cache: { read: acc.cache.read + row.cache_read, write: acc.cache.write + row.cache_write },
+        }),
+        { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      )
+    expect(referenceTokens).toEqual(ANALYTICS_FIXTURE_MANIFEST.referenceSession.postMigrationTokens)
+    expect(summary.highImpact.sessions[0]?.sessionID).toBe(ANALYTICS_FIXTURE_MANIFEST.periods.allTime.highImpactSessionID)
+    expect(summary.highImpact.responses[0]?.messageID).toBe(ANALYTICS_FIXTURE_MANIFEST.periods.allTime.highImpactResponseID)
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
+    const hierarchy = ((Database.Client() as any).$client
+      .query(
+        "SELECT CASE WHEN s.parent_id IS NULL THEN 'topLevel' WHEN p.parent_id IS NULL THEN 'directChild' ELSE 'nestedDescendant' END AS kind, sum(ar.calls) AS calls, sum(ar.fresh_input + ar.output + ar.reasoning + ar.cache_read + ar.cache_write) AS tokens FROM analytics_response ar JOIN session s ON s.id = ar.session_id LEFT JOIN session p ON p.id = s.parent_id WHERE ar.session_id LIKE 'ses_fx_%' GROUP BY kind",
+      )
+      .all() as { kind: string; calls: number; tokens: number }[])
+    const hierarchyMap = Object.fromEntries(hierarchy.map((row) => [row.kind, row]))
+    expect(hierarchyMap.topLevel.calls).toBeGreaterThan(0)
+    expect(hierarchyMap.directChild.calls).toBeGreaterThan(0)
+    expect(hierarchyMap.nestedDescendant.calls).toBeGreaterThan(0)
+    expect(hierarchy.reduce((acc, row) => acc + row.calls, 0)).toBe(summary.totals.calls)
+    expect(hierarchy.reduce((acc, row) => acc + row.tokens, 0)).toBe(summary.totals.tokens.total)
+
+    resetAnalyticsFixture()
+    clearTokenMigrationState()
+  })
+
+  test("tiered summary path matches the all-response path across periods and filters", async () => {
+    clearTokenMigrationState()
+    installAnalyticsFixture()
+    await AnalyticsTokenMigration.ensureCompleted()
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+
+    const samples = ANALYTICS_FIXTURE_MANIFEST.filterSamples
+    const periods = ["today", "7d", "30d", "thisMonth", "allTime"] as const
+    const filters = [
+      {},
+      { project: samples.project },
+      { model: samples.model },
+      { agent: samples.agent },
+      { day: samples.day },
+      samples.combined,
+    ]
+    let assertions = 0
+    for (const period of periods) {
+      for (const filter of filters) {
+        const query = { period, ...filter } as Analytics.Query
+        const actual = Analytics.summaryFromStoreForTest(query, fixtureRates, FIXTURE_NOW)
+        const expected = Analytics.responseSummaryFromStoreForTest(query, fixtureRates, FIXTURE_NOW)
+        expectSummaryClose(actual, expected, `${period}:${JSON.stringify(filter)}`)
+        assertions++
+      }
+    }
+    expect(assertions).toBe(30)
+
+    resetAnalyticsFixture()
+    clearTokenMigrationState()
+  })
+
+  test("warm 30-day summary returns under 500ms on the deterministic fixture", async () => {
+    clearTokenMigrationState()
+    installAnalyticsFixture()
+    await AnalyticsTokenMigration.ensureCompleted()
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    Analytics.summaryFromStoreForTest({ period: "30d" }, fixtureRates, FIXTURE_NOW)
+    const started = performance.now()
+    Analytics.summaryFromStoreForTest({ period: "30d" }, fixtureRates, FIXTURE_NOW)
+    expect(performance.now() - started).toBeLessThan(500)
+    resetAnalyticsFixture()
+    clearTokenMigrationState()
+  })
+
+  test("fresh rebuild stays within the per-row SQL statement budget", async () => {
+    const projectID = "proj_sql_count"
+    const sessionID = "ses_sql_count"
+    const rowCount = 6
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/sql-count", vcs: "git", name: "sql", time_created: now, time_updated: now, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: sessionID, project_id: projectID, slug: sessionID, directory: "/tmp/sql-count", title: "sql", version: "test", time_created: now, time_updated: now })
+        .run()
+      for (let index = 0; index < rowCount; index++) {
+        db.insert(MessageTable)
+          .values({
+            id: `msg_sql_count_${index}`,
+            session_id: sessionID,
+            time_created: now + index,
+            time_updated: now + index,
+            data: ({
+              role: "assistant",
+              parentID: `user_sql_count_${index}`,
+              mode: "build",
+              agent: "build",
+              path: { cwd: "/tmp/sql-count", root: "/tmp/sql-count" },
+              cost: 0.01,
+              tokens: migrationTestTokens(index + 1),
+              modelID: "gpt-test",
+              providerID: "openai",
+              finish: "stop",
+              time: { created: now + index, completed: now + index },
+            } as any),
+          })
+          .run()
+      }
+    })
+    AnalyticsStore.prepareBackfill()
+
+    const client = (Database.Client() as any).$client
+    const originalPrepare = client.prepare
+    let statements = 0
+    client.prepare = function (...args: any[]) {
+      statements += 1
+      return originalPrepare.apply(this, args)
+    }
+    try {
+      await AnalyticsStore.ensureBackfilled()
+    } finally {
+      client.prepare = originalPrepare
+    }
+
+    expect(statements).toBeGreaterThan(0)
+    expect(statements).toBeLessThanOrEqual(rowCount * 3 + 11)
+    expect(AnalyticsStore.queryResponses().filter((row) => row.session_id === sessionID)).toHaveLength(rowCount)
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
   })
 })

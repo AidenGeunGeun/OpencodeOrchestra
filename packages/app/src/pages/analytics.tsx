@@ -134,12 +134,12 @@ export default function AnalyticsPage() {
       day: q.day || undefined,
     })
     if (!result.data) throw new Error("Analytics summary was empty")
-    if (!result.data.backfilling) summaryCache.set(key, { value: result.data, at: Date.now() })
+    if (!result.data.backfilling && !result.data.recalculating) summaryCache.set(key, { value: result.data, at: Date.now() })
     return result.data
   })
 
   createEffect(() => {
-    if (!summary()?.backfilling) return
+    if (!summary()?.backfilling && !summary()?.recalculating) return
     const timer = setInterval(() => actions.refetch(), 1000)
     onCleanup(() => clearInterval(timer))
   })
@@ -209,6 +209,36 @@ export default function AnalyticsPage() {
           0% { transform: translateX(-110%); }
           50% { transform: translateX(120%); }
           100% { transform: translateX(360%); }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+          .oco-analytics-settle {
+            transition: opacity 180ms ease, transform 180ms ease;
+          }
+          .oco-analytics-settle[data-refreshing="true"] {
+            opacity: 0.72;
+            transform: translateY(1px);
+          }
+          .oco-analytics-chart-bars rect {
+            transition: y 180ms ease, height 180ms ease, opacity 180ms ease;
+          }
+          .oco-analytics-bar-group {
+            transition: opacity 150ms ease;
+          }
+          .oco-analytics-period-tab {
+            transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .oco-analytics-settle,
+          .oco-analytics-bar-group,
+          .oco-analytics-chart-bars rect,
+          .oco-analytics-period-tab,
+          .oco-analytics-loading-bar,
+          .oco-analytics-progress-fill {
+            animation: none !important;
+            transition: none !important;
+            transform: none !important;
+          }
         }`}
       </style>
       <div class="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 py-4 md:px-6 md:py-6">
@@ -273,6 +303,7 @@ export default function AnalyticsPage() {
                   view={view}
                   setView={setView}
                   openSession={openSession}
+                  refreshing={() => summary.loading && !!summary.latest}
                 />
               )}
             </Show>
@@ -282,7 +313,7 @@ export default function AnalyticsPage() {
           <Match when={analyticsDisplayedSummary(summary(), summary.latest)}>
             {(data) => (
               <Show
-                when={data().backfilling}
+                when={data().backfilling || data().recalculating}
                 fallback={
                   <Show
                     when={data().totals.calls > 0}
@@ -314,13 +345,15 @@ export default function AnalyticsPage() {
                       view={view}
                       setView={setView}
                       openSession={openSession}
+                      refreshing={() => summary.loading && !!summary.latest}
                     />
                   </Show>
                 }
               >
                 <BackfillProgressPanel
-                  total={data().backfilling!.total}
-                  processed={data().backfilling!.processed}
+                  total={(data().backfilling ?? data().recalculating)!.total}
+                  processed={(data().backfilling ?? data().recalculating)!.processed}
+                  recalculating={!!data().recalculating}
                 />
               </Show>
             )}
@@ -425,7 +458,7 @@ function PeriodPills(props: { value: () => Period; onSelect: (period: Period) =>
             type="button"
             role="tab"
             aria-selected={props.value() === item.value}
-            class="shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-12-medium transition-colors"
+            class="oco-analytics-period-tab shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-12-medium outline-none focus-visible:ring-2 focus-visible:ring-text-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base"
             classList={{
               "bg-surface-raised-base text-text-strong shadow-xs-border-base": props.value() === item.value,
               "text-text-base hover:text-text-strong": props.value() !== item.value,
@@ -538,7 +571,7 @@ function LoadingPanel() {
     >
       <div class="flex h-2 w-64 max-w-full overflow-hidden rounded-full bg-background-base">
         <div
-          class="h-full w-1/3 rounded-full bg-[#f59f00]"
+          class="oco-analytics-loading-bar h-full w-1/3 rounded-full bg-[#f59f00]"
           style={{ animation: "oco-analytics-loading 1.4s ease-in-out infinite" }}
         />
       </div>
@@ -560,7 +593,7 @@ function RefreshProgressStrip() {
     >
       <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-background-base">
         <div
-          class="absolute h-full w-1/3 rounded-full bg-[#f59f00]"
+          class="oco-analytics-loading-bar absolute h-full w-1/3 rounded-full bg-[#f59f00]"
           style={{ animation: "oco-analytics-loading 1.4s ease-in-out infinite" }}
         />
       </div>
@@ -582,7 +615,7 @@ function StatePanel(props: { title: string; body: string; action?: JSX.Element }
   )
 }
 
-function BackfillProgressPanel(props: { total: number; processed: number }) {
+function BackfillProgressPanel(props: { total: number; processed: number; recalculating?: boolean }) {
   const percent = createMemo(() => {
     if (props.total <= 0) return 0
     return Math.min(100, Math.round((props.processed / props.total) * 100))
@@ -595,15 +628,17 @@ function BackfillProgressPanel(props: { total: number; processed: number }) {
     >
       <div class="flex h-2.5 w-72 max-w-full overflow-hidden rounded-full bg-background-base">
         <div
-          class="h-full rounded-full bg-[#f59f00] transition-all duration-300 ease-out"
+          class="oco-analytics-progress-fill h-full rounded-full bg-[#f59f00] transition-all duration-300 ease-out"
           style={{ width: `${percent()}%` }}
         />
       </div>
       <div class="flex flex-col gap-1">
-        <div class="text-14-medium text-text-strong">Building summary cache…</div>
+        <div class="text-14-medium text-text-strong">
+          {props.recalculating ? "Recalculating historical token totals…" : "Building summary cache…"}
+        </div>
         <div class="text-12-regular text-text-weak">
-          Processing {compactFmt.format(props.processed)} of {compactFmt.format(props.total)} messages.
-          The rest of the app stays usable while this runs.
+          {props.recalculating ? "Correcting prior tool-loop token totals from stored step records." : "Processing"} {compactFmt.format(props.processed)} of {compactFmt.format(props.total)} messages.
+          {props.recalculating ? " Normal analytics resumes when this finishes." : " The rest of the app stays usable while this runs."}
         </div>
       </div>
     </div>
@@ -619,6 +654,7 @@ function Dashboard(props: {
   view: () => View
   setView: (v: View) => void
   openSession: (row: AnalyticsSessionRow | AnalyticsResponseRow) => void
+  refreshing: () => boolean
 }) {
   // Project, model, agent, and day filters are sent through to the server (the source
   // memo carries them into `client.global.analytics(...)`), so KPIs / chart / breakdowns /
@@ -629,8 +665,8 @@ function Dashboard(props: {
   const totals = () => props.summary.totals
 
   return (
-    <div class="flex flex-col gap-5">
-      <KpiStrip totals={totals} />
+    <div class="oco-analytics-settle flex flex-col gap-5" data-refreshing={props.refreshing() ? "true" : "false"}>
+      <KpiStrip totals={totals} refreshing={props.refreshing} />
 
       <TimeSeriesChart
         rows={() => props.summary.breakdowns.byBucket}
@@ -638,6 +674,7 @@ function Dashboard(props: {
         setView={props.setView}
         activeDay={() => props.filters().day}
         onPickDay={(day) => props.toggleFilter("day", day)}
+        refreshing={props.refreshing}
       />
 
       <PricingCoveragePanel coverage={() => props.summary.coverage} />
@@ -679,9 +716,9 @@ function Dashboard(props: {
   )
 }
 
-function KpiStrip(props: { totals: () => AnalyticsTotals }) {
+function KpiStrip(props: { totals: () => AnalyticsTotals; refreshing: () => boolean }) {
   return (
-    <div class="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+    <div class="oco-analytics-settle grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6" data-refreshing={props.refreshing() ? "true" : "false"}>
       <Kpi
         label="API-equivalent"
         value={formatEstimate(props.totals().apiEquivalentCost)}
@@ -693,7 +730,7 @@ function KpiStrip(props: { totals: () => AnalyticsTotals }) {
         }
       />
       <Kpi label="Actual cost" value={currency.format(props.totals().actualCost)} />
-      <Kpi label="Responses" value={integerFmt.format(props.totals().calls)} />
+      <Kpi label="Model calls" value={integerFmt.format(props.totals().calls)} />
       <Kpi label="Sessions" value={integerFmt.format(props.totals().sessions)} />
       <KpiTokens tokens={props.totals().tokens} />
       <Kpi
@@ -748,6 +785,7 @@ function TimeSeriesChart(props: {
   setView: (v: View) => void
   activeDay: () => string | undefined
   onPickDay: (day: string) => void
+  refreshing: () => boolean
 }) {
   const sorted = createMemo(() => [...props.rows()].sort((a, b) => a.id.localeCompare(b.id)))
   const data = createMemo(() => {
@@ -788,7 +826,7 @@ function TimeSeriesChart(props: {
   })
 
   return (
-    <section class="rounded-[16px] border border-border-weaker-base bg-surface-base p-4 shadow-xs-border-base">
+    <section class="oco-analytics-settle rounded-[16px] border border-border-weaker-base bg-surface-base p-4 shadow-xs-border-base" data-refreshing={props.refreshing() ? "true" : "false"}>
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-col">
           <div class="text-14-medium text-text-strong">Usage over time</div>
@@ -865,7 +903,7 @@ function TimeSeriesChart(props: {
                   const isHover = () => hover() === i()
                   const fade = () => props.activeDay() !== undefined && !isActive() && !isHover()
                   return (
-                    <g style={{ opacity: fade() ? 0.45 : 1, transition: "opacity 150ms ease" }}>
+                    <g class="oco-analytics-bar-group oco-analytics-chart-bars" style={{ opacity: fade() ? 0.45 : 1 }}>
                       <For each={segs()}>
                         {(s) => (
                           <Show when={s.h > 0}>
@@ -1166,7 +1204,7 @@ function DistributionPanel(props: {
                       <BucketSegments tokens={row.tokens} cost={row.apiEquivalentCostBuckets} view={props.view} pct={widthPct} />
                     </div>
                     <div class="flex justify-between text-10-regular text-text-weak tabular-nums">
-                      <span>{integerFmt.format(row.calls)} responses</span>
+                      <span>{integerFmt.format(row.calls)} model calls</span>
                       <span>{compactFmt.format(row.tokens.total)} tokens</span>
                     </div>
                   </button>
@@ -1205,7 +1243,7 @@ function DistributionTooltip(props: {
         <span class="tabular-nums text-text-strong">{integerFmt.format(props.tokens.total)}</span>
       </div>
       <div class="flex items-center justify-between gap-2 text-text-base">
-        <span>Responses · sessions</span>
+        <span>Model calls · sessions</span>
         <span class="tabular-nums text-text-strong">
           {integerFmt.format(props.calls)} · {integerFmt.format(props.sessions)}
         </span>
@@ -1304,7 +1342,7 @@ function PricingGapRow(props: { gap: AnalyticsPricingGap }) {
         </span>
       </span>
       <span class="flex items-center gap-3 text-11-regular text-text-weak tabular-nums">
-        <span>{integerFmt.format(props.gap.calls)} resp.</span>
+        <span>{integerFmt.format(props.gap.calls)} calls</span>
         <span>{compactFmt.format(props.gap.tokens)} tokens</span>
         <Show when={props.gap.missingApiEquivalent > 0}>
           <span class="text-icon-warning-base">~{currency.format(props.gap.missingApiEquivalent)} missing</span>
@@ -1389,7 +1427,7 @@ function SessionRow(props: { row: AnalyticsSessionRow; onOpen: () => void }) {
         <span class="truncate text-11-regular text-text-weak">{props.row.project}</span>
       </div>
       <div class="flex shrink-0 items-center gap-3 text-11-regular text-text-weak tabular-nums">
-        <span>{integerFmt.format(props.row.calls)} resp.</span>
+        <span>{integerFmt.format(props.row.calls)} calls</span>
         <span>{compactFmt.format(props.row.tokens.total)} tokens</span>
         <span class="text-text-strong">{formatEstimate(props.row.apiEquivalentCost)}</span>
       </div>
@@ -1413,6 +1451,7 @@ function ResponseRow(props: { row: AnalyticsResponseRow; onOpen: () => void }) {
         </span>
       </div>
       <div class="flex shrink-0 items-center gap-3 text-11-regular text-text-weak tabular-nums">
+        <span>{integerFmt.format(props.row.calls)} calls</span>
         <span>{compactFmt.format(props.row.tokens.total)} tokens</span>
         <span class="text-text-strong">{formatEstimate(props.row.apiEquivalentCost)}</span>
       </div>
