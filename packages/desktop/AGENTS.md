@@ -1,4 +1,8 @@
-# Desktop package notes
+# Desktop package notes (Tauri — legacy shell)
+
+> **Legacy shell.** As of 2026-05-20, the user-facing prod desktop app is the **Electron** shell at `packages/desktop-electron/`. Tauri is still in the repo and still built by CI (`.github/workflows/desktop-build.yml`) so existing Tauri installs continue to receive release assets, but new desktop work should target Electron unless the change is Tauri-specific. The CI workflow header in `desktop-electron-build.yml` notes Tauri builds "until Tauri is retired." See root `AGENTS.md` → "Two Shells (Electron prod, Tauri legacy)" for the overall picture.
+>
+> If you came here looking for the standard desktop dev/build/install path: stop and use `packages/desktop-electron/AGENTS.md` instead.
 
 - Never call `invoke` manually in this package.
 - Use the generated bindings in `packages/desktop/src/bindings.ts` for core commands/events.

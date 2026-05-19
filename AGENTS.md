@@ -61,30 +61,57 @@ Code comments, commit messages, specs, backlog, and doc file contents: English.
 
 **The validation must exercise the actual failing code path.** For model/provider changes that means sending a real message to the changed model through both TUI and (if desktop-facing) the desktop app. Version string checks alone (`oco --version`) prove nothing about runtime behavior.
 
-**Do NOT manually swap the sidecar binary inside `.app/Contents/MacOS/oco`.** macOS verifies bundle seal when Tauri spawns the sidecar. Hand-swapping breaks seal and silently blocks server startup with "Could not reach Local Server" while the TUI keeps working. If you need to test a new desktop binary, rebuild the entire `.app` via `bunx tauri build` and replace the whole bundle — see "Desktop App Rebuild" below.
+**Do NOT manually swap a bundled sidecar binary inside any `.app/Contents/`.** Both shells bundle their own copy of the `oco` CLI as a sidecar and verify bundle integrity at launch time (Tauri via the macOS adhoc code-signature seal; Electron via `electron-builder`'s `afterPack` validation hooks). Hand-swapping silently blocks server startup with "Could not reach Local Server" while the TUI keeps working. The only correct way to ship a new sidecar to a desktop app is to rebuild the whole `.app` — see "Desktop App Rebuild" below.
 
 ### Desktop App Rebuild (local validation only)
 
+OCO has **two desktop shells**:
+
+- **Electron** (`packages/desktop-electron/`) — the **current user-facing prod app**. Builds the `.app` installed at `/Applications/OpenCodeOrchestra.app` (identifier `ai.opencode.orchestra.electron`). Use this for all normal validation.
+- **Tauri** (`packages/desktop/`) — the **legacy shell**. Still in the repo, still built by CI, but slated for retirement. Only reach for it when reproducing a Tauri-only bug or testing the Rust-side code in `src-tauri/`.
+
+#### Electron (prod path)
+
 ```sh
-# workdir: packages/desktop
+# Prod app (OpenCodeOrchestra.app, identifier ai.opencode.orchestra.electron)
+OPENCODE_CHANNEL=prod bun run package:electron:mac
 
-# Prod app (OpenCodeOrchestra.app) — validated, user-facing
-bunx tauri build --config src-tauri/tauri.prod.conf.json
-
-# Dev app (OpenCodeOrchestra Dev.app) — for risky changes, runs side-by-side
-bunx tauri build
+# Dev app (OpenCodeOrchestra Dev.app, identifier ai.opencode.orchestra.electron.dev)
+OPENCODE_CHANNEL=dev bun run package:electron:mac
 ```
 
-`bunx tauri build` runs `prebuild.ts` which calls `bun run build --single` in `packages/opencode` to produce a fresh sidecar, copies it into `src-tauri/sidecars/`, then invokes the Rust/Tauri bundler. A full cold build takes ~3-5 minutes on M-series Mac; incremental Rust rebuilds are ~30-60s.
+Run from repo root. The script chain is: `packages/desktop-electron/scripts/prebuild.ts` builds the sidecar and copies it into `resources/`, then `electron-vite build` packages the renderer/main, then `electron-builder` produces the `.app` under `packages/desktop-electron/dist/mac-arm64/`. Full cold build is ~2-3 minutes on M-series Mac.
 
 Install after build:
 
 ```sh
 # Quit the running app first
-cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra.app" /Applications/
-# Or for Dev:
-cp -R "packages/desktop/src-tauri/target/release/bundle/macos/OpenCodeOrchestra Dev.app" /Applications/
+osascript -e 'tell application "OpenCodeOrchestra" to quit'
+rm -rf /Applications/OpenCodeOrchestra.app
+cp -R packages/desktop-electron/dist/mac-arm64/OpenCodeOrchestra.app /Applications/
+
+# Verify
+defaults read /Applications/OpenCodeOrchestra.app/Contents/Info.plist CFBundleIdentifier
+# Expect: ai.opencode.orchestra.electron
 ```
+
+Electron user data lives at `~/Library/Application Support/ai.opencode.orchestra.electron/` (Dev: `…electron.dev/`). The backend SQLite at `~/.local/share/oco/oco.db` is shared between any shell.
+
+#### Tauri (legacy shell)
+
+```sh
+# workdir: packages/desktop
+
+# Prod app
+bunx tauri build --config src-tauri/tauri.prod.conf.json
+
+# Dev app
+bunx tauri build
+```
+
+The Tauri prod app uses identifier `ai.opencode.orchestra` (no `.electron` segment) — a SEPARATE Application Support directory from Electron. Installing the Tauri build does NOT clobber Electron user state, and vice versa, but it WILL overwrite `/Applications/OpenCodeOrchestra.app` because both shells use the same product name.
+
+`bunx tauri build` runs `prebuild.ts` which calls `bun run build --single` in `packages/opencode` to produce a fresh sidecar, copies it into `src-tauri/sidecars/`, then invokes the Rust/Tauri bundler. Full cold build is ~3-5 minutes on M-series Mac.
 
 The `.app` bundle includes its own copy of the `oco` sidecar under `Contents/MacOS/oco`. It is independent from `~/.local/bin/oco`. Updating one does not update the other.
 
@@ -133,8 +160,8 @@ The repo is wired so a single tag push produces the full matrix of release artif
 6. Final verification after CI finishes (~10-15 minutes):
    - release page at `https://github.com/AidenGeunGeun/OpenCodeOrchestra/releases/tag/oco-vX.Y.Z`
    - assets present:
-     - macOS desktop: `OpenCodeOrchestra_X.Y.Z_aarch64.dmg` + `.app.tar.gz`
-     - Linux desktop: `OpenCodeOrchestra_X.Y.Z_amd64.deb`, `OpenCodeOrchestra-X.Y.Z-1.x86_64.rpm`
+     - Electron desktop (prod): `oco-electron-mac-arm64.dmg`, `oco-electron-mac-arm64.zip`, `oco-electron-linux-amd64.deb`, `oco-electron-linux-x86_64.rpm`, `oco-electron-linux-x86_64.AppImage`
+     - Tauri desktop (legacy): `OpenCodeOrchestra_X.Y.Z_aarch64.dmg` + `.app.tar.gz`, `OpenCodeOrchestra_X.Y.Z_amd64.deb`, `OpenCodeOrchestra-X.Y.Z-1.x86_64.rpm`
      - CLI: `oco-darwin-arm64.tar.gz`, `oco-darwin-x64.tar.gz`, `oco-linux-x64.tar.gz`, `oco-linux-arm64.tar.gz`, `oco-windows-x64.zip`, plus baseline and musl variants
      - `SHA256SUMS.txt`
      - categorized release notes rendered from conventional commit subjects, grouped by type then scope
@@ -149,20 +176,30 @@ Only reach for manual local builds + `gh release upload` when CI is broken or un
 - **AppImage is intentionally not built.** Every attempt through v1.1.3 failed on CI (`linuxdeploy` bundling issues even with `libfuse2` + `APPIMAGE_EXTRACT_AND_RUN=1`) and the `continue-on-error` step just wasted ~5 minutes per release. `.deb` and `.rpm` cover both major Linux package managers.
 - The Linux runner is pinned to `ubuntu-22.04` (not `ubuntu-latest`) for GLIBC compatibility. This is a build-time constraint only — the built `.deb`/`.rpm` run fine on Ubuntu 22.04 and 24.04.
 - Do **not** try to build Linux desktop artifacts on macOS via Docker. x86_64 emulation on Apple Silicon is extremely slow (12GB RAM, 200% CPU, 30+ minute cold builds). Rely on the GitHub Linux runner or a native Linux machine instead.
-- If a user on Linux wants to build the desktop app locally (native x86_64), it takes ~5-10 minutes on first build, ~1-2 minutes with cached deps:
-  ```bash
-  # Install deps (Ubuntu/Debian)
-  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-  # Install Bun and Rust if not present
-  curl -fsSL https://bun.sh/install | bash
-  curl https://sh.rustup.rs -sSf | sh
-  # Clone and build
-  git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git && cd OpencodeOrchestra
-  bun install
-  cd packages/opencode && bun run script/build.ts --single --baseline && cd ../desktop
-  bunx tauri build --bundles deb --config src-tauri/tauri.prod.conf.json
-  # Output: packages/desktop/src-tauri/target/release/bundle/deb/*.deb
-  ```
+- If a user on Linux wants to build the desktop app locally (native x86_64):
+  - **Electron (prod shell)** — ~2-3 minutes:
+    ```bash
+    # Install deps (Ubuntu/Debian)
+    sudo apt-get install -y rpm
+    # Install Bun if not present
+    curl -fsSL https://bun.sh/install | bash
+    # Clone and build
+    git clone https://github.com/AidenGeunGeun/OpencodeOrchestra.git && cd OpencodeOrchestra
+    bun install
+    OPENCODE_CHANNEL=prod bun run package:electron:linux
+    # Output: packages/desktop-electron/dist/oco-electron-linux-*.deb / .rpm / .AppImage
+    ```
+  - **Tauri (legacy shell)** — ~5-10 minutes first build, ~1-2 minutes cached:
+    ```bash
+    # Install deps (Ubuntu/Debian)
+    sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+    # Install Rust if not present
+    curl https://sh.rustup.rs -sSf | sh
+    # From repo root after `bun install`:
+    cd packages/opencode && bun run script/build.ts --single --baseline && cd ../desktop
+    bunx tauri build --bundles deb --config src-tauri/tauri.prod.conf.json
+    # Output: packages/desktop/src-tauri/target/release/bundle/deb/*.deb
+    ```
 
 ### Migrating From Vanilla OpenCode
 
@@ -193,11 +230,12 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 
 ### Workflows (`.github/workflows/`)
 
-| Workflow        | File                | Trigger                   | What it does                                                                                         |
-| --------------- | ------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `test`          | `test.yml`          | Push to `main`, manual    | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest`                                          |
-| `cli-release`   | `cli-release.yml`   | Tag push `oco-v*`, manual | `create-release` renders categorized notes and owns the release body; `build-cli` uploads CLI assets |
-| `desktop-build` | `desktop-build.yml` | Tag push `oco-v*`, manual | Builds Tauri desktop app on macOS + Linux, uploads desktop assets without modifying release notes    |
+| Workflow                 | File                         | Trigger                   | What it does                                                                                                            |
+| ------------------------ | ---------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `test`                   | `test.yml`                   | Push to `main`, manual    | `bun turbo typecheck` + `bun turbo test` on `ubuntu-latest`                                                             |
+| `cli-release`            | `cli-release.yml`            | Tag push `oco-v*`, manual | `create-release` renders categorized notes and owns the release body; `build-cli` uploads CLI assets                    |
+| `desktop-electron-build` | `desktop-electron-build.yml` | Tag push `oco-v*`, manual | Builds **Electron** desktop app (user-facing prod shell) on macOS + Linux, uploads `oco-electron-*` assets              |
+| `desktop-build`          | `desktop-build.yml`          | Tag push `oco-v*`, manual | Builds **Tauri** desktop app (legacy shell, slated for retirement) on macOS + Linux, uploads `OpenCodeOrchestra_*` assets |
 
 ### Setup Action
 
@@ -205,20 +243,47 @@ For prompt-bundling releases, treat `~/.config/oco/prompts/` as the authoritativ
 
 ### Desktop Build Matrix
 
-| Name                  | Runner         | Rust Target                | Output                |
-| --------------------- | -------------- | -------------------------- | --------------------- |
-| macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin`     | `.dmg`, `.app.tar.gz` |
-| Linux (x86_64)        | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`        |
+Both `desktop-electron-build` and `desktop-build` use the same runner matrix:
 
-The build steps: checkout → setup Bun → setup Rust → install Linux deps (if Linux) → build sidecar binary → copy sidecar to Tauri sidecars dir → `bunx tauri build --config src-tauri/tauri.prod.conf.json` → upload to GitHub Release.
+| Name                  | Runner         | Rust Target                | Tauri Output          | Electron Output                 |
+| --------------------- | -------------- | -------------------------- | --------------------- | ------------------------------- |
+| macOS (Apple Silicon) | `macos-latest` | `aarch64-apple-darwin`     | `.dmg`, `.app.tar.gz` | `oco-electron-*-arm64.dmg/zip`  |
+| Linux (x86_64)        | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.rpm`        | `oco-electron-*.deb/.rpm/.AppImage` |
+
+Each workflow's build steps: checkout → setup Bun → (Electron also: setup Node 22) → setup Rust → install platform deps → build sidecar CLI → copy sidecar into the shell's resources → package via `bunx tauri build` (Tauri) or `electron-builder` (Electron) → upload to the GitHub Release.
 
 Release artifact upload only runs on tag pushes (not manual `workflow_dispatch` runs).
 
 ## Desktop App
 
-### Architecture
+### Two Shells (Electron prod, Tauri legacy)
 
-`packages/desktop/` is a **Tauri v2** app (Rust backend + SolidJS frontend). It wraps the same `packages/app` SPA in a native window and bundles the `oco` CLI binary as a sidecar.
+OCO ships two desktop shells from the same release tag. **Electron is the user-facing prod app and the default validation target.** Tauri is kept in CI until migration is fully retired.
+
+| Shell    | Package                      | Status                  | macOS App Identifier            | Linux Package Name |
+| -------- | ---------------------------- | ----------------------- | ------------------------------- | ------------------ |
+| Electron | `packages/desktop-electron/` | **Current prod**        | `ai.opencode.orchestra.electron` (prod), `…electron.dev` (dev), `…electron.beta` (beta) | `oco-electron`     |
+| Tauri    | `packages/desktop/`          | Legacy / being retired  | `ai.opencode.orchestra` (prod), `ai.opencode.orchestra.dev` (dev)                       | (Tauri product name) |
+
+Both shells wrap the same `packages/app` SolidJS SPA in a native window and bundle the `oco` CLI binary as a sidecar. Frontend code (perf fixes, UI changes, etc.) lands in both automatically because they share `packages/app`. Shell-specific work (native menus, native APIs, packaging) is split per package.
+
+When in doubt: validate against Electron.
+
+### Electron Shell (prod)
+
+- **Package**: `packages/desktop-electron/`
+- **Entry**: `src/main/index.ts` (main process), `src/renderer/index.tsx` (renderer)
+- **Sidecar**: `oco` CLI binary in `resources/oco-cli*`, also runnable in-process via `import("virtual:opencode-server")` — see `packages/desktop-electron/AGENTS.md`
+- **Channels (set via `OPENCODE_CHANNEL` env var at build time)**:
+  - `prod` → `OpenCodeOrchestra.app`, identifier `ai.opencode.orchestra.electron`
+  - `dev` → `OpenCodeOrchestra Dev.app`, identifier `ai.opencode.orchestra.electron.dev`
+  - `beta` → `OpenCodeOrchestra Beta.app`, identifier `ai.opencode.orchestra.electron.beta`
+- **Builder config**: `packages/desktop-electron/electron-builder.config.ts`
+- **CI workflow**: `.github/workflows/desktop-electron-build.yml`
+
+### Tauri Shell (legacy)
+
+`packages/desktop/` is a **Tauri v2** app (Rust backend + SolidJS frontend). It still builds in CI but new work should target Electron unless the change is Tauri-specific.
 
 - **Entry**: `packages/desktop/src/index.tsx` — creates `Platform` with Tauri APIs (clipboard, file dialogs, notifications, deep links, updater)
 - **Sidecar**: The `oco` CLI binary bundled at `src-tauri/sidecars/oco-<rust-target>`, launched at startup to provide the API server
@@ -227,7 +292,12 @@ Release artifact upload only runs on tag pushes (not manual `workflow_dispatch` 
 
 ### Updater Behavior
 
-`UPDATER_ENABLED` is `option_env!("TAURI_SIGNING_PRIVATE_KEY").is_some()` in `packages/desktop/src-tauri/src/constants.rs`. Because production builds do not set `TAURI_SIGNING_PRIVATE_KEY`, this compiles to `false`, the updater plugin is not loaded, and no in-app "Check for Updates" menu item is shown. `packages/desktop/src-tauri/tauri.prod.conf.json` also sets `createUpdaterArtifacts: false`, so the update model is GitHub Releases plus manual reinstall. If this ever changes, set `TAURI_SIGNING_PRIVATE_KEY` in CI and configure the updater endpoint before documenting auto-update behavior.
+Neither shell ships an in-app auto-updater in prod. Users install fresh `.dmg`/`.deb`/`.rpm` from GitHub Releases.
+
+- **Tauri**: `UPDATER_ENABLED` is `option_env!("TAURI_SIGNING_PRIVATE_KEY").is_some()` in `packages/desktop/src-tauri/src/constants.rs`. Production builds do not set `TAURI_SIGNING_PRIVATE_KEY`, so this compiles to `false`, the updater plugin is not loaded, and no "Check for Updates" menu appears. `tauri.prod.conf.json` also sets `createUpdaterArtifacts: false`.
+- **Electron**: Although `electron-updater` is a dependency, code signing is not configured (`ELECTRON_SIGN` is not set in CI). Without a signing identity, `electron-updater` would fail to verify the downloaded update, so it's not wired into the runtime. Update model is GitHub Releases + manual reinstall.
+
+If auto-update is ever turned on, set the relevant signing key in CI and configure the updater endpoint before documenting auto-update behavior.
 
 ### Server Connection Model
 
@@ -250,7 +320,7 @@ When a remote (non-loopback) HTTP server is set as default, the desktop app auto
 
 ### Sidecar Binary Naming
 
-`packages/desktop/scripts/utils.ts` maps Rust target triples to build output names:
+Both shells reuse the same `packages/opencode/dist/@skybluejacket/oco-<target>/` build output, just copying it into a shell-specific resources directory at package time. `packages/desktop/scripts/utils.ts` (Tauri) and `packages/desktop-electron/scripts/prebuild.ts` (Electron) map Rust target triples to build output names:
 
 | Rust Target                 | Build Output (`ocBinary`)                |
 | --------------------------- | ---------------------------------------- |
@@ -281,18 +351,19 @@ The intended workflow: `oco serve` runs on the gaming laptop (Arch Linux), MacBo
 
 ## Project Structure
 
-Monorepo with `packages/*` workspaces. Eight active packages:
+Monorepo with `packages/*` workspaces. Nine active packages:
 
-| Package             | Description                                                           |
-| ------------------- | --------------------------------------------------------------------- |
-| `packages/opencode` | Core CLI, Bun/Hono API server, TUI, agents, tools, providers, storage |
-| `packages/app`      | SolidJS SPA web frontend served by the opencode server                |
-| `packages/ui`       | Shared UI component library and theme system used by packages/app     |
-| `packages/sdk`      | Generated JS/TS client SDK (`@opencode-ai/sdk`)                       |
-| `packages/plugin`   | Plugin system (copilot, codex, client-wrapper)                        |
-| `packages/desktop`  | Tauri v2 native desktop app wrapping the SolidJS frontend             |
-| `packages/script`   | Build and utility scripts                                             |
-| `packages/util`     | Shared runtime utilities (encode, error, path, binary, retry, …)      |
+| Package                     | Description                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `packages/opencode`         | Core CLI, Bun/Hono API server, TUI, agents, tools, providers, storage         |
+| `packages/app`              | SolidJS SPA web frontend served by the opencode server                        |
+| `packages/ui`               | Shared UI component library and theme system used by packages/app             |
+| `packages/sdk`              | Generated JS/TS client SDK (`@opencode-ai/sdk`)                               |
+| `packages/plugin`           | Plugin system (copilot, codex, client-wrapper)                                |
+| `packages/desktop-electron` | **Electron native desktop app — current prod shell** wrapping the SolidJS frontend |
+| `packages/desktop`          | Tauri v2 native desktop app — legacy shell, still in CI, slated for retirement |
+| `packages/script`           | Build and utility scripts                                                     |
+| `packages/util`             | Shared runtime utilities (encode, error, path, binary, retry, …)              |
 
 The core is `packages/opencode/src/`:
 
@@ -579,18 +650,19 @@ When you discover non-obvious behavior, fix a subtle bug, or establish a convent
 
 **All packages MUST share the same version number.** When bumping the version, update ALL of these:
 
-| File                             | Field     |
-| -------------------------------- | --------- |
-| `packages/opencode/package.json` | `version` |
-| `packages/desktop/package.json`  | `version` |
-| `packages/app/package.json`      | `version` |
-| `packages/sdk/js/package.json`   | `version` |
-| `packages/ui/package.json`       | `version` |
-| `packages/plugin/package.json`   | `version` |
-| `packages/util/package.json`     | `version` |
-| `sdks/vscode/package.json`       | `version` |
+| File                                       | Field     |
+| ------------------------------------------ | --------- |
+| `packages/opencode/package.json`           | `version` |
+| `packages/desktop-electron/package.json`   | `version` |
+| `packages/desktop/package.json`            | `version` |
+| `packages/app/package.json`                | `version` |
+| `packages/sdk/js/package.json`             | `version` |
+| `packages/ui/package.json`                 | `version` |
+| `packages/plugin/package.json`             | `version` |
+| `packages/util/package.json`               | `version` |
+| `sdks/vscode/package.json`                 | `version` |
 
-The `bun run release` script bumps all `package.json` files automatically. **`Cargo.toml` is NOT auto-bumped** by the release script — Tauri reads its version directly from `packages/desktop/package.json` at build time, so `Cargo.toml` version staying behind is harmless. If bumping manually, update only the `package.json` files listed above.
+The `bun run release` script bumps all `package.json` files automatically. **`Cargo.toml` is NOT auto-bumped** by the release script — Tauri reads its version directly from `packages/desktop/package.json` at build time, so `Cargo.toml` version staying behind is harmless. Electron reads its version from `packages/desktop-electron/package.json`. If bumping manually, update only the `package.json` files listed above.
 
 ### SSE Event System (Server ↔ Desktop)
 
