@@ -297,6 +297,13 @@ export function TerminalPanel() {
                 <Show when={terminal.active()} keyed>
                   {(id) => {
                     const ops = terminal.bind()
+                    // OCO: inner <Show> below is NOT keyed — `all().find(...)`
+                    // returns a fresh spread object every time the upstream
+                    // store does `setStore("all", i, (it) => ({ ...it, ...pty }))`
+                    // in terminal.tsx (on every PTY title/resize/recover).
+                    // Keyed would tear down <Terminal> (re-init xterm/WS) on
+                    // each event. Stale-read risk N/A — the terminal store
+                    // isn't mutated by message.removed flushes.
                     return (
                       <Show when={all().find((pty) => pty.id === id)}>
                         {(pty) => (
@@ -319,6 +326,7 @@ export function TerminalPanel() {
             <DragOverlay>
               <Show when={store.activeDraggable} keyed>
                 {(id) => (
+                  // OCO: inner <Show> NOT keyed — see comment on the inner <Show> above.
                   <Show when={all().find((pty) => pty.id === id)}>
                     {(t) => (
                       <div class="relative p-1 h-10 flex items-center bg-background-stronger text-14-regular">

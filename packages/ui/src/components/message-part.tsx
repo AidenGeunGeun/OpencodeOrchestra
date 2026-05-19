@@ -594,16 +594,20 @@ export function AssistantParts(props: {
                 })
 
                 return (
-                  <Show when={message()}>
+                  // OCO: keyed form passes the value (not an accessor) so the
+                  // prop expressions on <Part> can't see a stale state if the
+                  // underlying store entry is deleted mid-batch by a
+                  // message.removed / message.part.removed flush.
+                  <Show when={message()} keyed>
                     {(currentMessage) => (
-                      <Show when={item()}>
+                      <Show when={item()} keyed>
                         {(currentItem) => (
                           <Part
-                            part={currentItem()}
-                            message={currentMessage()!}
+                            part={currentItem}
+                            message={currentMessage}
                             showAssistantCopyPartID={props.showAssistantCopyPartID}
                             turnDurationMs={props.turnDurationMs}
-                            defaultOpen={partDefaultOpen(currentItem(), props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                            defaultOpen={partDefaultOpen(currentItem, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
                           />
                         )}
                       </Show>
@@ -727,20 +731,20 @@ export function registerPartComponent(type: string, component: PartComponent) {
 export function Message(props: MessageProps) {
   return (
     <Switch>
-      <Match when={props.message.role === "user" && props.message}>
+      <Match when={props.message.role === "user" && props.message} keyed>
         {(userMessage) => (
           <UserMessageDisplay
-            message={userMessage() as UserMessage}
+            message={userMessage as UserMessage}
             parts={props.parts}
             actions={props.actions}
             interrupted={props.interrupted}
           />
         )}
       </Match>
-      <Match when={props.message.role === "assistant" && props.message}>
+      <Match when={props.message.role === "assistant" && props.message} keyed>
         {(assistantMessage) => (
           <AssistantMessageDisplay
-            message={assistantMessage() as AssistantMessage}
+            message={assistantMessage as AssistantMessage}
             parts={props.parts}
             showAssistantCopyPartID={props.showAssistantCopyPartID}
             showReasoningSummaries={props.showReasoningSummaries}
@@ -810,9 +814,11 @@ export function AssistantMessageDisplay(props: {
                 })
 
                 return (
-                  <Show when={item()}>
+                  // OCO: keyed — value-form prevents stale-read when a part
+                  // is deleted by message.part.removed during a flush batch.
+                  <Show when={item()} keyed>
                     {(currentItem) => (
-                      <Part part={currentItem()} message={props.message} showAssistantCopyPartID={props.showAssistantCopyPartID} />
+                      <Part part={currentItem} message={props.message} showAssistantCopyPartID={props.showAssistantCopyPartID} />
                     )}
                   </Show>
                 )
@@ -1339,14 +1345,19 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
 
   return (
-    <Show when={state()}>
+    // OCO: keyed form pins `currentState` as a value at children-render time.
+    // Without keyed, the inner Match's `when` re-evaluates `currentState()` via
+    // the accessor; if a flush batch removes the part the accessor throws
+    // "Stale read from <Show>." Keyed children just rebuild when state identity
+    // changes (rare with reconcile).
+    <Show when={state()} keyed>
       {(currentState) => (
         <Show when={!hideQuestion()}>
           <div data-component="tool-part-wrapper">
             <Switch>
-              <Match when={currentState().status === "error" && (currentState() as any).error}>
+              <Match when={currentState.status === "error" && (currentState as any).error} keyed>
                 {(error) => {
-                  const cleaned = error().replace("Error: ", "")
+                  const cleaned = error.replace("Error: ", "")
                   if (part().tool === "question" && cleaned.includes("dismissed this question")) {
                     return (
                       <div style="width: 100%; display: flex; justify-content: flex-end;">
@@ -1359,7 +1370,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   return (
                     <ToolErrorCard
                       tool={part().tool}
-                      error={error()}
+                      error={error}
                       defaultOpen={props.defaultOpen}
                       subtitle={taskSubtitle()}
                       href={taskHref()}
@@ -1374,8 +1385,8 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   tool={part().tool}
                   metadata={partMetadata()}
                   // @ts-expect-error
-                  output={currentState().output}
-                  status={currentState().status}
+                  output={currentState.output}
+                  status={currentState.status}
                   hideDetails={props.hideDetails}
                   defaultOpen={props.defaultOpen}
                 />
@@ -1825,6 +1836,13 @@ ToolRegistry.register({
           </Show>
         </div>
         <div data-slot="tool-action" class="flex items-center gap-2 text-icon-weak">
+          {/* OCO: NOT keyed — `childContextHealth()` returns a fresh
+              { current, limit, usage } object each memo run (no equals
+              comparator upstream), and `message.part.delta` events during
+              streaming re-run the memo on every token chunk. Keyed would
+              tear down <ContextHealth> at delta cadence. Stale-read risk N/A
+              — once health data exists for a child session, deltas update
+              fields but don't null out the object mid-batch. */}
           <Show when={childContextHealth()}>
             {(health) => (
               <ContextHealth

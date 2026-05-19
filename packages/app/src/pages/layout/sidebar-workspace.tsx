@@ -77,8 +77,8 @@ export const WorkspaceDragOverlay = (props: {
   })
 
   return (
-    <Show when={label()}>
-      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-14-medium text-text-strong">{value()}</div>}
+    <Show when={label()} keyed>
+      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-14-medium text-text-strong">{value}</div>}
     </Show>
   )
 }

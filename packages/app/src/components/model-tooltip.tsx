@@ -77,10 +77,10 @@ export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?
   return (
     <div class="flex flex-col gap-1 py-1">
       <div class="text-13-medium">{title()}</div>
-      <Show when={inputs()}>
+      <Show when={inputs()} keyed>
         {(value) => (
           <div class="text-12-regular text-text-invert-base">
-            {language.t("model.tooltip.allows", { inputs: value() })}
+            {language.t("model.tooltip.allows", { inputs: value })}
           </div>
         )}
       </Show>

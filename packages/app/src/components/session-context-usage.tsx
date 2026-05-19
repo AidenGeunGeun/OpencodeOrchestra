@@ -78,6 +78,11 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const tooltipValue = () => (
     <div>
+      {/* OCO: NOT keyed — `context()` derives from getSessionContextMetrics
+          which returns a fresh Context object each call (no equals upstream).
+          Streaming deltas re-run the memo on every token chunk; keyed would
+          tear down the tooltip rows repeatedly. Stale-read risk N/A for the
+          same reason as childContextHealth in message-part.tsx. */}
       <Show when={context()}>
         {(ctx) => (
           <>

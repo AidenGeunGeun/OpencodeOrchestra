@@ -64,6 +64,10 @@ export function SessionRetry(props: { status: SessionStatus; show?: boolean }) {
                   </div>
                 </Tooltip>
               </Show>
+              {/* OCO: NOT keyed — `info()` rebuilds the localized countdown
+                  string each 1Hz tick; keyed would teardown the div on every
+                  second. Stale-read N/A — `info()` only goes falsy when the
+                  outer retry Show is already false. */}
               <Show when={info()}>{(line) => <div data-slot="session-turn-retry-info">{line()}</div>}</Show>
             </div>
           </div>

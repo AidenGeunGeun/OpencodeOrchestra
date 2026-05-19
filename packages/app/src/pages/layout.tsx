@@ -2096,6 +2096,13 @@ export default function Layout(props: ParentProps) {
           width: panelProps.mobile ? undefined : `${Math.max(Math.max(layout.sidebar.width(), 244) - 64, 0)}px`,
         }}
       >
+        {/* OCO: NOT keyed — `panelProps.project` flows from
+            `layout.projects.list()` which does `.map(p => ({...p, icon}))`
+            (context/layout.tsx), producing a fresh spread object on every
+            memo run. Keyed would tear down InlineEditor mid-rename (silent
+            edit loss via onBlur) on any unrelated projects-list change.
+            Stale-read risk N/A — project deletion is a navigation event,
+            not an SDK event flush. */}
         <Show when={panelProps.project}>
           {(p) => (
             <>

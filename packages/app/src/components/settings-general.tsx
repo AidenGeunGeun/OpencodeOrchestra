@@ -525,7 +525,7 @@ export const SettingsGeneral: Component = () => {
 
         <UpdatesSection />
 
-        <Show when={linux()}>
+        <Show when={linux()} keyed>
           {(_) => {
             const [valueResource, actions] = createResource(() => platform.getDisplayBackend?.())
             const value = () => (valueResource.state === "pending" ? undefined : valueResource.latest)

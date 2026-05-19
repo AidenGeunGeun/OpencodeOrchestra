@@ -459,16 +459,16 @@ export function SecureEnvTab() {
   return (
     <div class="size-full flex flex-col bg-background-stronger" data-tool-dock-secure-env>
       <Header projectLabel={projectLabel()} count={count()} />
-      <Show when={topNotice()}>
+      <Show when={topNotice()} keyed>
         {(notice) => (
           <div
             class="shrink-0 px-3 py-1.5 text-11-regular border-b border-border-weaker-base"
             classList={{
-              "text-text-warning": notice().kind === "error",
-              "text-text-weak": notice().kind === "info",
+              "text-text-warning": notice.kind === "error",
+              "text-text-weak": notice.kind === "info",
             }}
           >
-            {notice().message}
+            {notice.message}
           </div>
         )}
       </Show>
@@ -954,8 +954,8 @@ function AddRowForm(props: {
           disabled={props.busy}
           placeholder={language.t("session.secureEnv.field.valuePlaceholder")}
         />
-        <Show when={valueHint()}>
-          {(hint) => <div class="mt-1 text-11-regular text-text-weak">{hint()}</div>}
+        <Show when={valueHint()} keyed>
+          {(hint) => <div class="mt-1 text-11-regular text-text-weak">{hint}</div>}
         </Show>
       </div>
       <div class="flex items-center justify-between gap-2">
@@ -973,8 +973,8 @@ function AddRowForm(props: {
           </Button>
         </div>
       </div>
-      <Show when={props.error}>
-        {(msg) => <div class="text-11-regular text-text-warning">{msg()}</div>}
+      <Show when={props.error} keyed>
+        {(msg) => <div class="text-11-regular text-text-warning">{msg}</div>}
       </Show>
     </form>
   )
@@ -1020,8 +1020,8 @@ function EditRowForm(props: {
             disabled={props.busy}
             placeholder={language.t("session.secureEnv.field.replaceValuePlaceholder")}
           />
-          <Show when={valueHint()}>
-            {(hint) => <div class="mt-1 text-11-regular text-text-weak">{hint()}</div>}
+          <Show when={valueHint()} keyed>
+            {(hint) => <div class="mt-1 text-11-regular text-text-weak">{hint}</div>}
           </Show>
         </div>
         <div class="flex items-center justify-between gap-2">
@@ -1039,8 +1039,8 @@ function EditRowForm(props: {
             </Button>
           </div>
         </div>
-        <Show when={props.error}>
-          {(msg) => <div class="text-11-regular text-text-warning">{msg()}</div>}
+        <Show when={props.error} keyed>
+          {(msg) => <div class="text-11-regular text-text-warning">{msg}</div>}
         </Show>
       </form>
     </li>
@@ -1104,10 +1104,10 @@ function PasteForm(props: {
           </Button>
         </div>
       </div>
-      <Show when={props.error}>
+      <Show when={props.error} keyed>
         {(msg) => (
           <div class="shrink-0 px-3 pb-2 text-11-regular text-text-warning border-t border-border-weaker-base">
-            {msg()}
+            {msg}
           </div>
         )}
       </Show>

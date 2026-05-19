@@ -354,10 +354,10 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
                                 <Icon name="check-small" />
                               </span>
                             </Show>
-                            <Show when={props.activeIcon}>
+                            <Show when={props.activeIcon} keyed>
                               {(icon) => (
                                 <span data-slot="list-item-active-icon">
-                                  <Icon name={icon()} />
+                                  <Icon name={icon} />
                                 </span>
                               )}
                             </Show>

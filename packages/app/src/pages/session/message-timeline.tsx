@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX } from "solid-js"
+import { For, Index, createEffect, createMemo, on, onCleanup, Show, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
@@ -256,7 +256,12 @@ export function MessageTimeline(props: {
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
 
-  const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
+  // OCO: stabilize identity across renderedUserMessages refs that contain the
+  // same ID sequence. Without this, every stream update propagates a new array
+  // through the <For> diff path even when no IDs changed.
+  const rendered = createMemo<string[]>(() => props.renderedUserMessages.map((message) => message.id), [], {
+    equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]),
+  })
   const sessionID = createMemo(() => params.id)
   const sessionMessages = createMemo(() => {
     const id = sessionID()
@@ -761,7 +766,7 @@ export function MessageTimeline(props: {
                       </Show>
                     </div>
                   </div>
-                  <Show when={sessionID()}>
+                  <Show when={sessionID()} keyed>
                     {(id) => (
                       <div class="shrink-0 flex items-center gap-3">
                         <ContextHealth
@@ -831,12 +836,12 @@ export function MessageTimeline(props: {
                                   </DropdownMenu.ItemLabel>
                                 </DropdownMenu.Item>
                               </Show>
-                              <DropdownMenu.Item onSelect={() => void archiveSession(id())}>
+                              <DropdownMenu.Item onSelect={() => void archiveSession(id)}>
                                 <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
                               <DropdownMenu.Separator />
                               <DropdownMenu.Item
-                                onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id()} />)}
+                                onSelect={() => dialog.show(() => <DialogDeleteSession sessionID={id} />)}
                               >
                                 <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
                               </DropdownMenu.Item>
@@ -1002,27 +1007,27 @@ export function MessageTimeline(props: {
                                 {(commentAccessor: () => MessageComment) => {
                                   const comment = createMemo(() => commentAccessor())
                                   return (
-                                    <Show when={comment()}>
+                                    <Show when={comment()} keyed>
                                       {(c) => (
                                         <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
                                           <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
                                             <FileIcon
-                                              node={{ path: c().path, type: "file" }}
+                                              node={{ path: c.path, type: "file" }}
                                               class="size-3.5 shrink-0"
                                             />
-                                            <span class="truncate">{getFilename(c().path)}</span>
-                                            <Show when={c().selection}>
+                                            <span class="truncate">{getFilename(c.path)}</span>
+                                            <Show when={c.selection} keyed>
                                               {(selection) => (
                                                 <span class="shrink-0 text-text-weak">
-                                                  {selection().startLine === selection().endLine
-                                                    ? `:${selection().startLine}`
-                                                    : `:${selection().startLine}-${selection().endLine}`}
+                                                  {selection.startLine === selection.endLine
+                                                    ? `:${selection.startLine}`
+                                                    : `:${selection.startLine}-${selection.endLine}`}
                                                 </span>
                                               )}
                                             </Show>
                                           </div>
                                           <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
-                                            {c().comment}
+                                            {c.comment}
                                           </div>
                                         </div>
                                       )}
@@ -1042,15 +1047,19 @@ export function MessageTimeline(props: {
                                 {(commentAccessor: () => MessageBrowserComment) => {
                                   const comment = createMemo(() => commentAccessor())
                                   return (
-                                    <Show when={comment()}>
+                                    <Show when={comment()} keyed>
                                       {(c) => (
                                         <div class="shrink-0 w-[220px] rounded-[6px] border border-border-weak-base bg-background-stronger overflow-hidden">
-                                           <img src={c().screenshot} alt={c().filename} class="w-full h-24 object-cover bg-white" />
-                                           <div class="px-2.5 py-2">
-                                             <div class="text-11-medium text-text-strong truncate">Browser comment</div>
-                                             <Show when={c().note.trim()}>
+                                          <img
+                                            src={c.screenshot}
+                                            alt={c.filename}
+                                            class="w-full h-24 object-cover bg-white"
+                                          />
+                                          <div class="px-2.5 py-2">
+                                            <div class="text-11-medium text-text-strong truncate">Browser comment</div>
+                                            <Show when={c.note.trim()}>
                                               <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
-                                                {c().note}
+                                                {c.note}
                                               </div>
                                             </Show>
                                           </div>

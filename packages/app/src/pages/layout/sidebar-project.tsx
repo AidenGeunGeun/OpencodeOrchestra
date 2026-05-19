@@ -40,6 +40,8 @@ export const ProjectDragOverlay = (props: {
 }): JSX.Element => {
   const project = createMemo(() => props.projects().find((p) => p.worktree === props.activeProject()))
   return (
+    // OCO: NOT keyed — same churning-projects-list pattern as layout.tsx;
+    // keyed would rebuild the drag-overlay icon on any list update.
     <Show when={project()}>
       {(p) => (
         <div class="bg-background-base rounded-xl p-1">

@@ -550,7 +550,7 @@ export function SessionSidePanel(props: {
                       const path = file.pathFromTab(tab)
                       return (
                         <div data-component="tabs-drag-preview">
-                          <Show when={path}>{(p) => <FileVisual active path={p()} />}</Show>
+                          <Show when={path} keyed>{(p) => <FileVisual active path={p} />}</Show>
                         </div>
                       )
                     }}

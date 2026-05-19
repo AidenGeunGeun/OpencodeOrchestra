@@ -86,10 +86,10 @@ function TabsTrigger(props: ParentProps<TabsTriggerProps>) {
       >
         {split.children}
       </Kobalte.Trigger>
-      <Show when={split.closeButton}>
+      <Show when={split.closeButton} keyed>
         {(closeButton) => (
           <div data-slot="tabs-trigger-close-button" data-hidden={split.hideCloseButton}>
-            {closeButton()}
+            {closeButton}
           </div>
         )}
       </Show>

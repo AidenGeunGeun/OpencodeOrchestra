@@ -134,6 +134,12 @@ export function BasicTool(props: BasicToolProps) {
               }}
             >
               <Switch>
+                {/* OCO: NOT keyed — callers pass `trigger={{ title, subtitle, args, ... }}`
+                    as a fresh JSX object literal (9+ callsites in message-part.tsx),
+                    and Solid re-evaluates prop literals on every parent render. Keyed
+                    would tear down TextShimmer/For/action on any unrelated reactive
+                    re-render. Stale-read risk N/A — `props.trigger` is parent-computed,
+                    not an SDK store entry that can be deleted mid-batch. */}
                 <Match when={isTriggerTitle(props.trigger) && props.trigger}>
                   {(trigger) => (
                     <div data-slot="basic-tool-tool-info-structured">

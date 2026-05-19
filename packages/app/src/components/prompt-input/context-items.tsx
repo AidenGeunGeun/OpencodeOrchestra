@@ -52,12 +52,12 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                     <FileIcon node={{ path: item.path, type: "file" }} class="shrink-0 size-3.5" />
                     <div class="flex items-center text-11-regular min-w-0 font-medium">
                       <span class="text-text-strong whitespace-nowrap">{label}</span>
-                      <Show when={item.selection}>
+                      <Show when={item.selection} keyed>
                         {(sel) => (
                           <span class="text-text-weak whitespace-nowrap shrink-0">
-                            {sel().startLine === sel().endLine
-                              ? `:${sel().startLine}`
-                              : `:${sel().startLine}-${sel().endLine}`}
+                            {sel.startLine === sel.endLine
+                              ? `:${sel.startLine}`
+                              : `:${sel.startLine}-${sel.endLine}`}
                           </span>
                         )}
                       </Show>
@@ -74,8 +74,8 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                       aria-label={props.t("prompt.context.removeFile")}
                     />
                   </div>
-                  <Show when={item.comment}>
-                    {(comment) => <div class="text-12-regular text-text-strong ml-5 pr-1 truncate">{comment()}</div>}
+                  <Show when={item.comment} keyed>
+                    {(comment) => <div class="text-12-regular text-text-strong ml-5 pr-1 truncate">{comment}</div>}
                   </Show>
                 </div>
               </Tooltip>

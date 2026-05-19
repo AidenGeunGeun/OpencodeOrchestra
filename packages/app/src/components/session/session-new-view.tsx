@@ -69,13 +69,13 @@ export function NewSessionView(props: NewSessionViewProps) {
                 {label(current())}
               </div>
             </div>
-            <Show when={sync.project}>
+            <Show when={sync.project} keyed>
               {(project) => (
                 <div class="flex items-start justify-center gap-3 min-h-5">
                   <div class="text-12-medium text-text-weak leading-5 min-w-0 max-w-160 break-words text-center">
                     {language.t("session.new.lastModified")}&nbsp;
                     <span class="text-text-strong">
-                      {DateTime.fromMillis(project().time.updated ?? project().time.created)
+                      {DateTime.fromMillis(project.time.updated ?? project.time.created)
                         .setLocale(language.intl())
                         .toRelative()}
                     </span>
