@@ -172,10 +172,34 @@ export default function Layout(props: ParentProps) {
   const [sizing, setSizing] = createSignal(false)
   let sizet: number | undefined
   let sortNowInterval: ReturnType<typeof setInterval> | undefined
+  // OCO perf: 60s wall-clock-aligned tick that re-sorts the sidebar so sessions
+  // crossing the "recent (< 1min)" → "stale" boundary in `sortSessions`
+  // (./layout/helpers.ts) move to their correct bucket. Skipped when no session
+  // is currently in the recent tier — proof: `sortSessions(now)` only uses
+  // `now` for `oneMinuteAgo = now - 60_000`, and if every session already has
+  // `updated <= sortNow() - 60_000` it stays stale at any later now, so the
+  // re-sort would produce byte-identical output. New `updated` values only
+  // arrive via SDK mutations, which invalidate the sort memo on their own.
+  const hasRecentSession = (cutoff: number) => {
+    for (const project of layout.projects.list()) {
+      for (const dir of workspaceIds(project)) {
+        const [child] = globalSync.child(dir, { bootstrap: false })
+        for (const session of child.session) {
+          const updated = session.time.updated ?? session.time.created
+          if (updated > cutoff) return true
+        }
+      }
+    }
+    return false
+  }
+  const sortNowTick = () => {
+    if (!hasRecentSession(sortNow() - 60_000)) return
+    setSortNow(Date.now())
+  }
   const sortNowTimeout = setTimeout(
     () => {
-      setSortNow(Date.now())
-      sortNowInterval = setInterval(() => setSortNow(Date.now()), 60_000)
+      sortNowTick()
+      sortNowInterval = setInterval(sortNowTick, 60_000)
     },
     60_000 - (Date.now() % 60_000),
   )
