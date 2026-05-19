@@ -1,4 +1,4 @@
-import { Show } from "solid-js"
+import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { Style, Link } from "@solidjs/meta"
 import inter from "../assets/fonts/inter.woff2"
 import ibmPlexMonoRegular from "../assets/fonts/ibm-plex-mono.woff2"
@@ -117,10 +117,11 @@ const monoNerdCss = MONO_NERD_FONTS.map(
         }`,
 ).join("")
 
-export const Font = () => {
-  return (
-    <>
-      <Style>{`
+// OCO: split the @font-face declarations so the dozen Nerd Font variants used
+// only by the terminal/editor (when the user explicitly opts in) don't block
+// first paint. `font-display: swap` already keeps text renderable; this saves
+// ~30 @font-face parse passes on the critical path.
+const essentialFontCss = `
         @font-face {
           font-family: "Inter";
           src: url("${inter}") format("woff2-variations");
@@ -165,8 +166,30 @@ export const Font = () => {
           descent-override: 25%;
           line-gap-override: 1%;
         }
-${monoNerdCss}
-      `}</Style>
+`
+
+export const Font = () => {
+  const [nerdReady, setNerdReady] = createSignal(false)
+
+  onMount(() => {
+    // Defer one frame past first paint. requestAnimationFrame is bounded to
+    // ~16ms so users opening the terminal immediately after launch don't see
+    // powerline/devicon glyphs as tofu boxes while waiting on an idle window.
+    if (typeof requestAnimationFrame === "function") {
+      const handle = requestAnimationFrame(() => setNerdReady(true))
+      onCleanup(() => cancelAnimationFrame(handle))
+      return
+    }
+    const id = setTimeout(() => setNerdReady(true), 0)
+    onCleanup(() => clearTimeout(id))
+  })
+
+  return (
+    <>
+      <Style>{essentialFontCss}</Style>
+      <Show when={nerdReady()}>
+        <Style>{monoNerdCss}</Style>
+      </Show>
       <Show when={typeof location === "undefined" || location.protocol !== "file:"}>
         <Link rel="preload" href={inter} as="font" type="font/woff2" crossorigin="anonymous" />
         <Link rel="preload" href={ibmPlexMonoRegular} as="font" type="font/woff2" crossorigin="anonymous" />

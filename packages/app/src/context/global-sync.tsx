@@ -11,6 +11,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
 import {
   createContext,
+  createSignal,
   getOwner,
   Match,
   onCleanup,
@@ -81,6 +82,10 @@ function createGlobalSync() {
 
   let active = true
   let projectWritten = false
+  // OCO: gates the Home empty-state to avoid flashing it before the first
+  // project.list fetch (or cache restore) settles. Flips true once we've heard
+  // back, regardless of whether the result is empty.
+  const [projectsLoaded, setProjectsLoaded] = createSignal(false)
 
   onCleanup(() => {
     active = false
@@ -95,12 +100,16 @@ function createGlobalSync() {
 
   const setProjects = (next: Project[] | ((draft: Project[]) => void)) => {
     projectWritten = true
+    setProjectsLoaded(true)
     if (typeof next === "function") {
       setGlobalStore("project", produce(next))
       cacheProjects()
       return
     }
-    setGlobalStore("project", next)
+    // OCO: keyed reconcile preserves item identity across re-fetches so
+    // downstream consumers (sidebar .find(), layout memos) only invalidate when
+    // the specific project actually changed — not on every bootstrap pass.
+    setGlobalStore("project", reconcile(next, { key: "id" }))
     cacheProjects()
   }
 
@@ -123,11 +132,21 @@ function createGlobalSync() {
   if (projectInit instanceof Promise) {
     void projectInit.then(() => {
       if (!active) return
-      if (projectWritten) return
+      // Either branch counts as "we've heard back" — the Home empty-state
+      // can render without flickering past a loading frame.
+      if (projectWritten) {
+        setProjectsLoaded(true)
+        return
+      }
       const cached = projectCache.value
+      setProjectsLoaded(true)
       if (cached.length === 0) return
-      setGlobalStore("project", cached)
+      // OCO: keyed reconcile so the post-cache bootstrap re-fetch can fold its
+      // results into existing identities instead of replacing the array.
+      setGlobalStore("project", reconcile(cached, { key: "id" }))
     })
+  } else {
+    setProjectsLoaded(true)
   }
 
   const setSessionTodo = (sessionID: string, todos: Todo[] | undefined) => {
@@ -395,6 +414,7 @@ function createGlobalSync() {
     get error() {
       return globalStore.error
     },
+    projectsLoaded,
     child: children.child,
     bootstrap,
     updateConfig,

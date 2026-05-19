@@ -524,12 +524,51 @@ function renderMathExpressions(html: string): string {
   return body.innerHTML
 }
 
+// OCO: module-level lazy singleton — getSharedHighlighter is internally cached,
+// but hoisting the promise here lets us skip the await microtask on every
+// highlight call and reuses the same highlighter across both the native and JS
+// parser code paths.
+let highlighterPromise: ReturnType<typeof getSharedHighlighter> | undefined
+function highlighter() {
+  if (!highlighterPromise) highlighterPromise = getSharedHighlighter({ themes: ["OpenCode"], langs: [] })
+  return highlighterPromise
+}
+
+// OCO: small LRU on highlighted HTML keyed by (lang, code). Streaming messages
+// re-highlight the same code blocks repeatedly as new tokens arrive, and the
+// same blocks reappear after navigation. The theme uses CSS variables so dark/
+// light switches don't invalidate the cache. Cap is conservative — code blocks
+// are large strings and we don't want to balloon memory.
+const HIGHLIGHT_CACHE_MAX = 256
+const highlightCache = new Map<string, string>()
+async function highlight(lang: string, code: string): Promise<string> {
+  const key = `${lang} ${code}`
+  const cached = highlightCache.get(key)
+  if (cached !== undefined) {
+    // LRU touch.
+    highlightCache.delete(key)
+    highlightCache.set(key, cached)
+    return cached
+  }
+  const hl = await highlighter()
+  let resolvedLang = lang || "text"
+  if (!(resolvedLang in bundledLanguages)) resolvedLang = "text"
+  if (!hl.getLoadedLanguages().includes(resolvedLang)) {
+    await hl.loadLanguage(resolvedLang as BundledLanguage)
+  }
+  const html = hl.codeToHtml(code, { lang: resolvedLang, theme: "OpenCode", tabindex: false })
+  highlightCache.set(key, html)
+  if (highlightCache.size > HIGHLIGHT_CACHE_MAX) {
+    const firstKey = highlightCache.keys().next().value
+    if (firstKey !== undefined) highlightCache.delete(firstKey)
+  }
+  return html
+}
+
 async function highlightCodeBlocks(html: string): Promise<string> {
   const codeBlockRegex = /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g
   const matches = [...html.matchAll(codeBlockRegex)]
   if (matches.length === 0) return html
-
-  const highlighter = await getSharedHighlighter({ themes: ["OpenCode"], langs: [] })
 
   let result = html
   for (const match of matches) {
@@ -541,19 +580,7 @@ async function highlightCodeBlocks(html: string): Promise<string> {
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
 
-    let language = lang || "text"
-    if (!(language in bundledLanguages)) {
-      language = "text"
-    }
-    if (!highlighter.getLoadedLanguages().includes(language)) {
-      await highlighter.loadLanguage(language as BundledLanguage)
-    }
-
-    const highlighted = highlighter.codeToHtml(code, {
-      lang: language,
-      theme: "OpenCode",
-      tabindex: false,
-    })
+    const highlighted = await highlight(lang || "text", code)
     result = result.replace(fullMatch, () => highlighted)
   }
 
@@ -579,19 +606,9 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
         nonStandard: true,
       }),
       markedShiki({
+        // OCO: share the module-level highlighter + LRU with the native parser path.
         async highlight(code, lang) {
-          const highlighter = await getSharedHighlighter({ themes: ["OpenCode"], langs: [] })
-          if (!(lang in bundledLanguages)) {
-            lang = "text"
-          }
-          if (!highlighter.getLoadedLanguages().includes(lang)) {
-            await highlighter.loadLanguage(lang as BundledLanguage)
-          }
-          return highlighter.codeToHtml(code, {
-            lang: lang || "text",
-            theme: "OpenCode",
-            tabindex: false,
-          })
+          return highlight(lang || "text", code)
         },
       }),
     )

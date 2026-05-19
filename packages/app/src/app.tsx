@@ -25,8 +25,6 @@ import {
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { CommandProvider } from "@/context/command"
-import { CommentsProvider } from "@/context/comments"
-import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
 import { GlobalSyncProvider } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
@@ -36,10 +34,8 @@ import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
 import { usePlatform } from "@/context/platform"
-import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
-import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
@@ -56,12 +52,14 @@ const HomeRoute = () => (
   </Suspense>
 )
 
+// OCO: Terminal/File/Prompt/Comments providers used to wrap this route, which
+// remounted them on every session-ID change and destroyed their internal
+// per-session caches. They live in directory-layout.tsx now so the caches
+// survive session-to-session nav within the same directory.
 const SessionRoute = () => (
-  <SessionProviders>
-    <Suspense fallback={<Loading />}>
-      <Session />
-    </Suspense>
-  </SessionProviders>
+  <Suspense fallback={<Loading />}>
+    <Session />
+  </Suspense>
 )
 
 const AnalyticsRoute = () => (
@@ -112,18 +110,6 @@ function AppShellProviders(props: ParentProps) {
         </LayoutProvider>
       </PermissionProvider>
     </SettingsProvider>
-  )
-}
-
-function SessionProviders(props: ParentProps) {
-  return (
-    <TerminalProvider>
-      <FileProvider>
-        <PromptProvider>
-          <CommentsProvider>{props.children}</CommentsProvider>
-        </PromptProvider>
-      </FileProvider>
-    </TerminalProvider>
   )
 }
 
@@ -187,7 +173,9 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
             if (checkMode() === "background" || type === "http") return false
           }
         }).pipe(
-          effectMinDuration(checkMode() === "blocking" ? "1.2 seconds" : 0),
+          // OCO: anti-flash floor only; the previous 1.2s wait was a hard delay on
+          // every cold start regardless of how fast the backend came up.
+          effectMinDuration(checkMode() === "blocking" ? "150 millis" : 0),
           Effect.timeoutOrElse({ duration: "10 seconds", onTimeout: () => Effect.succeed(false) }),
           Effect.ensuring(Effect.sync(() => setCheckMode("background"))),
           Effect.runPromise,

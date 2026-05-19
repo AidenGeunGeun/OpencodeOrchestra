@@ -58,18 +58,25 @@ export async function bootstrapGlobal(input: {
   }
 
   const request = <T>(name: string, fn: () => Promise<T>) => perfMeasure(`global.bootstrap.request.${name}`, fn)
-  const tasks = [
-    request("path", () =>
-      retry(() =>
-        input.globalSDK.path.get().then((x) => {
-          input.setGlobalStore("path", x.data!)
-        }),
-      ),
+
+  // OCO: `path` is the only task the router truly blocks on (it drives the
+  // resolved working directory). Resolve it first, mark ready, then let the
+  // other four fetches finish in the background. Consumers react when each
+  // slice lands (their default values — `[]`, `{}` — already render harmless
+  // skeletons in the meantime).
+  const pathTask = request("path", () =>
+    retry(() =>
+      input.globalSDK.path.get().then((x) => {
+        input.setGlobalStore("path", reconcile(x.data!))
+      }),
     ),
+  )
+
+  const backgroundTasks = [
     request("config", () =>
       retry(() =>
         input.globalSDK.config.get().then((x) => {
-          input.setGlobalStore("config", x.data!)
+          input.setGlobalStore("config", reconcile(x.data!))
         }),
       ),
     ),
@@ -81,6 +88,8 @@ export async function bootstrapGlobal(input: {
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .slice()
             .sort((a, b) => cmp(a.id, b.id))
+          // setGlobalStore for "project" routes through setProjects, which now
+          // applies a keyed reconcile internally.
           input.setGlobalStore("project", projects)
         }),
       ),
@@ -88,21 +97,43 @@ export async function bootstrapGlobal(input: {
     request("provider.list", () =>
       retry(() =>
         input.globalSDK.provider.list().then((x) => {
-          input.setGlobalStore("provider", normalizeProviderList(x.data!))
+          // OCO: split per-field so the `all` array gets keyed reconcile (Provider has `id`).
+          // A keyless reconcile on `all` would treat any server-side reorder as a churn event
+          // for every consumer doing `provider.all.find(...)`.
+          const norm = normalizeProviderList(x.data!)
+          batch(() => {
+            input.setGlobalStore("provider", "all", reconcile(norm.all, { key: "id" }))
+            input.setGlobalStore("provider", "connected", reconcile(norm.connected))
+            input.setGlobalStore("provider", "default", reconcile(norm.default))
+          })
         }),
       ),
     ),
     request("provider.auth", () =>
       retry(() =>
         input.globalSDK.provider.auth().then((x) => {
-          input.setGlobalStore("provider_auth", x.data ?? {})
+          input.setGlobalStore("provider_auth", reconcile(x.data ?? {}))
         }),
       ),
     ),
   ]
 
-  const results = await Promise.allSettled(tasks)
-  const errors = results.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason)
+  // Wait for path; flip ready as soon as it lands so the shell can paint.
+  let pathError: unknown
+  try {
+    await pathTask
+  } catch (error) {
+    pathError = error
+  }
+  input.setGlobalStore("ready", true)
+
+  // Keep the existing error-toast contract: if any task fails, surface the
+  // first error and a "+N more" count once *all* finish. This runs after the
+  // shell is already interactive.
+  const backgroundResults = await Promise.allSettled(backgroundTasks)
+  const errors: unknown[] = []
+  if (pathError !== undefined) errors.push(pathError)
+  for (const r of backgroundResults) if (r.status === "rejected") errors.push(r.reason)
   if (errors.length) {
     const message = formatServerError(errors[0], input.translate)
     const more = errors.length > 1 ? input.formatMoreCount(errors.length - 1) : ""
@@ -112,11 +143,10 @@ export async function bootstrapGlobal(input: {
       description: message + more,
     })
   }
-  input.setGlobalStore("ready", true)
   perfLog("global.bootstrap", {
     durationMs: perfDuration(start),
     healthy: true,
-    requests: tasks.length,
+    requests: 1 + backgroundTasks.length,
     errors: errors.length,
   })
 }
@@ -156,15 +186,25 @@ export async function bootstrapDirectory(input: {
     provider: () =>
       request("blocking", "provider.list", () =>
         input.sdk.provider.list().then((x) => {
-          input.setStore("provider", normalizeProviderList(x.data!))
+          // OCO: per-field reconcile so .all gets keyed identity preservation; see
+          // global bootstrapGlobal for the same pattern.
+          const norm = normalizeProviderList(x.data!)
+          batch(() => {
+            input.setStore("provider", "all", reconcile(norm.all, { key: "id" }))
+            input.setStore("provider", "connected", reconcile(norm.connected))
+            input.setStore("provider", "default", reconcile(norm.default))
+          })
         }),
       ),
     agent: () =>
       request("blocking", "app.agents", () =>
-        input.sdk.app.agents().then((x) => input.setStore("agent", x.data ?? [])),
+        // OCO: Agent has a stable `name`; keyed reconcile preserves identity across re-fetches.
+        input.sdk.app.agents().then((x) => input.setStore("agent", reconcile(x.data ?? [], { key: "name" }))),
       ),
     config: () =>
-      request("blocking", "config", () => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
+      request("blocking", "config", () =>
+        input.sdk.config.get().then((x) => input.setStore("config", reconcile(x.data!))),
+      ),
   }
 
   try {
@@ -190,20 +230,25 @@ export async function bootstrapDirectory(input: {
 
   if (input.store.status !== "complete") input.setStore("status", "partial")
   const backgroundRequests = [
-    request("background", "path", () => input.sdk.path.get().then((x) => input.setStore("path", x.data!))),
+    request("background", "path", () => input.sdk.path.get().then((x) => input.setStore("path", reconcile(x.data!)))),
     request("background", "command.list", () =>
-      input.sdk.command.list().then((x) => input.setStore("command", x.data ?? [])),
+      // OCO: Command has a stable `name`; keyed reconcile preserves identity.
+      input.sdk.command.list().then((x) => input.setStore("command", reconcile(x.data ?? [], { key: "name" }))),
     ),
     request("background", "session.status", () =>
-      input.sdk.session.status().then((x) => input.setStore("session_status", x.data!)),
+      input.sdk.session.status().then((x) => input.setStore("session_status", reconcile(x.data!))),
     ),
     request("background", "session.list", () => Promise.resolve(input.loadSessions(input.directory))),
-    request("background", "mcp.status", () => input.sdk.mcp.status().then((x) => input.setStore("mcp", x.data!))),
-    request("background", "lsp.status", () => input.sdk.lsp.status().then((x) => input.setStore("lsp", x.data!))),
+    request("background", "mcp.status", () =>
+      input.sdk.mcp.status().then((x) => input.setStore("mcp", reconcile(x.data!))),
+    ),
+    request("background", "lsp.status", () =>
+      input.sdk.lsp.status().then((x) => input.setStore("lsp", reconcile(x.data!))),
+    ),
     request("background", "vcs.get", () =>
       input.sdk.vcs.get().then((x) => {
         const next = x.data ?? input.store.vcs
-        input.setStore("vcs", next)
+        input.setStore("vcs", reconcile(next))
         if (next?.branch) input.vcsCache.setStore("value", next)
       }),
     ),

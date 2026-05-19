@@ -577,6 +577,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onInput: atOnInput,
     onKeyDown: atOnKeyDown,
   } = useFilteredList<AtOption>({
+    // OCO: @-mention items come from an SDK file-search IPC call; debounce so
+    // we coalesce keystroke bursts into one fetch instead of firing per char.
+    debounceFilterMs: 150,
     items: async (query) => {
       const agents = agentList()
       const open = recent()

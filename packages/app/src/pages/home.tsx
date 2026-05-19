@@ -85,6 +85,10 @@ export default function Home() {
         />
         {server.name}
       </Button>
+      {/* OCO: gate the "empty" branch on projectsLoaded() — the global bootstrap
+          now flips ready=true after only `path` resolves, so without this gate
+          the Home page would flash the empty state for a frame before the
+          project list lands. */}
       <Switch>
         <Match when={sync.data.project.length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">
@@ -113,7 +117,7 @@ export default function Home() {
             </ul>
           </div>
         </Match>
-        <Match when={true}>
+        <Match when={sync.projectsLoaded()}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
             <Icon name="folder-add-left" size="large" />
             <div class="flex flex-col gap-1 items-center justify-center">

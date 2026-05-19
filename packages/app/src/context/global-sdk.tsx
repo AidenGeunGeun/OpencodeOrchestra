@@ -41,9 +41,13 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     const FLUSH_FRAME_MS = 16
     const STREAM_YIELD_MS = 8
     const RECONNECT_DELAY_MS = 250
+    // OCO: when a streaming spike piles up >CHUNK_SIZE coalesced events, emit
+    // the first chunk synchronously (preserves the common fast path) and defer
+    // the rest via setTimeout(0) so we don't monopolize a frame. Default 32 is
+    // ~enough headroom that typical bursts stay one-shot.
+    const CHUNK_SIZE = 32
 
     let queue: Queued[] = []
-    let buffer: Queued[] = []
     const coalesced = new Map<string, number>()
     const staleDeltas = new Set<string>()
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -67,25 +71,41 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       if (queue.length === 0) return
 
       const events = queue
+      queue = []
       const skip = staleDeltas.size > 0 ? new Set(staleDeltas) : undefined
-      queue = buffer
-      buffer = events
-      queue.length = 0
       coalesced.clear()
       staleDeltas.clear()
-
       last = Date.now()
-      batch(() => {
-        for (const event of events) {
-          if (skip && (event.payload as { type?: string }).type === "message.part.delta") {
-            const props = (event.payload as { properties: { messageID: string; partID: string } }).properties
-            if (skip.has(deltaKey(event.directory, props.messageID, props.partID))) continue
-          }
-          emitter.emit(event.directory, event.payload)
-        }
-      })
 
-      buffer.length = 0
+      const emitRange = (start: number, end: number) => {
+        batch(() => {
+          for (let i = start; i < end; i++) {
+            const event = events[i]
+            if (skip && (event.payload as { type?: string }).type === "message.part.delta") {
+              const props = (event.payload as { properties: { messageID: string; partID: string } }).properties
+              if (skip.has(deltaKey(event.directory, props.messageID, props.partID))) continue
+            }
+            emitter.emit(event.directory, event.payload)
+          }
+        })
+      }
+
+      const total = events.length
+      if (total <= CHUNK_SIZE) {
+        emitRange(0, total)
+        return
+      }
+      // Spike — emit the first chunk now and defer the rest.
+      emitRange(0, CHUNK_SIZE)
+      let cursor = CHUNK_SIZE
+      const tick = () => {
+        if (abort.signal.aborted) return
+        const end = Math.min(cursor + CHUNK_SIZE, total)
+        emitRange(cursor, end)
+        cursor = end
+        if (cursor < total) setTimeout(tick, 0)
+      }
+      setTimeout(tick, 0)
     }
 
     const schedule = () => {

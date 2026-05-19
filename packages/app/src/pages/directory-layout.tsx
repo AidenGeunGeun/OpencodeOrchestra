@@ -5,6 +5,14 @@ import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider } from "@/context/local"
 import { useGlobalSDK } from "@/context/global-sdk"
+// OCO: hoisted out of /session/:id so the per-session caches inside these
+// providers (terminal/file/prompt/comments) survive across navigations within
+// the same directory. Previously they remounted on every session change,
+// defeating their own caches and causing xterm re-init on each nav.
+import { TerminalProvider } from "@/context/terminal"
+import { FileProvider } from "@/context/file"
+import { PromptProvider } from "@/context/prompt"
+import { CommentsProvider } from "@/context/comments"
 
 import { DataProvider } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -26,7 +34,15 @@ function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
       onSessionHref={(sessionID: string) => `/${slug()}/session/${sessionID}`}
       onSyncSession={(sessionID: string) => sync.session.sync(sessionID)}
     >
-      <LocalProvider>{props.children}</LocalProvider>
+      <LocalProvider>
+        <TerminalProvider>
+          <FileProvider>
+            <PromptProvider>
+              <CommentsProvider>{props.children}</CommentsProvider>
+            </PromptProvider>
+          </FileProvider>
+        </TerminalProvider>
+      </LocalProvider>
     </DataProvider>
   )
 }
@@ -101,11 +117,15 @@ export default function Layout(props: ParentProps) {
   )
 
   return (
-    <Show when={resolvedDirectory()}>
+    // OCO: keyed so children get a stable string value. We wrap it in a fresh
+    // constant-accessor for SDKProvider, which expects `Accessor<string>`. The
+    // keyed Show tears down children on identity change anyway, so the wrapped
+    // accessor never needs to track a new value across its lifetime.
+    <Show when={resolvedDirectory()} keyed>
       {(resolved) => (
-        <SDKProvider directory={resolved}>
+        <SDKProvider directory={() => resolved}>
           <SyncProvider>
-            <DirectoryDataProvider directory={resolved()}>{props.children}</DirectoryDataProvider>
+            <DirectoryDataProvider directory={resolved}>{props.children}</DirectoryDataProvider>
           </SyncProvider>
         </SDKProvider>
       )}
