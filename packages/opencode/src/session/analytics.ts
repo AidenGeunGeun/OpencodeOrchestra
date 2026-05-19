@@ -970,6 +970,7 @@ export namespace Analytics {
       // Backfill may be running or may have been interrupted by a previous quit.
       if (!AnalyticsStore.isBackfilling()) AnalyticsStore.ensureBackfilled().catch(() => {})
       const progress = AnalyticsStore.progress() ?? { total: 0, processed: 0 }
+      if (AnalyticsStore.hasCachedResponses()) return withBackfillProgress(summaryFromStore(query, lookup, now), progress)
       return buildBackfillingResponse(query, now, progress)
     }
 
@@ -977,9 +978,14 @@ export namespace Analytics {
     await AnalyticsStore.foldIncremental()
     if (AnalyticsStore.storeStatus() === "backfilling") {
       const progress = AnalyticsStore.progress() ?? { total: 0, processed: 0 }
+      if (AnalyticsStore.hasCachedResponses()) return withBackfillProgress(summaryFromStore(query, lookup, now), progress)
       return buildBackfillingResponse(query, now, progress)
     }
     return summaryFromStore(query, lookup, now)
+  }
+
+  function withBackfillProgress(summary: Summary, progress: { total: number; processed: number }): Summary {
+    return { ...summary, backfilling: progress }
   }
 
   /**

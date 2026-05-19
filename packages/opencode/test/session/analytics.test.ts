@@ -5,7 +5,7 @@ import { Analytics } from "../../src/session/analytics"
 import { AnalyticsOverrides } from "../../src/session/analytics-overrides"
 import { AnalyticsTokenMigration } from "../../src/session/analytics-token-migration"
 import { AnalyticsStore } from "../../src/session/analytics-store"
-import { AnalyticsResponseTable, AnalyticsTokenMigrationStateTable } from "../../src/session/analytics-summary.sql"
+import { AnalyticsResponseTable, AnalyticsSkippedResponseTable, AnalyticsTokenMigrationStateTable } from "../../src/session/analytics-summary.sql"
 import { MessageTable, PartTable, SessionTable } from "../../src/session/session.sql"
 import { Database } from "../../src/storage/db"
 import type { ModelsDev } from "../../src/provider/models"
@@ -282,7 +282,7 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
     expect(AnalyticsStore.isFoldableAssistantMessage(assistant({ created: Date.now(), finish: "tool-calls", tokens: 0 }))).toBe(false)
   })
 
-  test("incremental fold skips a placeholder and later matches rebuild after completion", async () => {
+  test("incremental fold skips a hot placeholder, while rebuild can recover it after completion", async () => {
     const projectID = "proj_analytics_stream"
     const sessionID = "ses_analytics_stream"
     const messageID = "msg_analytics_stream"
@@ -335,6 +335,7 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
     AnalyticsStore.prepareBackfill()
     await AnalyticsStore.ensureBackfilled()
     expect(AnalyticsStore.queryResponses().some((row) => row.message_id === messageID)).toBe(false)
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
 
     Database.use((db) => {
       db.update(MessageTable)
@@ -343,15 +344,14 @@ describe("AnalyticsStore streamed placeholder readiness", () => {
         .run()
     })
     await AnalyticsStore.ensureBackfilled()
-    const incremental = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
-    expect(incremental?.output).toBe(100)
+    expect(AnalyticsStore.queryResponses().some((row) => row.message_id === messageID)).toBe(false)
 
     AnalyticsStore.rebuild()
     AnalyticsStore.prepareBackfill()
     await AnalyticsStore.ensureBackfilled()
     const rebuilt = AnalyticsStore.queryResponses().find((row) => row.message_id === messageID)
-    expect(rebuilt?.output).toBe(incremental?.output)
-    expect(rebuilt?.actual_cost).toBe(incremental?.actual_cost)
+    expect(rebuilt?.output).toBe(100)
+    expect(AnalyticsStore.queryResponses().filter((row) => row.message_id === messageID)).toHaveLength(1)
 
     Database.use((db) => {
       db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run()
@@ -952,7 +952,7 @@ describe("AnalyticsTokenMigration", () => {
 })
 
 describe("AnalyticsStore placeholder stall fix", () => {
-  test("store status stays backfilling when the first row after the watermark is an active placeholder", async () => {
+  test("store status reaches ready when the first row after the watermark is an active placeholder", async () => {
     const projectID = "proj_analytics_stall_ready"
     const sessionID = "ses_analytics_stall_ready"
     const messageID = "msg_analytics_stall_ready"
@@ -989,8 +989,62 @@ describe("AnalyticsStore placeholder stall fix", () => {
     })
     AnalyticsStore.prepareBackfill()
     await AnalyticsStore.ensureBackfilled()
-    expect(AnalyticsStore.storeStatus()).toBe("backfilling")
-    expect(AnalyticsStore.readWatermark()?.last_message_id).toBe("")
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
+    expect(AnalyticsStore.readWatermark()?.last_message_id).toBe(messageID)
+    const skipped = Database.use((db) => db.select().from(AnalyticsSkippedResponseTable).where(eq(AnalyticsSkippedResponseTable.message_id, messageID)).get())
+    expect(skipped?.calls).toBe(0)
+    expect(skipped?.reason).toBe("active-unfinished-zero-usage")
+
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+  })
+
+  test("hot parent task rows do not block child, nested child, or later parent provider calls", async () => {
+    const projectID = "proj_analytics_hot_tail_hierarchy"
+    const parentSessionID = "ses_analytics_hot_parent"
+    const childSessionID = "ses_analytics_hot_child"
+    const nestedSessionID = "ses_analytics_hot_nested"
+    const hotID = "msg_analytics_hot_parent_task"
+    const childID = "msg_analytics_hot_child_done"
+    const nestedID = "msg_analytics_hot_nested_done"
+    const laterParentID = "msg_analytics_hot_parent_later"
+    const activeNow = Date.now()
+    Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
+    AnalyticsStore.rebuild()
+    Database.use((db) => {
+      db.insert(ProjectTable)
+        .values({ id: projectID, worktree: "/tmp/hot-tail-hierarchy", vcs: "git", name: "hot-tail", time_created: activeNow, time_updated: activeNow, sandboxes: [] })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: parentSessionID, project_id: projectID, slug: parentSessionID, directory: "/tmp/hot-tail-hierarchy", title: "parent", version: "test", time_created: activeNow, time_updated: activeNow })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: childSessionID, parent_id: parentSessionID, project_id: projectID, slug: childSessionID, directory: "/tmp/hot-tail-hierarchy", title: "child", version: "test", time_created: activeNow, time_updated: activeNow })
+        .run()
+      db.insert(SessionTable)
+        .values({ id: nestedSessionID, parent_id: childSessionID, project_id: projectID, slug: nestedSessionID, directory: "/tmp/hot-tail-hierarchy", title: "nested", version: "test", time_created: activeNow, time_updated: activeNow })
+        .run()
+      db.insert(MessageTable)
+        .values({ id: hotID, session_id: parentSessionID, time_created: activeNow, time_updated: activeNow, data: ({ role: "assistant", parentID: "user_hot", mode: "build", agent: "orchestrator", path: { cwd: "/tmp/hot-tail-hierarchy", root: "/tmp/hot-tail-hierarchy" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, modelID: "gpt-test", providerID: "openai", time: { created: activeNow } } as any) })
+        .run()
+      for (const [index, item] of [
+        { id: childID, sessionID: childSessionID, agent: "auditor", at: activeNow + 1, input: 5 },
+        { id: nestedID, sessionID: nestedSessionID, agent: "investigator", at: activeNow + 2, input: 7 },
+        { id: laterParentID, sessionID: parentSessionID, agent: "orchestrator", at: activeNow + 3, input: 11 },
+      ].entries()) {
+        db.insert(MessageTable)
+          .values({ id: item.id, session_id: item.sessionID, time_created: item.at, time_updated: item.at, data: ({ role: "assistant", parentID: `user_done_${index}`, mode: "build", agent: item.agent, path: { cwd: "/tmp/hot-tail-hierarchy", root: "/tmp/hot-tail-hierarchy" }, cost: 0.01, tokens: migrationTestTokens(item.input), modelID: "gpt-test", providerID: "openai", finish: "stop", time: { created: item.at, completed: item.at } } as any) })
+          .run()
+      }
+    })
+    AnalyticsStore.prepareBackfill()
+    await AnalyticsStore.ensureBackfilled()
+    const responses = AnalyticsStore.queryResponses()
+    expect(responses.some((row) => row.message_id === hotID)).toBe(false)
+    expect(responses.find((row) => row.message_id === childID)?.calls).toBe(1)
+    expect(responses.find((row) => row.message_id === nestedID)?.calls).toBe(1)
+    expect(responses.find((row) => row.message_id === laterParentID)?.calls).toBe(1)
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
 
     Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())
     AnalyticsStore.rebuild()
@@ -1106,7 +1160,7 @@ describe("AnalyticsStore placeholder stall fix", () => {
     AnalyticsStore.rebuild()
   })
 
-  test("a new active placeholder after a ready watermark puts the summary back into backfilling", async () => {
+  test("a new active placeholder after a ready watermark is skipped without blanking the summary", async () => {
     const projectID = "proj_analytics_ready_then_active"
     const sessionID = "ses_analytics_ready_then_active"
     const completedID = "msg_analytics_ready_done"
@@ -1134,8 +1188,9 @@ describe("AnalyticsStore placeholder stall fix", () => {
         .run()
     })
     const response = await Analytics.summary({ period: "allTime" }, activeNow + 1)
-    expect(response.backfilling?.total).toBe(2)
-    expect(response.backfilling?.processed).toBe(1)
+    expect(response.backfilling).toBeUndefined()
+    expect(response.totals.calls).toBe(1)
+    expect(AnalyticsStore.storeStatus()).toBe("ready")
     expect(AnalyticsStore.queryResponses().some((row) => row.message_id === activeID)).toBe(false)
 
     Database.use((db) => db.delete(ProjectTable).where(eq(ProjectTable.id, projectID)).run())

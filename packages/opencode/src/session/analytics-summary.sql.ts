@@ -101,8 +101,8 @@ export const AnalyticsResponseTable = sqliteTable(
 )
 
 /**
- * Auditable analytics skips for abandoned assistant placeholders that are old
- * enough to move past safely and carry no reliable final usage evidence.
+ * Auditable analytics skips for unfinished assistant placeholders that carry no
+ * reliable final usage evidence and are treated as zero-cost tail noise.
  */
 export const AnalyticsSkippedResponseTable = sqliteTable(
   "analytics_skipped_response",

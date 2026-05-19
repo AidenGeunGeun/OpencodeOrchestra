@@ -32,9 +32,29 @@ import {
   Switch,
 } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
-import { analyticsDisplayedSummary } from "./analytics-helpers"
+import { analyticsIsProgressSummary, analyticsRenderPlan, type AnalyticsRenderPlan } from "./analytics-helpers"
 
 type Period = AnalyticsSummary["period"]
+
+type AnalyticsMain = AnalyticsRenderPlan["main"]
+type AnalyticsMainOfKind<K extends AnalyticsMain["kind"]> = Extract<AnalyticsMain, { kind: K }>
+
+/**
+ * Reactive Switch/Match helper: returns an accessor that resolves to the `main` variant
+ * when it matches the requested kind, otherwise `undefined`. Returning an accessor keeps
+ * Match reactive even though we are reaching into the render plan through a helper, and
+ * returning `undefined` (not `false`) lets Solid's child-callback narrowing remove the
+ * empty case so consumers can read variant fields without a manual cast.
+ */
+function mainOfKind<K extends AnalyticsMain["kind"]>(
+  plan: () => AnalyticsRenderPlan,
+  kind: K,
+): () => AnalyticsMainOfKind<K> | undefined {
+  return () => {
+    const main = plan().main
+    return main.kind === kind ? (main as AnalyticsMainOfKind<K>) : undefined
+  }
+}
 
 type View = "tokens" | "cost"
 
@@ -102,6 +122,11 @@ export default function AnalyticsPage() {
   // so clicks on the project distribution panel narrow the same way the dropdown does.
   const [filters, setFilters] = createSignal<Filters>({})
   const [view, setView] = createSignal<View>("tokens")
+  const [explicitRebuild, setExplicitRebuild] = createSignal(false)
+  // Manual refresh is the only thing that briefly fades the dashboard. Automatic polling
+  // during catch-up flips `summary.loading` every second; we deliberately ignore that here
+  // so the dashboard does not pulse on every poll.
+  const [manualRefreshing, setManualRefreshing] = createSignal(false)
 
   const fullCacheKey = createMemo(() => {
     const f = filters()
@@ -138,11 +163,60 @@ export default function AnalyticsPage() {
     return result.data
   })
 
+  // The latest *non-progress* summary we have seen. Unlike Solid's `summary.latest`,
+  // this does not get overwritten when the server starts returning progress-marked
+  // payloads (catch-up or explicit rebuild). It is the fallback the dashboard reads
+  // from while a background catch-up or rebuild is in flight, so trustworthy prior
+  // data stays on screen even after fresh progress responses arrive.
+  const [latestTrustworthy, setLatestTrustworthy] = createSignal<AnalyticsSummary | undefined>(undefined)
+
   createEffect(() => {
     if (!summary()?.backfilling && !summary()?.recalculating) return
     const timer = setInterval(() => actions.refetch(), 1000)
     onCleanup(() => clearInterval(timer))
   })
+
+  createEffect(() => {
+    const current = summary()
+    if (current && !analyticsIsProgressSummary(current)) {
+      setExplicitRebuild(false)
+      setLatestTrustworthy(current)
+    }
+  })
+
+  // Clear the manual-refresh signal as soon as the in-flight request settles. The button
+  // sets it true; this effect is the only thing that flips it back to false.
+  createEffect(() => {
+    if (!summary.loading && manualRefreshing()) setManualRefreshing(false)
+  })
+
+  const filtersAreNarrowed = createMemo(() => {
+    const f = filters()
+    return !!(projectFilter() || period() !== "allTime" || f.model || f.agent || f.day)
+  })
+
+  const renderPlan = createMemo(() =>
+    analyticsRenderPlan({
+      current: summary(),
+      latestTrustworthy: latestTrustworthy(),
+      latestRaw: summary.latest,
+      hasError: !!summary.error,
+      loading: summary.loading,
+      manualRefreshInFlight: manualRefreshing(),
+      explicitRebuild: explicitRebuild(),
+      filtersAreNarrowed: filtersAreNarrowed(),
+    }),
+  )
+
+  // Pre-built per-kind accessors so JSX `when` props get a properly narrowed value at the
+  // call site. Solid narrows the child callback's accessor based on `NonNullable<T>`, so
+  // we deliberately return `undefined` (not `false`) for misses.
+  const mainLoading = mainOfKind(renderPlan, "loading")
+  const mainErrorOnly = mainOfKind(renderPlan, "errorOnly")
+  const mainErrorWithStale = mainOfKind(renderPlan, "errorWithStale")
+  const mainEmpty = mainOfKind(renderPlan, "empty")
+  const mainFullProgress = mainOfKind(renderPlan, "fullProgress")
+  const mainDashboard = mainOfKind(renderPlan, "dashboard")
 
   function updatePeriod(next: Period) {
     setPeriod(next)
@@ -164,14 +238,18 @@ export default function AnalyticsPage() {
   }
 
   function refresh() {
-    // Drop our cached summary for this filter combo and force a fresh fetch.
+    // Drop our cached summary for this filter combo and force a fresh fetch. We flip the
+    // manual-refresh signal so the dashboard briefly dims as user-action acknowledgement.
+    // The dim signal is independent of `summary.loading` so polling never fades the UI.
     summaryCache.delete(fullCacheKey())
+    setManualRefreshing(true)
     actions.refetch()
   }
 
   async function rebuild() {
     // Clear all cached summaries and trigger a server-side rebuild.
     summaryCache.clear()
+    setExplicitRebuild(true)
     try {
       await sdk.client.global.analyticsRebuild()
     } catch {
@@ -202,8 +280,8 @@ export default function AnalyticsPage() {
 
   return (
     <div class="size-full overflow-y-auto bg-background-base text-text-base">
-      {/* Page-scoped keyframes used by LoadingPanel and RefreshProgressStrip. Mounted
-          once with the page so both indicators animate even when only one is visible. */}
+      {/* Page-scoped keyframes used by LoadingPanel. Mounted once with the page so the
+          indicator animates without depending on which body variant is currently shown. */}
       <style>
         {`@keyframes oco-analytics-loading {
           0% { transform: translateX(-110%); }
@@ -246,12 +324,15 @@ export default function AnalyticsPage() {
           period={period}
           onUpdatePeriod={updatePeriod}
           projectFilter={projectFilter}
-          availableProjects={() => summary()?.availableProjects ?? []}
+          availableProjects={() => renderPlan().displayed?.availableProjects ?? []}
           onUpdateProject={updateProjectFilter}
           onRefresh={refresh}
           onRebuild={rebuild}
-          loading={() => summary.loading}
-          generatedAt={() => summary()?.generatedAt}
+          // The header refresh/rebuild controls disable on explicit user-action only, not
+          // on every background polling cycle. This stops the buttons from flickering
+          // enabled/disabled every second during catch-up.
+          busy={() => manualRefreshing() || explicitRebuild()}
+          generatedAt={() => renderPlan().displayed?.generatedAt}
           cached={() => cacheLookup() !== undefined}
         />
 
@@ -261,41 +342,45 @@ export default function AnalyticsPage() {
           onClearProject={() => updateProjectFilter(undefined)}
           onClearOne={clearFilter}
           onClearAll={clearAllFilters}
-          projectLabel={(id) => summary()?.availableProjects.find((p) => p.id === id)?.label ?? id}
+          projectLabel={(id) => renderPlan().displayed?.availableProjects.find((p) => p.id === id)?.label ?? id}
         />
 
-        {/* Refresh progress strip — visible whenever a fetch is in flight, including
-            during refreshes that already have stale data on screen. The first-load
-            LoadingPanel below covers the "no data yet" case. */}
-        <Show when={summary.loading && summary.latest}>
-          <RefreshProgressStrip />
+        {/* One quiet status strip while a non-blocking catch-up or rebuild is in progress.
+            It stays mounted across polling cycles — we deliberately do not condition this
+            on `summary.loading`, otherwise it would mount/unmount on every poll and flash.
+            The strip reads progress from the live `summary()` (the actual progress-marked
+            response) while the dashboard underneath still uses `summary.latest`. */}
+        <Show when={renderPlan().showCatchupStrip}>
+          <CatchupProgressStrip summary={summary} rebuilding={() => renderPlan().catchupRebuildLabel} />
         </Show>
         <Switch>
-          <Match when={summary.loading && !summary.latest}>
+          <Match when={mainLoading()}>
             <LoadingPanel />
           </Match>
-          {/* Error with no prior data on screen — show full error state. */}
-          <Match when={summary.error && !summary.latest}>
+          <Match when={mainErrorOnly()}>
             <StatePanel
               title="Analytics could not load"
               body="The local server returned an error while building the summary."
               action={<Button onClick={() => refresh()}>Retry</Button>}
             />
           </Match>
-          {/* Error during refetch — keep dashboard visible, show non-destructive banner. */}
-          <Match when={summary.error && summary.latest}>
-            <div
-              class="flex items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-50/10 px-3 py-2 text-sm text-amber-400"
-            >
-              <span>Refresh failed — showing stale data.</span>
-              <button class="underline hover:text-amber-300" onClick={() => refresh()}>
-                Retry
-              </button>
-            </div>
-            <Show when={summary.latest}>
-              {(latest) => (
+          {/* OCO: NOT keyed — `analyticsRenderPlan` returns a fresh wrapper
+              object on every memo run (every 1s during catch-up polling). Keyed
+              would tear down <Dashboard> each tick. Non-keyed is safe here
+              because the `when` is a deterministic memo over a discriminated
+              union — the `kind` discriminator never goes partial mid-batch, so
+              the Show/Match stale-read cliff doesn't apply. */}
+          <Match when={mainErrorWithStale()}>
+            {(plan) => (
+              <>
+                <div class="flex items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-50/10 px-3 py-2 text-sm text-amber-400">
+                  <span>Refresh failed — showing stale data.</span>
+                  <button class="underline hover:text-amber-300" onClick={() => refresh()}>
+                    Retry
+                  </button>
+                </div>
                 <Dashboard
-                  summary={latest()}
+                  summary={plan().summary}
                   filters={filters}
                   projectFilter={projectFilter}
                   toggleFilter={toggleFilter}
@@ -303,59 +388,53 @@ export default function AnalyticsPage() {
                   view={view}
                   setView={setView}
                   openSession={openSession}
-                  refreshing={() => summary.loading && !!summary.latest}
+                  refreshing={() => false}
                 />
-              )}
-            </Show>
+              </>
+            )}
           </Match>
-          {/* Loaded data — use summary() when available, fall back to summary.latest
-              so the dashboard stays visible during refetches (F1). */}
-          <Match when={analyticsDisplayedSummary(summary(), summary.latest)}>
-            {(data) => (
-              <Show
-                when={data().backfilling || data().recalculating}
-                fallback={
-                  <Show
-                    when={data().totals.calls > 0}
-                    fallback={
-                      <StatePanel
-                        title="No usage yet in this scope"
-                        body="There are no assistant responses in the selected period and project. Try a longer period or clear the project filter."
-                        action={
-                          <Show when={projectFilter() || period() !== "allTime"}>
-                            <Button
-                              onClick={() => {
-                                updatePeriod("allTime")
-                                updateProjectFilter(undefined)
-                              }}
-                            >
-                              Show all time, all projects
-                            </Button>
-                          </Show>
-                        }
-                      />
-                    }
+          <Match when={mainEmpty()}>
+            <StatePanel
+              title="No usage yet in this scope"
+              body="There are no assistant responses in the selected period and project. Try a longer period or clear the project filter."
+              action={
+                <Show when={filtersAreNarrowed()}>
+                  <Button
+                    onClick={() => {
+                      updatePeriod("allTime")
+                      updateProjectFilter(undefined)
+                    }}
                   >
-                    <Dashboard
-                      summary={data()}
-                      filters={filters}
-                      projectFilter={projectFilter}
-                      toggleFilter={toggleFilter}
-                      toggleProjectFilter={toggleProjectFilter}
-                      view={view}
-                      setView={setView}
-                      openSession={openSession}
-                      refreshing={() => summary.loading && !!summary.latest}
-                    />
-                  </Show>
-                }
-              >
-                <BackfillProgressPanel
-                  total={(data().backfilling ?? data().recalculating)!.total}
-                  processed={(data().backfilling ?? data().recalculating)!.processed}
-                  recalculating={!!data().recalculating}
-                />
-              </Show>
+                    Show all time, all projects
+                  </Button>
+                </Show>
+              }
+            />
+          </Match>
+          {/* OCO: see comment on mainErrorWithStale above — not keyed by design. */}
+          <Match when={mainFullProgress()}>
+            {(plan) => (
+              <BackfillProgressPanel
+                total={plan().total}
+                processed={plan().processed}
+                recalculating={plan().recalculating}
+                rebuilding={plan().rebuilding}
+              />
+            )}
+          </Match>
+          <Match when={mainDashboard()}>
+            {(plan) => (
+              <Dashboard
+                summary={plan().summary}
+                filters={filters}
+                projectFilter={projectFilter}
+                toggleFilter={toggleFilter}
+                toggleProjectFilter={toggleProjectFilter}
+                view={view}
+                setView={setView}
+                openSession={openSession}
+                refreshing={() => plan().dim}
+              />
             )}
           </Match>
         </Switch>
@@ -372,7 +451,8 @@ function Header(props: {
   onUpdateProject: (next: string | undefined) => void
   onRefresh: () => void
   onRebuild: () => void
-  loading: () => boolean
+  /** True while a user-initiated refresh or rebuild is in flight. Polling never sets this. */
+  busy: () => boolean
   generatedAt: () => number | undefined
   cached: () => boolean
 }) {
@@ -425,7 +505,7 @@ function Header(props: {
               size="normal"
               onClick={props.onRefresh}
               aria-label="Refresh analytics"
-              disabled={props.loading()}
+              disabled={props.busy()}
             />
           </Tooltip>
           <Tooltip value="Clear summary cache and rebuild from scratch">
@@ -435,7 +515,7 @@ function Header(props: {
               size="small"
               onClick={props.onRebuild}
               aria-label="Rebuild summary cache"
-              disabled={props.loading()}
+              disabled={props.busy()}
               class="opacity-50 hover:opacity-100"
             />
           </Tooltip>
@@ -583,21 +663,25 @@ function LoadingPanel() {
   )
 }
 
-function RefreshProgressStrip() {
+function CatchupProgressStrip(props: { summary: () => AnalyticsSummary | undefined; rebuilding: () => boolean }) {
+  const progress = createMemo(() => props.summary()?.backfilling ?? props.summary()?.recalculating)
+  const label = createMemo(() => {
+    const current = progress()
+    const prefix = props.rebuilding() ? "Rebuilding summary cache" : "Catching up local history"
+    if (!current || current.total <= 0) return `${prefix}...`
+    return `${prefix}: ${compactFmt.format(current.processed)} / ${compactFmt.format(current.total)} messages`
+  })
   return (
     <div
       role="status"
       aria-live="polite"
-      aria-label="Refreshing analytics"
-      class="flex items-center gap-3 rounded-xl border border-border-weaker-base bg-surface-base px-3 py-2 text-12-regular text-text-base"
+      data-analytics-catchup-strip
+      class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border-weaker-base bg-surface-base px-3 py-2 text-12-regular text-text-base"
     >
-      <div class="relative h-1.5 flex-1 overflow-hidden rounded-full bg-background-base">
-        <div
-          class="oco-analytics-loading-bar absolute h-full w-1/3 rounded-full bg-[#f59f00]"
-          style={{ animation: "oco-analytics-loading 1.4s ease-in-out infinite" }}
-        />
-      </div>
-      <span class="shrink-0 text-text-weak">Refreshing local history…</span>
+      <span class="text-text-weak">{label()}</span>
+      <span class="rounded-full bg-background-stronger px-2 py-0.5 text-11-medium uppercase tracking-[0.12em] text-text-weak">
+        {props.rebuilding() ? "Rebuild in progress" : "Dashboard stays live"}
+      </span>
     </div>
   )
 }
@@ -615,15 +699,31 @@ function StatePanel(props: { title: string; body: string; action?: JSX.Element }
   )
 }
 
-function BackfillProgressPanel(props: { total: number; processed: number; recalculating?: boolean }) {
+function BackfillProgressPanel(props: { total: number; processed: number; recalculating?: boolean; rebuilding?: boolean }) {
   const percent = createMemo(() => {
     if (props.total <= 0) return 0
     return Math.min(100, Math.round((props.processed / props.total) * 100))
+  })
+  const title = createMemo(() => {
+    if (props.recalculating) return "Recalculating historical token totals…"
+    if (props.rebuilding) return "Rebuilding summary cache…"
+    return "Building summary cache…"
+  })
+  const body = createMemo(() => {
+    if (props.recalculating) return "Correcting prior tool-loop token totals from stored step records."
+    if (props.rebuilding) return "Replaying local history into a fresh summary cache."
+    return "Processing"
+  })
+  const tail = createMemo(() => {
+    if (props.recalculating) return " Normal analytics resumes when this finishes."
+    if (props.rebuilding) return " The rest of the app stays usable while the rebuild runs."
+    return " The rest of the app stays usable while this runs."
   })
   return (
     <div
       role="status"
       aria-live="polite"
+      data-analytics-full-progress
       class="flex min-h-[360px] flex-col items-center justify-center gap-5 rounded-[18px] border border-border-weaker-base bg-surface-base p-8 text-center shadow-xs-border-base"
     >
       <div class="flex h-2.5 w-72 max-w-full overflow-hidden rounded-full bg-background-base">
@@ -633,12 +733,9 @@ function BackfillProgressPanel(props: { total: number; processed: number; recalc
         />
       </div>
       <div class="flex flex-col gap-1">
-        <div class="text-14-medium text-text-strong">
-          {props.recalculating ? "Recalculating historical token totals…" : "Building summary cache…"}
-        </div>
+        <div class="text-14-medium text-text-strong">{title()}</div>
         <div class="text-12-regular text-text-weak">
-          {props.recalculating ? "Correcting prior tool-loop token totals from stored step records." : "Processing"} {compactFmt.format(props.processed)} of {compactFmt.format(props.total)} messages.
-          {props.recalculating ? " Normal analytics resumes when this finishes." : " The rest of the app stays usable while this runs."}
+          {body()} {compactFmt.format(props.processed)} of {compactFmt.format(props.total)} messages.{tail()}
         </div>
       </div>
     </div>
@@ -665,7 +762,11 @@ function Dashboard(props: {
   const totals = () => props.summary.totals
 
   return (
-    <div class="oco-analytics-settle flex flex-col gap-5" data-refreshing={props.refreshing() ? "true" : "false"}>
+    <div
+      class="oco-analytics-settle flex flex-col gap-5"
+      data-analytics-dashboard
+      data-refreshing={props.refreshing() ? "true" : "false"}
+    >
       <KpiStrip totals={totals} refreshing={props.refreshing} />
 
       <TimeSeriesChart
@@ -718,7 +819,11 @@ function Dashboard(props: {
 
 function KpiStrip(props: { totals: () => AnalyticsTotals; refreshing: () => boolean }) {
   return (
-    <div class="oco-analytics-settle grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6" data-refreshing={props.refreshing() ? "true" : "false"}>
+    <div
+      class="oco-analytics-settle grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6"
+      data-analytics-kpi-strip
+      data-refreshing={props.refreshing() ? "true" : "false"}
+    >
       <Kpi
         label="API-equivalent"
         value={formatEstimate(props.totals().apiEquivalentCost)}
@@ -826,7 +931,11 @@ function TimeSeriesChart(props: {
   })
 
   return (
-    <section class="oco-analytics-settle rounded-[16px] border border-border-weaker-base bg-surface-base p-4 shadow-xs-border-base" data-refreshing={props.refreshing() ? "true" : "false"}>
+    <section
+      class="oco-analytics-settle rounded-[16px] border border-border-weaker-base bg-surface-base p-4 shadow-xs-border-base"
+      data-analytics-chart
+      data-refreshing={props.refreshing() ? "true" : "false"}
+    >
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-col">
           <div class="text-14-medium text-text-strong">Usage over time</div>
@@ -1068,6 +1177,9 @@ function ChartTooltip(props: {
       </div>
       <Show when={props.topModel || props.topProject || props.topAgent}>
         <div class="mt-2 border-t border-border-weaker-base pt-2 text-11-regular text-text-weak">
+          {/* OCO: NOT keyed — same fresh-wrapper pattern as the Dashboard
+              Match reverts above; topModel/topProject/topAgent flow from the
+              renderPlan summary that's recomputed every poll tick. */}
           <Show when={props.topModel}>
             {(t) => (
               <div class="flex items-center justify-between gap-2">

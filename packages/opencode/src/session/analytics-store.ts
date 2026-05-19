@@ -17,8 +17,6 @@ const log = Log.create({ service: "analytics.store" })
 
 const BACKFILL_CHUNK_SIZE = 250
 const BACKFILL_YIELD_INTERVAL_MS = 16 // ~1 frame at 60fps — keeps UI responsive
-const STALE_UNFINISHED_WINDOW_MS = 60 * 60 * 1000
-
 export namespace AnalyticsStore {
   export type Progress = { total: number; processed: number }
   export type Status = "empty" | "backfilling" | "ready"
@@ -216,8 +214,8 @@ export namespace AnalyticsStore {
 
       if (processed === 0) return 0
 
-      // Advance watermark only over rows that were actually folded. Incomplete streamed
-      // assistant placeholders must stay visible to a later fold after completion.
+      // Advance over folded rows and zero-cost skips. Hot unfinished assistant rows are
+      // treated as skipped tail noise so they cannot block later completed provider calls.
       db.update(AnalyticsWatermarkTable)
         .set({
           last_time_created: maxTimeCreated,
@@ -346,6 +344,13 @@ export namespace AnalyticsStore {
     )
   }
 
+  export function hasCachedResponses(): boolean {
+    return Database.use((db) => {
+      const row = db.select({ messageID: AnalyticsResponseTable.message_id }).from(AnalyticsResponseTable).limit(1).get()
+      return row !== undefined
+    })
+  }
+
   // ---------------------------------------------------------------------------
   // Rebuild
   // ---------------------------------------------------------------------------
@@ -433,7 +438,7 @@ export namespace AnalyticsStore {
     return actualCost
   }
 
-  type AssistantReadiness = { kind: "foldable" } | { kind: "stale-abandoned"; cutoffAt: number } | { kind: "active-unfinished" }
+  type AssistantReadiness = { kind: "foldable" } | { kind: "skip-unfinished"; reason: string; cutoffAt: number }
 
   function hasTokenEvidence(data: MessageV2.Assistant) {
     return (
@@ -452,15 +457,16 @@ export namespace AnalyticsStore {
   }
 
   function assistantReadiness(data: MessageV2.Info, now: number, stepUsage?: StepUsage): AssistantReadiness {
-    if (data.role !== "assistant") return { kind: "active-unfinished" }
+    if (data.role !== "assistant") return { kind: "skip-unfinished", reason: "non-assistant", cutoffAt: 0 }
     if (data.time.completed !== undefined) return { kind: "foldable" }
-    if (isTerminalFinish(data.finish) || stepUsage?.hasTerminalFinish) return { kind: "foldable" }
-    const cutoffAt = now - STALE_UNFINISHED_WINDOW_MS
+    if (isTerminalFinish(data.finish) || stepUsage) return { kind: "foldable" }
     const createdAt = data.time.created ?? 0
-    if (createdAt > cutoffAt) return { kind: "active-unfinished" }
-    if (stepUsage || data.finish !== undefined || hasTokenEvidence(data)) return { kind: "foldable" }
-    if (createdAt <= cutoffAt) return { kind: "stale-abandoned", cutoffAt }
-    return { kind: "active-unfinished" }
+    if (hasTokenEvidence(data)) return { kind: "foldable" }
+    return {
+      kind: "skip-unfinished",
+      reason: createdAt < now - 60 * 60 * 1000 ? "stale-unfinished-zero-usage" : "active-unfinished-zero-usage",
+      cutoffAt: 0,
+    }
   }
 
   export function isFoldableAssistantMessage(data: MessageV2.Info): data is MessageV2.Assistant {
@@ -534,14 +540,13 @@ export namespace AnalyticsStore {
   }, stepUsage?: StepUsage): ProcessRecord | undefined {
     const data = row.message.data as MessageV2.Info
     const readiness = assistantReadiness(data, Date.now(), stepUsage)
-    if (readiness.kind === "active-unfinished") return undefined
-    if (readiness.kind === "stale-abandoned") {
+    if (readiness.kind === "skip-unfinished") {
       return {
         kind: "skip",
         messageID: row.message.id,
         sessionID: row.session.id,
         watermarkTime: row.message.time_created,
-        reason: "stale-unfinished-zero-usage",
+        reason: readiness.reason,
         sourceCreatedAt: data.time?.created ?? row.message.time_created,
         cutoffAt: readiness.cutoffAt,
       }
