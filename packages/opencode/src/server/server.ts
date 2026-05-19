@@ -63,24 +63,36 @@ export namespace Server {
     return _url ?? new URL("http://localhost:4096")
   }
 
+  // OCO: see oco-dev skill deltas-catalog.md (Frontend / DLT-10-frontend-resolution).
+  // Resolution order avoids the legacy XDG auto-fallback so a stale `~/.local/share/oco/
+  // frontend` bundle cannot silently override fresher packaged or monorepo assets. Users
+  // who deliberately want an XDG bundle set `OPENCODE_FRONTEND_DIR` explicitly; a bare
+  // CLI/TUI install with no co-located frontend falls through to the upstream proxy.
   export function resolveFrontendDir(): string | null {
     const isFrontendDir = (value: string) => existsSync(value) && existsSync(join(value, "index.html"))
 
     const explicit = process.env.OPENCODE_FRONTEND_DIR
     if (explicit && isFrontendDir(explicit)) return explicit
 
-    // Compiled binary: frontend is at ../frontend relative to the bin/ directory
+    // Compiled binary: frontend is at ../frontend relative to the bin/ directory.
     const binaryRelative = join(import.meta.dirname, "../frontend")
     if (isFrontendDir(binaryRelative)) return binaryRelative
 
-    // Development: monorepo-relative path from source
+    // Development: monorepo-relative path from source.
     const monorepoPath = join(import.meta.dirname, "../../../app/dist")
     if (isFrontendDir(monorepoPath)) return monorepoPath
 
-    const xdgPath = join(Global.Path.data, "frontend")
-    if (isFrontendDir(xdgPath)) return xdgPath
-
     return null
+  }
+
+  /**
+   * Path of the legacy XDG frontend cache. Exposed for the `oco web` startup log so we
+   * can tell the user when a stale XDG bundle is being ignored. The auto-resolver no
+   * longer reads this path; it lives only as an explicit `OPENCODE_FRONTEND_DIR` target.
+   */
+  export function legacyXdgFrontendDir(): string | null {
+    const xdgPath = join(Global.Path.data, "frontend")
+    return existsSync(join(xdgPath, "index.html")) ? xdgPath : null
   }
 
   function resolveFrontendAsset(frontendDir: string, requestPath: string) {

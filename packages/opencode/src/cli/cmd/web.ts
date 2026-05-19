@@ -52,6 +52,23 @@ export const WebCommand = cmd({
         "proxied from app.opencode.ai (build packages/app for local serving)",
       )
     }
+    // Warn loudly when we are ignoring a legacy XDG frontend bundle. Older installs used
+    // to drop assets in ~/.local/share/oco/frontend; the auto-resolver no longer falls
+    // back to that path so a stale UI cannot silently override the proxy or a packaged
+    // binary. Users who deliberately want it back can set OPENCODE_FRONTEND_DIR.
+    const legacy = Server.legacyXdgFrontendDir()
+    if (legacy && !process.env.OPENCODE_FRONTEND_DIR) {
+      UI.println(
+        UI.Style.TEXT_WARNING_BOLD + "!  Stale XDG frontend found at ",
+        UI.Style.TEXT_NORMAL,
+        `${legacy}.`,
+      )
+      UI.println(
+        UI.Style.TEXT_WARNING_BOLD + "   Ignoring it to avoid serving outdated UI. Set ",
+        UI.Style.TEXT_NORMAL,
+        "OPENCODE_FRONTEND_DIR=<path> to opt back in, or remove the directory.",
+      )
+    }
 
     if (opts.hostname === "0.0.0.0") {
       // Show localhost for local access

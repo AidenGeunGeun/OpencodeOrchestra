@@ -345,8 +345,9 @@ The web UI is a three-layer stack:
 1. `OPENCODE_FRONTEND_DIR` environment variable (if set and contains `index.html`)
 2. `../frontend` relative to binary — works in compiled `oco` binary (build copies frontend to `dist/<name>/frontend/`)
 3. `../../../app/dist` relative to server source — monorepo build output (works with `bun dev serve`)
-4. `~/.local/share/oco/frontend` — XDG data dir install (set by `bun run release`)
-5. Falls back to proxying `https://app.opencode.ai` for every unmatched request
+4. Falls back to proxying `https://app.opencode.ai` for every unmatched request
+
+The legacy `~/.local/share/oco/frontend` XDG fallback is no longer auto-resolved. Older installs that left stale frontend assets there caused the CLI/TUI to silently serve outdated UI even when a fresher packaged or monorepo build was available. The path now requires an explicit `OPENCODE_FRONTEND_DIR=…` opt-in. `oco web` prints a one-time warning when it notices an unused XDG bundle so the user can either point at it explicitly or remove it.
 
 **During development, use `bun dev serve`** (not `oco serve`). The compiled `oco` binary resolves `import.meta.dirname` to its install directory, so the monorepo-relative path (step 3) fails. `bun dev serve` runs from source where monorepo paths resolve correctly.
 
