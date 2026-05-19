@@ -10,6 +10,7 @@ import { $ } from "bun"
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
 import { InternalPath } from "@/security/internal-path"
+import { FileIgnore } from "./ignore"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -241,8 +242,21 @@ export namespace Ripgrep {
     hidden?: boolean
     follow?: boolean
     maxDepth?: number
+    // OCO: opt-out for callers that explicitly want unfiltered output
+    // (currently none — keep around in case future tools need it).
+    applyDefaultIgnores?: boolean
   }) {
     const args = [await filepath(), "--files", "--glob=!.git/*"]
+    // OCO: exclude node_modules / dist / build / .next / target / .turbo /
+    // .cache and friends by default. Same set the file watcher already
+    // ignores. Without this, scanning a monorepo root with no top-level
+    // .gitignore (the common case when picking a parent directory in OCO)
+    // explodes from ~3k files to ~400k. See FileIgnore comment for details.
+    if (input.applyDefaultIgnores !== false) {
+      for (const folder of FileIgnore.FOLDERS) {
+        args.push(`--glob=!**/${folder}/**`)
+      }
+    }
     if (input.follow !== false) args.push("--follow")
     if (input.hidden !== false) args.push("--hidden")
     if (input.maxDepth !== undefined) args.push(`--max-depth=${input.maxDepth}`)

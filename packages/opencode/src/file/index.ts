@@ -136,6 +136,17 @@ export namespace File {
     type Entry = { files: string[]; dirs: string[] }
     let cache: Entry = { files: [], dirs: [] }
     let fetching = false
+    // OCO: cap individual scan results so a misconfigured project root can't
+    // park 500MB of file paths in memory. Calibrated for autocomplete UX —
+    // anything past this is functionally unsearchable from the picker anyway.
+    const MAX_FILES = 100_000
+    // OCO: yield to the event loop every YIELD_EVERY iterations so concurrent
+    // HTTP requests (session.list, /global/health, etc.) keep flowing while
+    // the scan runs. Without this, a 387k-file scan parks the JS thread at
+    // ~96% CPU for ~60s and every other request queues behind it.
+    // 200 keeps the per-yield work small enough that an interleaved warm
+    // /session call returns in well under 100ms during the scan.
+    const YIELD_EVERY = 200
 
     const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
 
@@ -180,32 +191,85 @@ export namespace File {
       }
 
       const set = new Set<string>()
+      let count = 0
+      let truncated = false
       for await (const file of Ripgrep.files({ cwd: Instance.directory })) {
         if (isInternalPath(path.join(Instance.directory, file))) continue
         result.files.push(file)
+        // OCO: anchor optimization — once we hit a directory we've already
+        // recorded, all of its ancestors are also recorded (we always walk
+        // up to the root). The original code used `continue` here which
+        // pointlessly kept walking up the tree on every file. With the
+        // anchor, the loop is bounded by the *new* depth per file: O(1) on
+        // average once the first file in each directory has been seen.
         let current = file
         while (true) {
           const dir = path.dirname(current)
           if (dir === ".") break
           if (dir === current) break
           current = dir
-          if (set.has(dir)) continue
+          if (set.has(dir)) break
           set.add(dir)
           result.dirs.push(dir + "/")
         }
+        count++
+        if (count >= MAX_FILES) {
+          truncated = true
+          break
+        }
+        // OCO: yield periodically to keep the event loop responsive during
+        // large-tree scans. See YIELD_EVERY comment above.
+        if (count % YIELD_EVERY === 0) {
+          await new Promise<void>((r) => setImmediate(r))
+        }
+      }
+      if (truncated) {
+        log.warn("file index scan truncated", {
+          directory: Instance.directory,
+          maxFiles: MAX_FILES,
+        })
       }
       cache = result
       fetching = false
     }
-    fn(cache)
+
+    // OCO: track scan lifecycle so files() can dedupe in-flight scans and
+    // throttle refreshes. Previous implementation re-fired the scan on EVERY
+    // call to files() whenever fetching=false — meaning every @-mention search
+    // re-spawned a 387k-file rg scan that pegged the CPU.
+    const REFRESH_AFTER_MS = 30_000
+    let pending: Promise<void> | undefined
+    let lastScanCompletedAt = 0
+    const triggerScan = (initial: boolean) => {
+      if (pending) return pending
+      const fresh: Entry = { files: [], dirs: [] }
+      pending = fn(fresh)
+        .catch((err) => {
+          log.error("file index scan failed", { err })
+        })
+        .finally(() => {
+          pending = undefined
+          lastScanCompletedAt = Date.now()
+          if (!initial) {
+            log.info("file index refreshed", {
+              files: cache.files.length,
+              dirs: cache.dirs.length,
+            })
+          }
+        })
+      return pending
+    }
+    triggerScan(true)
 
     return {
       async files() {
-        if (!fetching) {
-          fn({
-            files: [],
-            dirs: [],
-          })
+        // Return the current cache immediately. If the cache is stale and no
+        // scan is in-flight, kick off a background refresh — DON'T await it.
+        // This was the bug: previously we awaited cache (which is fine) but
+        // we also unconditionally re-fired fn() if !fetching, which spawned
+        // a new rg every call.
+        if (!pending && Date.now() - lastScanCompletedAt >= REFRESH_AFTER_MS) {
+          triggerScan(false)
         }
         return cache
       },

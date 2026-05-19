@@ -22,7 +22,14 @@ export async function InstanceBootstrap() {
   Format.init()
   await LSP.init()
   FileWatcher.init()
-  File.init()
+  // OCO: defer File.init off the request critical path. The first session-list
+  // request returns in ~1s; File.init kicks off a recursive ripgrep scan of the
+  // project tree (also yields internally now via setImmediate, but defer here
+  // anyway). setImmediate guarantees the current request's response goes out
+  // before the scan begins consuming CPU. Belt-and-braces with the in-scan
+  // yields — if the scan grows new awaited work later, this still protects
+  // request latency.
+  setImmediate(() => File.init())
   Vcs.init()
   Snapshot.init()
   Truncate.init()

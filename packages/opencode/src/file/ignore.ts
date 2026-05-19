@@ -1,7 +1,13 @@
 import { sep } from "node:path"
 
 export namespace FileIgnore {
-  const FOLDERS = new Set([
+  // OCO: exported so Ripgrep.files() can apply the same exclusion list as
+  // the file watcher. Without this, scanning the parent of a monorepo (no
+  // .gitignore at the root) pulls in every node_modules path beneath every
+  // subproject — observed 387k files for a project root containing nested
+  // OpenCodeOrchestra + tools + pathtent. The 387k-line stream saturates
+  // the JS event loop and stalls concurrent HTTP requests for ~60s.
+  export const FOLDERS = new Set([
     "node_modules",
     "bower_components",
     ".pnpm-store",
