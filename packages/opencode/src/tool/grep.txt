@@ -1,8 +1,10 @@
-- Fast content search tool that works with any codebase size
-- Searches file contents using regular expressions
-- Supports full regex syntax (eg. "log.*Error", "function\s+\w+", etc.)
-- Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
-- Returns file paths and line numbers with at least one match sorted by modification time
-- Use this tool when you need to find files containing specific patterns
-- If you need to identify/count the number of matches within files, use the Bash tool with `rg` (ripgrep) directly. Do NOT use `grep`.
-- When you are doing an open-ended search that may require multiple rounds of globbing and grepping, use the Task tool instead
+- Searches file contents with regular expressions and returns matching file paths plus line numbers.
+- Regex syntax is ripgrep-style; keep the pattern specific enough to avoid matching generated or vendor trees accidentally.
+- Always pass a narrow `path` when you know the relevant subdirectory; avoid repo roots, umbrella directories, `.`, `..`, `/`, drive roots like `C:\`, and home/profile directories unless the search is explicitly bounded.
+- Use `include` to restrict filenames, e.g. `"*.js"` or `"*.{ts,tsx}"`; combine it with `path` for fastest, safest searches.
+- Default timeout is 30 seconds; pass `timeout` in seconds for intentional wider searches, up to 300 seconds.
+- A timeout error means the search was too broad or hit a slow tree; retry with a narrower `path`, tighter `include`, more specific regex, or larger explicit `timeout`.
+- Symlinks are not followed by default; set `followSymlinks: true` only when searching linked trees is intentional.
+- Results truncate after the tool limit; if truncated, retry with a narrower `path`, tighter regex, or `include` filter instead of treating the list as complete.
+- Use `read` when you already know the file path; it is cheaper and avoids unnecessary filesystem scans.
+- For open-ended, multi-round codebase exploration, delegate to the Task tool rather than chaining broad `grep`/`glob` calls yourself.

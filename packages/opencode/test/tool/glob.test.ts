@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Ripgrep } from "../../src/file/ripgrep"
-import { GrepTool } from "../../src/tool/grep"
 import { Instance } from "../../src/project/instance"
+import { GlobTool } from "../../src/tool/glob"
 import { tmpdir } from "../fixture/fixture"
 
 const ctx = {
@@ -15,8 +15,6 @@ const ctx = {
   metadata: () => {},
   ask: async () => {},
 }
-
-const projectRoot = path.join(__dirname, "../..")
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -39,69 +37,28 @@ async function writeSlowRipgrep(dir: string) {
   return script
 }
 
-describe("tool.grep", () => {
-  test("basic search", async () => {
-    await Instance.provide({
-      directory: projectRoot,
-      fn: async () => {
-        const grep = await GrepTool.init()
-        const result = await grep.execute(
-          {
-            pattern: "export",
-            path: path.join(projectRoot, "src/tool"),
-            include: "*.ts",
-          },
-          ctx,
-        )
-        expect(result.metadata.matches).toBeGreaterThan(0)
-        expect(result.output).toContain("Found")
-      },
-    })
-  })
-
-  test("no matches returns correct output", async () => {
+describe("tool.glob", () => {
+  test("basic file match", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        await Bun.write(path.join(dir, "test.txt"), "hello world")
+        await fs.mkdir(path.join(dir, "src"))
+        await Bun.write(path.join(dir, "src", "match.ts"), "export const value = 1")
       },
     })
+
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const grep = await GrepTool.init()
-        const result = await grep.execute(
+        const glob = await GlobTool.init()
+        const result = await glob.execute(
           {
-            pattern: "xyznonexistentpatternxyz123",
+            pattern: "src/**/*.ts",
             path: tmp.path,
           },
           ctx,
         )
-        expect(result.metadata.matches).toBe(0)
-        expect(result.output).toBe("No files found")
-      },
-    })
-  })
-
-  test("handles CRLF line endings in output", async () => {
-    // This test verifies the regex split handles both \n and \r\n
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        // Create a test file with content
-        await Bun.write(path.join(dir, "test.txt"), "line1\nline2\nline3")
-      },
-    })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const grep = await GrepTool.init()
-        const result = await grep.execute(
-          {
-            pattern: "line",
-            path: tmp.path,
-          },
-          ctx,
-        )
-        expect(result.metadata.matches).toBeGreaterThan(0)
+        expect(result.metadata.count).toBe(1)
+        expect(result.output).toContain("match.ts")
       },
     })
   })
@@ -121,26 +78,26 @@ describe("tool.grep", () => {
     await Instance.provide({
       directory: search.path,
       fn: async () => {
-        const grep = await GrepTool.init()
-        const result = await grep.execute(
+        const glob = await GlobTool.init()
+        const result = await glob.execute(
           {
-            pattern: "linked-only",
+            pattern: "**/*.txt",
             path: search.path,
           },
           ctx,
         )
-        expect(result.metadata.matches).toBe(0)
+        expect(result.metadata.count).toBe(0)
         expect(result.output).toBe("No files found")
 
-        const followed = await grep.execute(
+        const followed = await glob.execute(
           {
-            pattern: "linked-only",
+            pattern: "**/*.txt",
             path: search.path,
             followSymlinks: true,
           },
           ctx,
         )
-        expect(followed.metadata.matches).toBeGreaterThan(0)
+        expect(followed.metadata.count).toBe(1)
         expect(followed.output).toContain("linked.txt")
       },
     })
@@ -150,22 +107,23 @@ describe("tool.grep", () => {
     await using tmp = await tmpdir({
       init: async (dir) => writeSlowRipgrep(dir),
     })
+
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const grep = await GrepTool.init()
+        const glob = await GlobTool.init()
         await withFakeRipgrep(tmp.extra, async () => {
           const started = Date.now()
           await expect(
-            grep.execute(
+            glob.execute(
               {
-                pattern: "anything",
+                pattern: "**/*",
                 path: tmp.path,
                 timeout: 0.05,
               },
               ctx,
             ),
-          ).rejects.toThrow(/grep search timed out.*narrower path.*include/s)
+          ).rejects.toThrow(/glob search timed out.*narrower path.*specific glob pattern/s)
           expect(Date.now() - started).toBeLessThan(1000)
         })
       },
@@ -176,54 +134,31 @@ describe("tool.grep", () => {
     await using tmp = await tmpdir({
       init: async (dir) => writeSlowRipgrep(dir),
     })
+
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const grep = await GrepTool.init()
+        const glob = await GlobTool.init()
         const controller = new AbortController()
         const cancelCtx = { ...ctx, abort: controller.signal }
         const cancel = setTimeout(() => controller.abort(), 20)
         try {
           await withFakeRipgrep(tmp.extra, async () => {
             await expect(
-              grep.execute(
+              glob.execute(
                 {
-                  pattern: "anything",
+                  pattern: "**/*",
                   path: tmp.path,
                   timeout: 1,
                 },
                 cancelCtx,
               ),
-            ).rejects.toThrow("grep search was cancelled before it completed")
+            ).rejects.toThrow("glob search was cancelled before it completed")
           })
         } finally {
           clearTimeout(cancel)
         }
       },
     })
-  })
-})
-
-describe("CRLF regex handling", () => {
-  test("regex correctly splits Unix line endings", () => {
-    const unixOutput = "file1.txt|1|content1\nfile2.txt|2|content2\nfile3.txt|3|content3"
-    const lines = unixOutput.trim().split(/\r?\n/)
-    expect(lines.length).toBe(3)
-    expect(lines[0]).toBe("file1.txt|1|content1")
-    expect(lines[2]).toBe("file3.txt|3|content3")
-  })
-
-  test("regex correctly splits Windows CRLF line endings", () => {
-    const windowsOutput = "file1.txt|1|content1\r\nfile2.txt|2|content2\r\nfile3.txt|3|content3"
-    const lines = windowsOutput.trim().split(/\r?\n/)
-    expect(lines.length).toBe(3)
-    expect(lines[0]).toBe("file1.txt|1|content1")
-    expect(lines[2]).toBe("file3.txt|3|content3")
-  })
-
-  test("regex handles mixed line endings", () => {
-    const mixedOutput = "file1.txt|1|content1\nfile2.txt|2|content2\r\nfile3.txt|3|content3"
-    const lines = mixedOutput.trim().split(/\r?\n/)
-    expect(lines.length).toBe(3)
   })
 })

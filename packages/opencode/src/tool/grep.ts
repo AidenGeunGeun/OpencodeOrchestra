@@ -9,6 +9,61 @@ import { assertExternalDirectory } from "./external-directory"
 import { InternalPath } from "@/security/internal-path"
 
 const MAX_LINE_LENGTH = 2000
+const DEFAULT_TIMEOUT_SECONDS = 30
+const MAX_TIMEOUT_SECONDS = 300
+
+// OCO: Bound agent-facing searches so pathological trees cannot stall turns.
+function timeoutSeconds(input: number | undefined) {
+  return input ?? DEFAULT_TIMEOUT_SECONDS
+}
+
+async function runRipgrep(input: { args: string[]; timeout: number; abort: AbortSignal; timeoutMessage: string }) {
+  if (input.abort.aborted) {
+    throw new Error("grep search was cancelled before it completed.")
+  }
+
+  const proc = Bun.spawn(input.args, {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+
+  let timedOut = false
+  let cancelled = false
+  const terminate = () => {
+    try {
+      proc.kill()
+    } catch {
+      // Process may already be gone.
+    }
+  }
+
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    terminate()
+  }, Math.ceil(input.timeout * 1000))
+  const abortHandler = () => {
+    cancelled = true
+    terminate()
+  }
+  input.abort.addEventListener("abort", abortHandler, { once: true })
+
+  const stdout = new Response(proc.stdout).text()
+  const stderr = new Response(proc.stderr).text()
+
+  try {
+    const [output, errorOutput, exitCode] = await Promise.all([stdout, stderr, proc.exited])
+    if (timedOut) throw new Error(input.timeoutMessage)
+    if (cancelled) throw new Error("grep search was cancelled before it completed.")
+    return { output, errorOutput, exitCode }
+  } catch (error) {
+    if (timedOut) throw new Error(input.timeoutMessage, { cause: error })
+    if (cancelled) throw new Error("grep search was cancelled before it completed.", { cause: error })
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    input.abort.removeEventListener("abort", abortHandler)
+  }
+}
 
 export const GrepTool = Tool.define("grep", {
   description: DESCRIPTION,
@@ -16,6 +71,8 @@ export const GrepTool = Tool.define("grep", {
     pattern: z.string().describe("The regex pattern to search for in file contents"),
     path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),
     include: z.string().optional().describe('File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")'),
+    timeout: z.number().positive().max(MAX_TIMEOUT_SECONDS).optional().describe("Optional timeout in seconds (default 30, max 300)"),
+    followSymlinks: z.boolean().optional().describe("Follow symlinks during search. Defaults to false."),
   }),
   async execute(params, ctx) {
     if (!params.pattern) {
@@ -30,6 +87,8 @@ export const GrepTool = Tool.define("grep", {
         pattern: params.pattern,
         path: params.path,
         include: params.include,
+        timeout: params.timeout,
+        followSymlinks: params.followSymlinks,
       },
     })
 
@@ -41,25 +100,24 @@ export const GrepTool = Tool.define("grep", {
     const args = [
       "-nH",
       "--hidden",
-      "--follow",
       "--no-messages",
       "--field-match-separator=|",
       "--regexp",
       params.pattern,
     ]
+    if (params.followSymlinks === true) args.push("--follow")
     if (params.include) {
       args.push("--glob", params.include)
     }
     args.push(searchPath)
 
-    const proc = Bun.spawn([rgPath, ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
+    const searchTimeout = timeoutSeconds(params.timeout)
+    const { output, errorOutput, exitCode } = await runRipgrep({
+      args: [rgPath, ...args],
+      timeout: searchTimeout,
+      abort: ctx.abort,
+      timeoutMessage: `grep search timed out after ${searchTimeout}s. The search was likely too broad or hit a slow tree. Retry with a narrower path, a tighter include pattern such as "*.ts" or "*.{ts,tsx}", or pass a larger explicit timeout if the wide search is intentional.`,
     })
-
-    const output = await new Response(proc.stdout).text()
-    const errorOutput = await new Response(proc.stderr).text()
-    const exitCode = await proc.exited
 
     // Exit codes: 0 = matches found, 1 = no matches, 2 = errors (but may still have matches)
     // With --no-messages, we suppress error output but still get exit code 2 for broken symlinks etc.
@@ -136,7 +194,7 @@ export const GrepTool = Tool.define("grep", {
 
     if (truncated) {
       outputLines.push("")
-      outputLines.push("(Results are truncated. Consider using a more specific path or pattern.)")
+      outputLines.push("(Results are truncated. Consider using a more specific path, regex pattern, or include filter.)")
     }
 
     if (hasErrors) {
