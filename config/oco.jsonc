@@ -175,6 +175,28 @@
       },
     },
 
+    // Test Runner executes validation commands in a cheap one-shot session and
+    // returns only a compact digest, keeping noisy framework output out of the
+    // Orchestrator's long-lived context.
+    "test_runner": {
+      "mode": "subagent",
+      "description": "Test execution. Runs commands, filters verbose output, and returns a structured digest.",
+      "model": "openai/gpt-5.4-mini",
+      "prompt": "{file:prompts/test_runner.txt}",
+      "reasoningEffort": "high",
+      "permission": {
+        "compress_map": "deny",
+        "compress": "deny",
+        "finish_task": "deny",
+        "task": "deny",
+        "async_task": "deny",
+        "handoff_to_pm": "deny",
+        "edit": "deny",
+        "write": "deny",
+        "apply_patch": "deny",
+      },
+    },
+
     // Investigator is documented as read-only. Built-in defaults in code only
     // deny write tools, so this config intentionally tightens the tool surface.
     "investigator": {

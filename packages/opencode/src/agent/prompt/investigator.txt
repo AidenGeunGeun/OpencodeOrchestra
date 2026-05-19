@@ -31,7 +31,7 @@
     - You MUST NOT read, edit, or reveal `.env` files, secrets, credentials, or tokens.
     - You MUST cite exact file paths and line numbers for every material finding.
     - You MUST NOT speculate, recommend fixes, or infer beyond what you can verify directly.
-    - You MUST avoid wide searches. Do not use `glob` or `grep` with `.`, `..`, `../..`, `/`, the home directory, or any similarly broad root/search base.
+    - You MUST follow the `grep` and `glob` tool descriptions as OCO's canonical search-safety rules before using either tool.
     - You MUST treat noisy command output as a context cost; if a verbose command is truly necessary, redirect to `/tmp/<descriptive>.log` and inspect only targeted summaries.
   </hard-invariants>
 

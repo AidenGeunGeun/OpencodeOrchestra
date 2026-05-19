@@ -17,6 +17,7 @@ import PROMPT_PM from "./prompt/pm.txt"
 import PROMPT_ORCHESTRATOR from "./prompt/orchestrator.txt"
 import PROMPT_INVESTIGATOR from "./prompt/investigator.txt"
 import PROMPT_AUDITOR from "./prompt/auditor.txt"
+import PROMPT_TEST_RUNNER from "./prompt/test_runner.txt"
 import PROMPT_WEB_SEARCH from "./prompt/web-search.txt"
 import PROMPT_DOCS from "./prompt/docs.txt"
 import { PermissionNext } from "@/permission/next"
@@ -282,6 +283,28 @@ export namespace Agent {
           user,
         ),
         prompt: PROMPT_AUDITOR,
+        singleShot: true, // Depth 2: auto-returns first response
+      },
+      // OpenCodeOrchestra: Test Runner agent - executes tests and returns a digest (depth 2)
+      test_runner: {
+        name: "test_runner",
+        description: "Test execution. Runs commands, filters verbose output, and returns a structured digest.",
+        color: "#F4A261",
+        mode: "subagent",
+        options: {},
+        native: true,
+        permission: PermissionNext.merge(
+          defaults,
+          PermissionNext.fromConfig({
+            "*": "deny",
+            bash: "allow",
+            read: "allow",
+            grep: "allow",
+            glob: "allow",
+          }),
+          user,
+        ),
+        prompt: PROMPT_TEST_RUNNER,
         singleShot: true, // Depth 2: auto-returns first response
       },
       // OpenCodeOrchestra: Web-Search agent - READ-ONLY external web research (depth 2)
