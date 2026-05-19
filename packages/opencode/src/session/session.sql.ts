@@ -57,8 +57,25 @@ export const MessageTable = sqliteTable(
     data: text({ mode: "json" }).notNull().$type<InfoData>(),
   },
   (table) => [
-    index("message_session_idx").on(table.session_id),
+    // OCO: message_session_idx was subsumed by message_session_time_id_idx
+    // (same leading column); the 20260519120000_message_session_time_id_index
+    // migration drops it. Keeping message_time_created_idx for cross-session
+    // time-range queries.
     index("message_time_created_idx").on(table.time_created),
+    // OCO: compound index drives keyset cursor pagination in MessageV2.stream.
+    // Migration adds DESC; schema lists columns only (existing convention).
+    index("message_session_time_id_idx").on(table.session_id, table.time_created, table.id),
+    // OCO: `message_role_time_idx` is an EXPRESSION index on
+    // `(json_extract(data,'$.role'), time_created, id)` — defined by the
+    // 20260519130000_message_role_idx migration because drizzle's column-only
+    // schema can't express it. Drives every assistant-role filter:
+    //   - analytics.ts `records()` summary path
+    //   - analytics-store.ts `processChunk()`, `countAssistantMessages()`,
+    //     `hasPendingRowAfterWatermark()`
+    //   - analytics-token-migration.ts scans
+    // If you rewrite any of those WHERE clauses, keep the expression text byte-
+    // identical (`json_extract("message"."data", '$.role') = 'assistant'`) so
+    // SQLite can match the index.
   ],
 )
 

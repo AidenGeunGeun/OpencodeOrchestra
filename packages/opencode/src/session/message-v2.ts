@@ -6,7 +6,7 @@ import { Identifier } from "../id/id"
 import { LSP } from "../lsp"
 import { Snapshot } from "@/snapshot"
 import { fn } from "@/util/fn"
-import { Database, and, desc, eq, inArray } from "@/storage/db"
+import { Database, and, desc, eq, inArray, sql } from "@/storage/db"
 import { MessageTable, PartTable } from "./session.sql"
 import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
@@ -719,18 +719,29 @@ export namespace MessageV2 {
     )
   }
 
+  // OCO: keyset cursor pagination. The previous OFFSET-based loop scanned and
+  // discarded N rows per page, which degraded ~quadratically on long sessions.
+  // The new compound index `message_session_time_id_idx` on
+  // (session_id, time_created DESC, id DESC) makes each page an O(LIMIT) seek.
   export const stream = fn(Identifier.schema("session"), async function* (sessionID) {
     const size = 50
-    let offset = 0
+    let cursor: { time_created: number; id: string } | undefined
     while (true) {
+      const currentCursor = cursor
       const rows = Database.use((db) =>
         db
           .select()
           .from(MessageTable)
-          .where(eq(MessageTable.session_id, sessionID))
-          .orderBy(desc(MessageTable.time_created))
+          .where(
+            and(
+              eq(MessageTable.session_id, sessionID),
+              currentCursor
+                ? sql`(${MessageTable.time_created}, ${MessageTable.id}) < (${currentCursor.time_created}, ${currentCursor.id})`
+                : undefined,
+            ),
+          )
+          .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
           .limit(size)
-          .offset(offset)
           .all(),
       )
       if (rows.length === 0) break
@@ -772,7 +783,8 @@ export namespace MessageV2 {
         }
       }
 
-      offset += rows.length
+      const last = rows[rows.length - 1]
+      cursor = { time_created: last.time_created, id: last.id }
       if (rows.length < size) break
     }
   })

@@ -98,10 +98,16 @@ export namespace Database {
 
     const db = init(path.join(Global.Path.data, "oco.db")) as Client
 
+    // OCO: defense-in-depth. The Bun and Node adapters each apply these in
+    // init(); re-applying here means a maintainer who replaces the adapter
+    // wiring without realising still gets the tuned pragmas. PRAGMA is
+    // idempotent so re-running is safe.
     db.run("PRAGMA journal_mode = WAL")
     db.run("PRAGMA synchronous = NORMAL")
     db.run("PRAGMA busy_timeout = 5000")
-    db.run("PRAGMA cache_size = -64000")
+    db.run("PRAGMA cache_size = -262144")
+    db.run("PRAGMA temp_store = MEMORY")
+    db.run("PRAGMA mmap_size = 268435456")
     db.run("PRAGMA foreign_keys = ON")
     db.run("PRAGMA wal_checkpoint(PASSIVE)")
 
@@ -116,6 +122,15 @@ export namespace Database {
         mode: typeof OPENCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
       })
       runMigrations(db, entries)
+    }
+
+    // OCO: PRAGMA optimize is the SQLite-recommended way to refresh planner stats
+    // after schema changes; it's a fast no-op when nothing needs updating, so it's
+    // safe to run every startup.
+    try {
+      db.run("PRAGMA optimize")
+    } catch (error) {
+      log.warn("PRAGMA optimize failed", { error })
     }
 
     return db
