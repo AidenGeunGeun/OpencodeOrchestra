@@ -11,6 +11,11 @@ import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
 import { Agent } from "../../agent/agent"
+import {
+  DEFAULT_WAIT_FOR_CHILDREN_TIMEOUT_MS,
+  RunChildSessionTracker,
+  createWaitForChildrenTimeoutResult,
+} from "./run-wait"
 
 const TOOL: Record<string, [string, string]> = {
   todowrite: ["Todo", UI.Style.TEXT_WARNING_BOLD],
@@ -91,6 +96,16 @@ export const RunCommand = cmd({
         type: "string",
         describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
       })
+      .option("wait-for-children", {
+        type: "boolean",
+        default: true,
+        describe: "wait for persistent child sessions before exiting",
+      })
+      .option("wait-for-children-timeout", {
+        type: "number",
+        default: DEFAULT_WAIT_FOR_CHILDREN_TIMEOUT_MS,
+        describe: "maximum milliseconds to wait for persistent child sessions",
+      })
   },
   handler: async (args) => {
     let message = [...args.message, ...(args["--"] || [])]
@@ -133,6 +148,13 @@ export const RunCommand = cmd({
       process.exit(1)
     }
 
+    const waitForChildren = args["wait-for-children"] !== false
+    const waitForChildrenTimeout = Number(args["wait-for-children-timeout"] ?? DEFAULT_WAIT_FOR_CHILDREN_TIMEOUT_MS)
+    if (waitForChildren && (!Number.isFinite(waitForChildrenTimeout) || waitForChildrenTimeout < 0)) {
+      UI.error("--wait-for-children-timeout must be a non-negative number of milliseconds")
+      process.exit(1)
+    }
+
     const execute = async (sdk: OpencodeClient, sessionID: string) => {
       const printEvent = (color: string, type: string, title: string) => {
         UI.println(
@@ -151,88 +173,138 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
+      const eventAbort = new AbortController()
+      const events = await sdk.event.subscribe({}, { signal: eventAbort.signal })
       let errorMsg: string | undefined
-      const childSessionIDs = new Set<string>([sessionID])
+      let exitCode = 0
+      let timedOut = false
+      let waitTimeout: ReturnType<typeof setTimeout> | undefined
+      const childTracker = new RunChildSessionTracker(sessionID, waitForChildren)
+      const persistentAgentCache = new Map<string, Promise<boolean>>()
+
+      const isPersistentAgent = (agentID: string | null | undefined) => {
+        if (!agentID) return Promise.resolve(false)
+        const cached = persistentAgentCache.get(agentID)
+        if (cached) return cached
+        const result = Agent.get(agentID)
+          .then((agent) => agent?.singleShot === false)
+          .catch(() => false)
+        persistentAgentCache.set(agentID, result)
+        return result
+      }
+
+      const startWaitTimeout = () => {
+        if (!waitForChildren || waitTimeout) return
+        waitTimeout = setTimeout(() => {
+          const result = createWaitForChildrenTimeoutResult(childTracker)
+          timedOut = true
+          exitCode = result.exitCode
+          errorMsg = errorMsg ? errorMsg + EOL + result.message : result.message
+          const error = {
+            name: "WaitForChildrenTimeout",
+            message: result.message,
+            data: {
+              childSessionIDs: result.childSessionIDs,
+            },
+          }
+          if (!outputJsonEvent("error", { error })) UI.error(result.message)
+          eventAbort.abort()
+        }, waitForChildrenTimeout)
+      }
 
       const eventProcessor = (async () => {
-        for await (const event of events.stream) {
-          if (event.type === "message.part.updated") {
-            const part = event.properties.part
-            if (part.sessionID !== sessionID) continue
+        try {
+          for await (const event of events.stream) {
+            if (event.type === "message.part.updated") {
+              const part = event.properties.part
+              childTracker.observeRootActivity(part.sessionID)
+              if (part.sessionID !== sessionID) continue
 
-            if (part.type === "tool" && part.state.status === "completed") {
-              if (outputJsonEvent("tool_use", { part })) continue
-              const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
-              const title =
-                part.state.title ||
-                (Object.keys(part.state.input).length > 0 ? JSON.stringify(part.state.input) : "Unknown")
-              printEvent(color, tool, title)
-              if (part.tool === "bash" && part.state.output?.trim()) {
-                UI.println()
-                UI.println(part.state.output)
+              if (part.type === "tool" && part.state.status === "completed") {
+                if (outputJsonEvent("tool_use", { part })) continue
+                const [tool, color] = TOOL[part.tool] ?? [part.tool, UI.Style.TEXT_INFO_BOLD]
+                const title =
+                  part.state.title ||
+                  (Object.keys(part.state.input).length > 0 ? JSON.stringify(part.state.input) : "Unknown")
+                printEvent(color, tool, title)
+                if (part.tool === "bash" && part.state.output?.trim()) {
+                  UI.println()
+                  UI.println(part.state.output)
+                }
+              }
+
+              if (part.type === "step-start") {
+                if (outputJsonEvent("step_start", { part })) continue
+              }
+
+              if (part.type === "step-finish") {
+                if (outputJsonEvent("step_finish", { part })) continue
+              }
+
+              if (part.type === "text" && part.time?.end) {
+                if (outputJsonEvent("text", { part })) continue
+                const isPiped = !process.stdout.isTTY
+                if (!isPiped) UI.println()
+                process.stdout.write((isPiped ? part.text : UI.markdown(part.text)) + EOL)
+                if (!isPiped) UI.println()
               }
             }
 
-            if (part.type === "step-start") {
-              if (outputJsonEvent("step_start", { part })) continue
+            if (event.type === "session.status") {
+              const props = event.properties
+              childTracker.observeSessionStatus(props.sessionID, props.status.type)
+              if (childTracker.shouldExit()) break
             }
 
-            if (part.type === "step-finish") {
-              if (outputJsonEvent("step_finish", { part })) continue
+            if (event.type === "session.error") {
+              const props = event.properties
+              if (props.sessionID !== sessionID || !props.error) continue
+              let err = String(props.error.name)
+              if ("data" in props.error && props.error.data && "message" in props.error.data) {
+                err = String(props.error.data.message)
+              }
+              errorMsg = errorMsg ? errorMsg + EOL + err : err
+              if (outputJsonEvent("error", { error: props.error })) continue
+              UI.error(err)
             }
 
-            if (part.type === "text" && part.time?.end) {
-              if (outputJsonEvent("text", { part })) continue
-              const isPiped = !process.stdout.isTTY
-              if (!isPiped) UI.println()
-              process.stdout.write((isPiped ? part.text : UI.markdown(part.text)) + EOL)
-              if (!isPiped) UI.println()
+            if (event.type === "session.idle") {
+              childTracker.observeSessionIdle(event.properties.sessionID)
+              if (childTracker.shouldExit()) break
+            }
+
+            if (event.type === "session.created") {
+              const info = event.properties.info
+              if (childTracker.hasSession(info.parentID)) {
+                const persistent = info.parentID === sessionID && (await isPersistentAgent(info.agentID))
+                if (childTracker.observeSessionCreated(info, persistent)) startWaitTimeout()
+              }
+            }
+
+            if (event.type === "permission.asked") {
+              const permission = event.properties
+              if (!childTracker.hasSession(permission.sessionID)) continue
+              const result = await select({
+                message: `Permission required: ${permission.permission} (${permission.patterns.join(", ")})`,
+                options: [
+                  { value: "once", label: "Allow once" },
+                  { value: "always", label: "Always allow: " + permission.always.join(", ") },
+                  { value: "reject", label: "Reject" },
+                ],
+                initialValue: "once",
+              }).catch(() => "reject")
+              const response = (result.toString().includes("cancel") ? "reject" : result) as "once" | "always" | "reject"
+              await sdk.permission.respond({
+                sessionID,
+                permissionID: permission.id,
+                response,
+              })
             }
           }
-
-          if (event.type === "session.error") {
-            const props = event.properties
-            if (props.sessionID !== sessionID || !props.error) continue
-            let err = String(props.error.name)
-            if ("data" in props.error && props.error.data && "message" in props.error.data) {
-              err = String(props.error.data.message)
-            }
-            errorMsg = errorMsg ? errorMsg + EOL + err : err
-            if (outputJsonEvent("error", { error: props.error })) continue
-            UI.error(err)
-          }
-
-          if (event.type === "session.idle" && event.properties.sessionID === sessionID) {
-            break
-          }
-
-          if (event.type === "session.created") {
-            const info = event.properties.info
-            if (info.parentID && childSessionIDs.has(info.parentID)) {
-              childSessionIDs.add(info.id)
-            }
-          }
-
-          if (event.type === "permission.asked") {
-            const permission = event.properties
-            if (!childSessionIDs.has(permission.sessionID)) continue
-            const result = await select({
-              message: `Permission required: ${permission.permission} (${permission.patterns.join(", ")})`,
-              options: [
-                { value: "once", label: "Allow once" },
-                { value: "always", label: "Always allow: " + permission.always.join(", ") },
-                { value: "reject", label: "Reject" },
-              ],
-              initialValue: "once",
-            }).catch(() => "reject")
-            const response = (result.toString().includes("cancel") ? "reject" : result) as "once" | "always" | "reject"
-            await sdk.permission.respond({
-              sessionID,
-              permissionID: permission.id,
-              response,
-            })
-          }
+        } catch (error) {
+          if (!timedOut) throw error
+        } finally {
+          if (waitTimeout) clearTimeout(waitTimeout)
         }
       })()
 
@@ -280,7 +352,7 @@ export const RunCommand = cmd({
       }
 
       await eventProcessor
-      if (errorMsg) process.exit(1)
+      if (errorMsg) process.exit(exitCode || 1)
     }
 
     if (args.attach) {
