@@ -1,7 +1,17 @@
 import { Installation } from "@/installation"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
-import { streamText, type ModelMessage, type StreamTextResult, type Tool, type ToolSet, tool, jsonSchema } from "ai"
+import {
+  generateText,
+  streamText,
+  type ModelMessage,
+  type StreamTextResult,
+  type TextStreamPart,
+  type Tool,
+  type ToolSet,
+  tool,
+  jsonSchema,
+} from "ai"
 import { clone, mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
@@ -34,6 +44,12 @@ export namespace LLM {
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, any>
+
+  export const NON_STREAMING_OPTION = "experimentalNonStreamingToolCalls"
+
+  export function shouldUseNonStreaming(options: Record<string, any>) {
+    return options[NON_STREAMING_OPTION] === true
+  }
 
   /**
    * Canonical session-history serializer for outbound LLM requests.
@@ -115,6 +131,9 @@ export namespace LLM {
       mergeDeep(input.agent.options),
       mergeDeep(variant),
     )
+    if (provider.options?.[NON_STREAMING_OPTION] === true) {
+      options[NON_STREAMING_OPTION] = true
+    }
     if (isCodex) {
       options.instructions = SystemPrompt.instructions()
     }
@@ -151,6 +170,9 @@ export namespace LLM {
         headers: {},
       },
     )
+
+    const nonStreaming = shouldUseNonStreaming(params.options)
+    delete params.options[NON_STREAMING_OPTION]
 
     const maxOutputTokens =
       isCodex || provider.id.includes("github-copilot") ? undefined : ProviderTransform.maxOutputTokens(input.model)
@@ -191,12 +213,7 @@ export namespace LLM {
       options,
     )
 
-    return streamText({
-      onError(error) {
-        l.error("stream error", {
-          error,
-        })
-      },
+    const request = {
       async experimental_repairToolCall(failed) {
         const lower = failed.toolCall.toolName.toLowerCase()
         if (lower !== failed.toolCall.toolName && tools[lower]) {
@@ -253,7 +270,233 @@ export namespace LLM {
           sessionId: input.sessionID,
         },
       },
+    } satisfies Parameters<typeof streamText>[0]
+
+    if (nonStreaming) {
+      l.info("non-streaming generation", {
+        modelID: input.model.id,
+        providerID: input.model.providerID,
+      })
+      return nonStreamingStreamText(request)
+    }
+
+    return streamText({
+      ...request,
+      onError(error) {
+        l.error("stream error", {
+          error,
+        })
+      },
     })
+  }
+
+  export async function nonStreamingStreamText(request: Parameters<typeof streamText>[0]): Promise<StreamOutput> {
+    let result: Promise<Awaited<ReturnType<typeof generateText>>> | undefined
+    const getResult = () => (result ??= generateText(request as Parameters<typeof generateText>[0]))
+    const fullStream = nonStreamingFullStreamFromGenerate(getResult) as unknown as StreamOutput["fullStream"]
+    return {
+      get content() {
+        return getResult().then((x) => x.content)
+      },
+      get text() {
+        return getResult().then((x) => x.text)
+      },
+      get reasoning() {
+        return getResult().then((x) => x.reasoning)
+      },
+      get reasoningText() {
+        return getResult().then((x) => x.reasoningText)
+      },
+      get files() {
+        return getResult().then((x) => x.files)
+      },
+      get sources() {
+        return getResult().then((x) => x.sources)
+      },
+      get toolCalls() {
+        return getResult().then((x) => x.toolCalls)
+      },
+      get staticToolCalls() {
+        return getResult().then((x) => x.staticToolCalls)
+      },
+      get dynamicToolCalls() {
+        return getResult().then((x) => x.dynamicToolCalls)
+      },
+      get toolResults() {
+        return getResult().then((x) => x.toolResults)
+      },
+      get staticToolResults() {
+        return getResult().then((x) => x.staticToolResults)
+      },
+      get dynamicToolResults() {
+        return getResult().then((x) => x.dynamicToolResults)
+      },
+      get finishReason() {
+        return getResult().then((x) => x.finishReason)
+      },
+      get rawFinishReason() {
+        return getResult().then((x) => x.rawFinishReason)
+      },
+      get usage() {
+        return getResult().then((x) => x.usage)
+      },
+      get totalUsage() {
+        return getResult().then((x) => x.totalUsage)
+      },
+      get warnings() {
+        return getResult().then((x) => x.warnings)
+      },
+      get steps() {
+        return getResult().then((x) => x.steps)
+      },
+      get request() {
+        return getResult().then((x) => x.request)
+      },
+      get response() {
+        return getResult().then((x) => x.response)
+      },
+      get providerMetadata() {
+        return getResult().then((x) => x.providerMetadata)
+      },
+      fullStream,
+      textStream: (async function* () {
+        const text = await getResult().then((x) => x.text)
+        if (text) yield text
+      })() as unknown as StreamOutput["textStream"],
+      consumeStream: async () => {
+        await getResult()
+      },
+    } as unknown as StreamOutput
+  }
+
+  async function* nonStreamingFullStreamFromGenerate(
+    generate: () => Promise<Awaited<ReturnType<typeof generateText>>>,
+  ): AsyncGenerator<TextStreamPart<ToolSet>> {
+    yield { type: "start" }
+    yield { type: "start-step", request: {} as any, warnings: [] }
+    yield* nonStreamingResultEvents(await generate(), { firstStepStarted: true })
+  }
+
+  export async function* nonStreamingFullStreamFromPromise(
+    result: Promise<Awaited<ReturnType<typeof generateText>>>,
+  ): AsyncGenerator<TextStreamPart<ToolSet>> {
+    yield* nonStreamingFullStreamFromGenerate(() => result)
+  }
+
+  export async function* nonStreamingFullStream(
+    result: Awaited<ReturnType<typeof generateText>>,
+  ): AsyncGenerator<TextStreamPart<ToolSet>> {
+    yield { type: "start" }
+    yield* nonStreamingResultEvents(result, { firstStepStarted: false })
+  }
+
+  async function* nonStreamingResultEvents(
+    result: Awaited<ReturnType<typeof generateText>>,
+    options: { firstStepStarted: boolean },
+  ): AsyncGenerator<TextStreamPart<ToolSet>> {
+    let emittedAnyStep = false
+    for (const [stepIndex, step] of result.steps.entries()) {
+      emittedAnyStep = true
+      if (!(options.firstStepStarted && stepIndex === 0)) {
+        yield {
+          type: "start-step",
+          request: step.request,
+          warnings: step.warnings ?? [],
+        }
+      }
+
+      yield* nonStreamingStepContentEvents(step.content, stepIndex)
+
+      yield {
+        type: "finish-step",
+        response: step.response,
+        usage: step.usage,
+        finishReason: step.finishReason,
+        rawFinishReason: step.rawFinishReason,
+        providerMetadata: step.providerMetadata,
+      }
+    }
+    // Fallback: when result.steps is empty (provider/SDK packaged the
+    // completion without producing per-step entries — observed on
+    // subagent generateText() calls when the model returned content
+    // without multi-step tool execution), the original code would yield
+    // no finish-step and the session processor would persist only the
+    // outer start-step. That left subagent assistant messages as empty
+    // shells in SQLite (no text, no tool, no usage). The fallback
+    // synthesizes one step from the result-level content / usage /
+    // finishReason so the processor sees a complete step-finish and
+    // persists everything.
+    if (!emittedAnyStep) {
+      if (!options.firstStepStarted) {
+        yield {
+          type: "start-step",
+          request: (result as any).request ?? ({} as any),
+          warnings: result.warnings ?? [],
+        }
+      }
+      yield* nonStreamingStepContentEvents(
+        ((result as any).content ?? []) as ReadonlyArray<
+          Awaited<ReturnType<typeof generateText>>["steps"][number]["content"][number]
+        >,
+        0,
+      )
+      yield {
+        type: "finish-step",
+        response: (result as any).response ?? ({} as any),
+        usage: result.usage,
+        finishReason: result.finishReason,
+        rawFinishReason: result.rawFinishReason,
+        providerMetadata: (result as any).providerMetadata,
+      }
+    }
+    yield {
+      type: "finish",
+      finishReason: result.finishReason,
+      rawFinishReason: result.rawFinishReason,
+      totalUsage: result.totalUsage,
+    }
+  }
+
+  async function* nonStreamingStepContentEvents(
+    content: ReadonlyArray<
+      Awaited<ReturnType<typeof generateText>>["steps"][number]["content"][number]
+    >,
+    stepIndex: number,
+  ): AsyncGenerator<TextStreamPart<ToolSet>> {
+    for (const [partIndex, part] of content.entries()) {
+      const id = `${stepIndex}-${partIndex}`
+      switch (part.type) {
+        case "reasoning":
+          yield { type: "reasoning-start", id, providerMetadata: part.providerMetadata }
+          if (part.text) yield { type: "reasoning-delta", id, text: part.text, providerMetadata: part.providerMetadata }
+          yield { type: "reasoning-end", id, providerMetadata: part.providerMetadata }
+          break
+        case "text":
+          yield { type: "text-start", id, providerMetadata: part.providerMetadata }
+          if (part.text) yield { type: "text-delta", id, text: part.text, providerMetadata: part.providerMetadata }
+          yield { type: "text-end", id, providerMetadata: part.providerMetadata }
+          break
+        case "tool-call":
+          yield {
+            type: "tool-input-start",
+            id: part.toolCallId,
+            toolName: part.toolName,
+            providerMetadata: part.providerMetadata,
+            providerExecuted: part.providerExecuted,
+            dynamic: part.dynamic,
+          }
+          yield { type: "tool-input-end", id: part.toolCallId, providerMetadata: part.providerMetadata }
+          yield part
+          break
+        case "tool-result":
+        case "tool-error":
+        case "source":
+        case "file":
+        case "tool-approval-request":
+          yield part
+          break
+      }
+    }
   }
 
   async function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "user">) {
