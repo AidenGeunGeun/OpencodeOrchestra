@@ -13,7 +13,7 @@ Each role has its own depth, permissions, and model. Like a real engineering tea
 [![GitHub Stars](https://img.shields.io/github/stars/AidenGeunGeun/OpencodeOrchestra?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/AidenGeunGeun/OpencodeOrchestra/stargazers)
 [![License](https://img.shields.io/badge/license-MIT-white?labelColor=black&style=flat-square)](LICENSE)
 
-A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x · GPT-5.4 default agent stack
+A fork of [OpenCode](https://github.com/AnomalyCo/opencode) v1.2.5 · AI SDK 6.x 
 
 </div>
 
