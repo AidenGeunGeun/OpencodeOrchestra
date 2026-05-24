@@ -80,6 +80,8 @@ Vanilla OpenCode has two agents: `build` and `plan`. They share everything — c
 
 That works for small tasks. It falls apart when you need multi-file changes, architecture decisions, or anything where "the AI went off the rails" means hours of rework.
 
+Many people add role-specific agents with "expert personas". However, instead of that, OpenCodeOrchestra suggests agent primitives; We don't define agent by their jobs, instead we separate it by subagent roles that can be primitives for any tasks. This allows us to have a minimal set of capable subagents, instead of adding dozens of different subagent configurations that are confusing, and context-bloating.
+
 ## The Fix
 
 OCO splits the work the way a real team would:
